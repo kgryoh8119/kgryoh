@@ -1,0 +1,50 @@
+// 実在都市版の置きやすさ：おすすめの場所、吸着、道路の自動ルート（保土ケ谷）
+import { createRequire } from 'module';
+const require = createRequire('/opt/npm-tools/node_modules/');
+const { chromium } = require('playwright');
+const http = await import('http'); const fs = await import('fs'); const path = await import('path');
+const root = path.resolve('dist');
+const srv = http.createServer((req, res) => { const p = path.join(root, req.url.split('?')[0].replace(/^\/+/, '') || 'index.html'); if (!fs.existsSync(p)) { res.writeHead(404); res.end(); return; } res.writeHead(200, { 'Content-Type': p.endsWith('.json') ? 'application/json' : 'text/html; charset=utf-8' }); fs.createReadStream(p).pipe(res); }).listen(0);
+const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } }); const errs = []; page.on('pageerror', e => errs.push(e.message));
+const log = (...a) => console.log(...a);
+await page.goto(`http://127.0.0.1:${srv.address().port}/index.html`); await page.waitForSelector('#title .mcard');
+await page.click('#title button[data-t="start"][data-id="hodogaya"]');
+await page.waitForFunction(() => window.__sumu && window.__sumu.view.stats.buildings > 0, null, { timeout: 240000 });
+await page.evaluate(() => { window.__sumu.fixedQuality = true; document.querySelector('[data-act="tutskip"]')?.click(); });
+const S = () => page.evaluate(() => { const s = window.__sumu.game.state; return { cash: Math.round(s.cash), pop: Math.round(s.stats.pop), n: s.buildings.length, nurs: s.buildings.filter(b => b.kind === 'nursery').length }; });
+const tileXY = (x, y) => page.evaluate(([x, y]) => { const p = window.__sumu.view.tileToScreen(y * 157 + x); return [p.x, p.y]; }, [x, y]);
+// 1. おすすめの場所
+await page.click('.tool[data-arg="build"]'); await page.click('[data-arg="build:nursery"]'); await page.waitForTimeout(800);
+log('1 cands:', (await page.textContent('#cands')).replace(/\s+/g, ' ').slice(0, 400));
+await page.click('#cands [data-act="candsee"]'); await page.waitForTimeout(2500);
+log('1 see hint:', await page.textContent('#hint'));
+await page.screenshot({ path: 'shots/place-1-cand.png' });
+const b0 = await S();
+await page.click('#cands [data-act="candbuild"]'); await page.waitForTimeout(800);
+log('1 build:', JSON.stringify(b0), '→', JSON.stringify(await S()), (await page.textContent('#toast')).slice(-160));
+// 2. 吸着：道路の上を指しても近くに寄せる
+const roadTile = await page.evaluate(() => { const s = window.__sumu.game.state, v = window.__sumu.view; const W = 157; const cx = Math.floor(v.target.x / 30) - 7, cy = Math.floor(v.target.z / 30); for (let r = 0; r < 10; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const i = (cy + dy) * W + cx + dx; if (s.road[i] === 1) return [cx + dx, cy + dy]; } return null; });
+const p2 = await tileXY(...roadTile); await page.mouse.move(p2[0], p2[1]); await page.waitForTimeout(500);
+log('2 snapAt', JSON.stringify(await page.evaluate(() => window.__sumu.ui.snapAt)), 'tool', JSON.stringify(await page.evaluate(() => window.__sumu.ui.tool)));
+log('2 snap on road', roadTile, 'pick→', await page.evaluate(([x, y]) => { const i = window.__sumu.view.pick(x, y); return [i % 157, (i / 157) | 0, window.__sumu.game.state.road[i]]; }, p2), ':', await page.textContent('#hint'));
+await page.screenshot({ path: 'shots/place-2-snap.png' });
+await page.keyboard.press('Escape');
+// 3. 道路の自動ルート：住宅地を横切るドラッグ
+await page.click('.tool[data-arg="road"]'); await page.click('[data-arg="road:1"]');
+await page.evaluate(() => Object.assign(window.__sumu.view.want, { dist: 420, pitch: 1.25 })); await page.waitForTimeout(2000);
+const ends = await page.evaluate(() => { const s = window.__sumu.game.state, v = window.__sumu.view, W = 157; const cx = Math.floor(v.target.x / 30), cy = Math.floor(v.target.z / 30); const near = (x0, y0) => { for (let r = 0; r < 8; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const i = (y0 + dy) * W + x0 + dx; if (s.road[i] === 1) return [x0 + dx, y0 + dy]; } return [x0, y0]; }; const off = (x0, y0) => { for (let r = 0; r < 8; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const i = (y0 + dy) * W + x0 + dx; if (!s.road[i] && s.occ[i]) return [x0 + dx, y0 + dy]; } return [x0, y0]; }; return [near(cx - 2, cy), off(cx + 3, cy + 2)]; });
+const a = await tileXY(...ends[0]), b = await tileXY(...ends[1]);
+await page.evaluate(() => { window.__ups = []; window.addEventListener('pointerup', e => window.__ups.push([e.target.id || e.target.tagName, e.clientX, e.clientY]), true); window.addEventListener('pointerdown', e => window.__ups.push(['down', e.target.id || e.target.tagName]), true); });
+await page.mouse.move(a[0], a[1]); await page.mouse.down(); await page.mouse.move(b[0], b[1], { steps: 8 }); await page.waitForTimeout(400);
+log('3 route', JSON.stringify(ends), ':', await page.textContent('#hint'));
+await page.screenshot({ path: 'shots/place-3-route.png' });
+await page.keyboard.down('Shift'); await page.mouse.move(b[0] + 2, b[1] + 2); await page.waitForTimeout(300);
+log('3 straight:', await page.textContent('#hint')); await page.keyboard.up('Shift');
+await page.mouse.move(b[0], b[1]); await page.waitForTimeout(200);
+const c3 = await S(); await page.mouse.up(); await page.waitForTimeout(800);
+log('3 events', JSON.stringify(await page.evaluate(() => window.__ups)), JSON.stringify(a), JSON.stringify(b));
+log('3 hint after:', await page.textContent('#hint'));
+log('3 built:', JSON.stringify(c3), '→', JSON.stringify(await S()), (await page.textContent('#toast')).slice(-160));
+log('errors', errs);
+await browser.close(); srv.close();

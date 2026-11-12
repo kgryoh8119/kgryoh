@@ -1,0 +1,17 @@
+import { open } from './shot.mjs';
+const { browser, page, errors } = await open(1440, 900);
+await page.evaluate(() => { const g = window.__sumu.game; g.act({ type: 'goals', ids: ['wait', 'pop', 'fiscal'] }); g.state.tutorial.done = true; window.__sumu.ui.refresh(); window.__sumu.view.focus(10 * 44 + 6, 420); });
+await page.waitForTimeout(1200);
+await page.screenshot({ path: 'shots/dev-home.png' });
+await page.click('[data-act="group"][data-arg="zone"]');
+await page.click('[data-act="tool"][data-arg="devarea:1"]');
+await page.mouse.move(560, 380); await page.mouse.down(); await page.mouse.move(700, 470, { steps: 4 }); await page.mouse.move(880, 600, { steps: 6 });
+await page.waitForTimeout(500);
+await page.screenshot({ path: 'shots/dev-preview.png' });
+const hint = await page.evaluate(() => document.getElementById('hint').textContent);
+await page.mouse.up();
+await page.waitForTimeout(500);
+const after = await page.evaluate(() => { const s = window.__sumu.game.state; let z = 0; for (let i = 0; i < s.zone.length; i++) if (s.zone[i] === 1 && !s.occ[i]) z++; return z; });
+await page.screenshot({ path: 'shots/dev-after.png' });
+console.log(hint, 'zoned', after, 'errors', errors.filter(e => !e.includes('ERR_TUNNEL')));
+await browser.close();

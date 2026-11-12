@@ -1,0 +1,13 @@
+import { open } from './shot.mjs';
+import { readFileSync } from 'node:fs';
+const { browser, page, errors } = await open(1440, 900);
+if (process.env.SAVE) await page.evaluate((t) => { const g = window.__sumu.game; g.loadText(t); g.state.tutorial.done = true; g.state.goalPick = false; window.__sumu.ui.refresh(); }, readFileSync(process.env.SAVE, 'utf8'));
+else await page.evaluate(() => { const g = window.__sumu.game; g.act({ type: 'goals', ids: ['wait', 'pop', 'fiscal'] }); g.state.tutorial.done = true; window.__sumu.ui.refresh(); });
+const [x, y] = JSON.parse(process.env.AT ?? '[21,12]');
+await page.evaluate(([x, y]) => window.__sumu.view.focus(y * 76 + x, 300), [x, y]);
+await page.waitForTimeout(800);
+await page.click('[data-act="cam"][data-arg="ground"]').catch(e => console.log('noground', e.message));
+await page.waitForTimeout(2500);
+await page.screenshot({ path: `shots/${process.env.NAME ?? 'ground'}.png` });
+console.log('errors', errors.filter(e => !e.includes('ERR_TUNNEL')));
+await browser.close();

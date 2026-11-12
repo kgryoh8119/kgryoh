@@ -1,0 +1,10 @@
+import { open } from './shot.mjs';
+const { browser, page, errors } = await open(1440, 900);
+await page.evaluate(() => { const g = window.__sumu.game; g.act({ type: 'goals', ids: ['fiscal', 'pop', 'jobs'], vision: 'industry' }); g.state.tutorial.done = true; window.__sumu.ui.refresh(); });
+await page.click('[data-act="tab"][data-arg="term"]');
+await page.waitForTimeout(600);
+await page.evaluate(() => { const h = [...document.querySelectorAll('#side h3')].find(e => e.textContent.includes('満足を下げている')); h?.scrollIntoView({ block: 'center' }); });
+await page.waitForTimeout(400);
+await page.screenshot({ path: 'shots/v11-term.png' });
+console.log('errors', errors.filter(e => !e.includes('ERR_TUNNEL')));
+await browser.close();

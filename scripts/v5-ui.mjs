@@ -1,0 +1,43 @@
+// v5 の画面確認：公約選び・建設メニューの分類・任期タブ・税・レイヤー・住宅の買収
+import { open } from './shot.mjs';
+const { browser, page, errors } = await open(1440, 900);
+const S = p => page.screenshot({ path: 'shots/v5-' + p + '.png' });
+await page.waitForTimeout(800);
+await S('01-goals');
+await page.click('[data-act="gvision"][data-arg="family"]');
+await page.waitForTimeout(200);
+await S('02-goals-picked');
+await page.click('[data-act="gok"]');
+await page.waitForTimeout(300);
+await page.evaluate(() => { window.__sumu.game.state.tutorial.done = true; window.__sumu.ui.refreshTutorial(true); });
+await S('03-term');
+await page.click('[data-act="group"][data-arg="build"]');
+await page.click('[data-act="bcat"][data-arg="infra"]');
+await page.waitForTimeout(200);
+await S('04-build-infra');
+await page.click('[data-act="bcat"][data-arg="biz"]');
+await page.click('[data-act="tool"][data-arg="build:factory"]');
+await page.mouse.move(700, 450); await page.waitForTimeout(400);
+await S('05-build-factory');
+await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+await page.click('[data-act="tab"][data-arg="money"]');
+await page.evaluate(() => { document.querySelector('#panel').scrollTop = 600; });
+await S('06-money');
+await page.click('[data-act="layer"][data-arg="env"]');
+await page.waitForTimeout(600);
+await S('07-layer-env');
+// 住宅を選んで買収
+const tile = await page.evaluate(() => { const s = window.__sumu.game.state; const b = s.buildings.find(o => o.kind === 'house' && o.status === 'operating'); window.__sumu.view.focus(b.y * 44 + b.x, 300); window.__sumu.ui.sel = { b: b.id }; window.__sumu.ui.renderInfo(); return b.id; });
+await page.waitForTimeout(600);
+await S('08-house');
+// 時間を進める
+await page.evaluate(() => { const g = window.__sumu.game; for (let i = 0; i < 14; i++) { g.speed = 3; g.tick(1); for (const e of [...g.state.events.active]) g.act({ type: 'event', id: e.id, option: 0 }); } g.speed = 0; window.__sumu.ui.refresh(); });
+await page.click('[data-act="tab"][data-arg="term"]');
+await page.waitForTimeout(400);
+await S('09-term-later');
+await page.click('[data-act="tab"][data-arg="home"]');
+await page.evaluate(() => { document.querySelector('#panel').scrollTop = 900; });
+await S('10-home');
+console.log('month', await page.evaluate(() => window.__sumu.game.state.month));
+console.log('errors', errors);
+await browser.close();

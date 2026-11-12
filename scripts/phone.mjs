@@ -1,0 +1,10 @@
+import { open } from './shot.mjs';
+const { browser, page, errors } = await open(393, 760);
+await page.waitForTimeout(2500); await page.screenshot({ path: 'shots/40-phone-start.png' });
+await page.click('[data-act="tutskip"]'); await page.click('.tool[data-arg="road"]'); await page.waitForTimeout(400); await page.screenshot({ path: 'shots/41-phone-flyout.png' });
+await page.click('[data-arg="road:1"]'); await page.waitForTimeout(400);
+await page.mouse.click(200, 380); await page.waitForTimeout(500); await page.screenshot({ path: 'shots/42-phone-tool.png' });
+await page.click('.tool.panelbtn'); await page.waitForTimeout(500); await page.screenshot({ path: 'shots/43-phone-panel.png' });
+await page.click('[data-act="issue"][data-arg="seeCare"]'); await page.waitForTimeout(3000); await page.screenshot({ path: 'shots/44-phone-care.png' });
+console.log('overflow', await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), errors.filter(e => !e.includes('TUNNEL')));
+await browser.close();

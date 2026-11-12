@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>スムシティ 地図データ収集</title>
+<style>
+  :root { --bg: #f4f6f2; --card: #fff; --ink: #17262e; --ink2: #4a5a62; --line: #cdd3ca; --blue: #1c4e8f; --green: #1f6b4c; --bad: #b3261e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 16px; }
+  header { background: var(--blue); color: #fff; padding: 14px 16px; border-radius: 8px; }
+  header h1 { margin: 0; font-size: 20px; } header p { margin: 4px 0 0; font-size: 13px; opacity: .9; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+  h2 { margin: 0; font-size: 15px; }
+  .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+  .preset { text-align: left; background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; cursor: pointer; font: inherit; }
+  .preset[aria-pressed="true"] { border-color: var(--blue); box-shadow: inset 0 0 0 2px var(--blue); }
+  .preset b { display: block; font-size: 14px; } .preset small { color: var(--ink2); font-size: 12px; display: block; }
+  .preset .st { font-size: 12px; font-weight: 700; color: var(--green); }
+  .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  label { font-size: 12px; color: var(--ink2); display: flex; flex-direction: column; gap: 2px; }
+  input { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; min-width: 0; }
+  button.go { font: inherit; font-weight: 700; padding: 10px 16px; border-radius: 6px; border: 0; background: var(--green); color: #fff; cursor: pointer; }
+  button.sub { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  #log { font: 12.5px/1.5 ui-monospace, Menlo, monospace; background: #10202a; color: #d8e6ea; border-radius: 6px; padding: 10px; white-space: pre-wrap; min-height: 120px; max-height: 320px; overflow: auto; }
+  .bar { height: 8px; background: #e3e7e0; border-radius: 4px; overflow: hidden; } .bar i { display: block; height: 100%; width: 0; background: var(--green); transition: width .2s; }
+  a.dl { display: inline-block; font-weight: 700; color: #fff; background: var(--blue); padding: 8px 14px; border-radius: 6px; text-decoration: none; margin: 2px 6px 2px 0; }
+  .note { font-size: 12.5px; color: var(--ink2); margin: 0; }
+  ol { margin: 0; padding-left: 1.3em; }
+  #preview { position: relative; width: 100%; aspect-ratio: 1 / 1; max-width: 420px; overflow: hidden; border-radius: 6px; border: 1px solid var(--line); background: #dfe5dc; }
+  #preview img { position: absolute; width: 256px; height: 256px; user-select: none; }
+  #preview .box { position: absolute; border: 3px solid #d0392e; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .18); }
+  #preview .att { position: absolute; right: 2px; bottom: 2px; font-size: 10px; background: rgba(255, 255, 255, .85); padding: 0 4px; }
+  @media (max-width: 560px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>スムシティ 地図データ収集</h1><p>選んだ地域の道路・建物・鉄道・施設と標高を、1 つのファイルにまとめます。ファイルはゲームの「地図を読み込む」でそのまま遊べます。</p></header>
+
+  <section>
+    <h2>使い方</h2>
+    <ol>
+      <li>このファイルをパソコンのブラウザ（Chrome・Edge・Safari）で開きます。</li>
+      <li>地域を選び、範囲を確かめて「集める」を押します（1 地域 1〜3 分）。</li>
+      <li>できあがった <b>〇〇-data.json</b> を保存し、ゲームの最初の画面「地図を読み込む」で開くか、Claude との会話に添付してください。</li>
+    </ol>
+    <p class="note">「まとめて集める」は、まだ集めていない地域（保土ケ谷を含む 6 地域）を順番に集めます（混雑を避けるため 1 地域ずつ）。データの取得元：OpenStreetMap（Overpass API、© OpenStreetMap contributors、ODbL）、国土地理院 標高タイル。このページは取得したデータをあなたのパソコンに保存するだけで、どこにも送りません。</p>
+  </section>
+
+  <section>
+    <h2>地域</h2>
+    <div class="presets" id="presets"></div>
+  </section>
+
+  <section>
+    <h2>範囲（緯度・経度）</h2>
+    <div class="row">
+      <button class="sub" id="locate">駅・役所の位置から範囲を合わせる</button>
+      <span class="note" id="locnote"></span>
+    </div>
+    <div class="grid">
+      <label>南 <input id="s" inputmode="decimal"></label>
+      <label>西 <input id="w" inputmode="decimal"></label>
+      <label>北 <input id="n" inputmode="decimal"></label>
+      <label>東 <input id="e" inputmode="decimal"></label>
+    </div>
+    <div class="grid">
+      <label>地図の名前 <input id="name"></label>
+      <label>ファイル名 <input id="fid"></label>
+    </div>
+    <p class="note" id="size"></p>
+    <div id="preview"></div>
+  </section>
+
+  <section>
+    <div class="row"><button class="go" id="go">この地域を集める</button><button class="sub" id="all">まとめて集める</button></div>
+    <div class="bar"><i id="bar"></i></div>
+    <div id="log">待機中</div>
+    <div id="out"></div>
+  </section>
+</main>
+<script>
+// 地域の一覧。anchors は範囲の中心を決める目印（駅・役所）。rough は目印を探す大まかな位置、size は東西・南北の幅（km）、shift は中心をずらす量（km、北・東が正）。
+// 新しい地域は、ここに 1 行足すか、画面の「自由な範囲」で範囲を入れれば集められます。
+const PRESETS = [
+  { id: 'hodogaya', name: '保土ケ谷（西谷〜保土ケ谷駅）', city: '横浜市', bbox: { s: 35.44, w: 139.556, n: 35.486, e: 139.608 } },
+  { id: 'kosugi', name: '武蔵中原〜武蔵小杉', city: '川崎市', rough: [35.579, 139.652], size: [5.0, 4.6], anchors: [['railway', 'station', '^武蔵中原$'], ['railway', 'station', '^武蔵小杉$']] },
+  { id: 'kamata', name: '大田区 蒲田', city: '東京都大田区', rough: [35.562, 139.716], size: [5.0, 5.0], anchors: [['railway', 'station', '^蒲田$'], ['railway', 'station', '^京急蒲田$']] },
+  { id: 'ube', name: '山口県 宇部市中心部', city: '宇部市', rough: [33.950, 131.247], size: [5.0, 5.0], shift: [1.0, 0], anchors: [['railway', 'station', '^宇部新川$']] },
+  { id: 'jonan', name: '福岡市 城南区', city: '福岡市', rough: [33.574, 130.370], size: [5.0, 5.0], anchors: [['amenity', 'townhall', '城南区役所']] },
+  { id: 'togitsu', name: '長崎 時津（時津町・長崎市北部）', city: '時津町', rough: [32.828, 129.849], size: [5.0, 5.0], shift: [-0.6, 0.2], anchors: [['amenity', 'townhall', '時津町役場']] },
+  // v77：最初に用意する主要都市・人気の街（各 5km 四方。目印の駅に中心を合わせる）
+  { id: 'shibuya', name: '渋谷', city: '東京都渋谷区', rough: [35.6590, 139.7010], size: [5.0, 5.0], anchors: [['railway', 'station', '^渋谷$']] },
+  { id: 'yokohama', name: '横浜（みなとみらい〜関内）', city: '横浜市', rough: [35.4540, 139.6330], size: [5.0, 5.0], anchors: [['railway', 'station', '^桜木町$']] },
+  { id: 'umeda', name: '大阪 梅田', city: '大阪市', rough: [34.7025, 135.4960], size: [5.0, 5.0], anchors: [['railway', 'station', '^大阪$']] },
+  { id: 'tenjin', name: '福岡 天神〜博多', city: '福岡市', rough: [33.5905, 130.4095], size: [5.0, 5.0], anchors: [['railway', 'station', '^天神$'], ['railway', 'station', '^博多$']] },
+  { id: 'kyoto', name: '京都駅〜四条', city: '京都市', rough: [34.9950, 135.7590], size: [5.0, 5.0], anchors: [['railway', 'station', '^京都$'], ['railway', 'station', '^四条$']] },
+  { id: 'kichijoji', name: '吉祥寺', city: '武蔵野市', rough: [35.7031, 139.5798], size: [5.0, 5.0], anchors: [['railway', 'station', '^吉祥寺$']] },
+  { id: 'custom', name: '自由な範囲', city: '', custom: true },
+];
+const $ = id => document.getElementById(id);
+const log = m => { const l = $('log'); l.textContent += '\n' + m; l.scrollTop = l.scrollHeight; };
+const bar = p => { $('bar').style.width = Math.round(p * 100) + '%'; };
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+const KM_LAT = 110.95, kmLon = lat => 111.32 * Math.cos(lat * Math.PI / 180);
+const done = {};
+let cur = PRESETS.find(p => p.id === 'shibuya');
+
+function boxFrom(lat, lon, p) {
+  const [wk, hk] = p.size, [dn, de] = p.shift || [0, 0];
+  const c = [lat + dn / KM_LAT, lon + de / kmLon(lat)];
+  const r = v => Math.round(v * 10000) / 10000;
+  return { s: r(c[0] - hk / 2 / KM_LAT), n: r(c[0] + hk / 2 / KM_LAT), w: r(c[1] - wk / 2 / kmLon(c[0])), e: r(c[1] + wk / 2 / kmLon(c[0])) };
+}
+function setBox(b) { for (const k of ['s', 'w', 'n', 'e']) $(k).value = b[k].toFixed(4); refresh(); }
+function getBox() { return { s: +$('s').value, w: +$('w').value, n: +$('n').value, e: +$('e').value }; }
+function renderPresets() {
+  $('presets').innerHTML = PRESETS.map(p => `<button class="preset" data-id="${p.id}" aria-pressed="${p === cur}"><b>${p.name}</b><small>${p.custom ? '範囲を入力して集めます' : p.city}</small>${done[p.id] ? '<span class="st">集めました</span>' : ''}</button>`).join('');
+}
+function choose(p) {
+  cur = p; renderPresets();
+  $('name').value = p.custom ? '' : p.name; $('fid').value = p.custom ? 'mymap' : p.id;
+  $('locate').disabled = !p.anchors; $('locnote').textContent = p.anchors ? '' : p.bbox ? '前回と同じ範囲です' : '';
+  if (p.bbox) setBox(p.bbox); else if (p.rough) setBox(boxFrom(p.rough[0], p.rough[1], p)); else refresh();
+}
+$('presets').onclick = e => { const b = e.target.closest('.preset'); if (b) choose(PRESETS.find(p => p.id === b.dataset.id)); };
+for (const k of ['s', 'w', 'n', 'e']) $(k).oninput = refresh;
+
+// 範囲の確認：OpenStreetMap の地図画像に範囲の枠を重ねる
+function refresh() {
+  const b = getBox(), el = $('preview');
+  if (![b.s, b.w, b.n, b.e].every(Number.isFinite) || b.s >= b.n || b.w >= b.e) { el.innerHTML = ''; $('size').textContent = ''; return; }
+  const wk = (b.e - b.w) * kmLon((b.s + b.n) / 2), hk = (b.n - b.s) * KM_LAT;
+  $('size').textContent = `東西 ${wk.toFixed(2)} km × 南北 ${hk.toFixed(2)} km（ゲームでは 30m 四方の区画が ${Math.round(wk * 1000 / 30)} × ${Math.round(hk * 1000 / 30)}）`;
+  const z = 13, W = el.clientWidth || 420, X = lon => (lon + 180) / 360 * 2 ** z * 256, Y = lat => { const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z * 256; };
+  const cx = (X(b.w) + X(b.e)) / 2, cy = (Y(b.n) + Y(b.s)) / 2, ox = cx - W / 2, oy = cy - W / 2;
+  let h = '';
+  for (let ty = Math.floor(oy / 256); ty <= Math.floor((oy + W) / 256); ty++) for (let tx = Math.floor(ox / 256); tx <= Math.floor((ox + W) / 256); tx++) h += `<img alt="" src="https://tile.openstreetmap.org/${z}/${tx}/${ty}.png" style="left:${tx * 256 - ox}px;top:${ty * 256 - oy}px">`;
+  h += `<div class="box" style="left:${X(b.w) - ox}px;top:${Y(b.n) - oy}px;width:${X(b.e) - X(b.w)}px;height:${Y(b.s) - Y(b.n)}px"></div><div class="att">© OpenStreetMap contributors</div>`;
+  el.innerHTML = h;
+}
+
+async function overpass(q) {
+  let last;
+  for (const url of OVERPASS) {
+    for (let k = 0; k < 3; k++) {
+      try {
+        log('Overpass に問い合わせ中: ' + url.split('/')[2]);
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q) });
+        if (r.status === 429 || r.status === 504) { log('  混雑のため 20 秒待ちます'); await new Promise(res => setTimeout(res, 20000)); continue; }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return await r.json();
+      } catch (e) {
+        // 「Failed to fetch」はサーバーが混んで途中で切れたときにも出る。少し待って同じサーバーでやり直す
+        last = e; log('  失敗: ' + e.message + (k < 2 ? '（15 秒後にやり直します）' : ''));
+        if (k < 2) await new Promise(res => setTimeout(res, 15000));
+      }
+    }
+  }
+  throw last;
+}
+
+// 目印（駅・役所）の位置を OpenStreetMap で調べ、平均の位置を中心にする
+async function locate(p) {
+  const [la, lo] = p.rough, d = 0.08, bb = `${la - d},${lo - d},${la + d},${lo + d}`;
+  const q = `[out:json][timeout:60];(${p.anchors.map(([k, v, re]) => `nwr["${k}"="${v}"]["name"~"${re}"](${bb});`).join('')});out center tags;`;
+  const j = await overpass(q), pts = [];
+  for (const [k, v, re] of p.anchors) {
+    const r = new RegExp(re), hit = j.elements.filter(e => e.tags && e.tags[k] === v && r.test(e.tags.name || ''));
+    if (!hit.length) { log(`  目印「${re.replace(/[\^$]/g, '')}」が見つかりません`); continue; }
+    const la2 = hit.reduce((a, e) => a + (e.lat ?? e.center.lat), 0) / hit.length, lo2 = hit.reduce((a, e) => a + (e.lon ?? e.center.lon), 0) / hit.length;
+    log(`  ${hit[0].tags.name}：${la2.toFixed(4)}, ${lo2.toFixed(4)}`); pts.push([la2, lo2]);
+  }
+  if (!pts.length) throw new Error('目印が見つからないため、大まかな位置のままにします');
+  return boxFrom(pts.reduce((a, q2) => a + q2[0], 0) / pts.length, pts.reduce((a, q2) => a + q2[1], 0) / pts.length, p);
+}
+$('locate').onclick = async () => {
+  $('locate').disabled = true; $('log').textContent = '目印を探しています';
+  try { setBox(await locate(cur)); $('locnote').textContent = '目印に合わせました'; log('範囲を合わせました'); } catch (e) { log(e.message); }
+  $('locate').disabled = false;
+};
+
+// 地理院 標高タイル：dem5a（5m）→ 欠けた点は dem（10m）。どちらにも値がない点は海などとして null にする
+const tileX = (lon, z) => Math.floor((lon + 180) / 360 * 2 ** z);
+const tileY = (lat, z) => { const r = lat * Math.PI / 180; return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z); };
+async function demTile(kind, z, x, y) {
+  const r = await fetch(`https://cyberjapandata.gsi.go.jp/xyz/${kind}/${z}/${x}/${y}.txt`);
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return (await r.text()).trim().split('\n').map(l => l.split(',').map(v => (v === 'e' ? NaN : parseFloat(v))));
+}
+async function dem(b) {
+  const z = 15, x0 = tileX(b.w, z), x1 = tileX(b.e, z), y0 = tileY(b.n, z), y1 = tileY(b.s, z);
+  const nx = x1 - x0 + 1, ny = y1 - y0 + 1, W = nx * 256, H = ny * 256;
+  const grid = new Float32Array(W * H).fill(NaN);
+  const coarse = new Map();
+  let n = 0, total = nx * ny, missing = 0;
+  for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+    const t = await demTile('dem5a', z, tx, ty).catch(e => { log('  dem5a ' + tx + '/' + ty + ': ' + e.message); return null; });
+    const key = (tx >> 1) + ',' + (ty >> 1);
+    if (!coarse.has(key)) coarse.set(key, await demTile('dem', 14, tx >> 1, ty >> 1).catch(() => null));
+    const p = coarse.get(key);
+    if (!t && !p) missing++;
+    for (let j = 0; j < 256; j++) for (let i = 0; i < 256; i++) {
+      let v = t ? t[j][i] : NaN;
+      if (Number.isNaN(v) && p) v = p[(ty & 1) * 128 + (j >> 1)][(tx & 1) * 128 + (i >> 1)];
+      grid[((ty - y0) * 256 + j) * W + (tx - x0) * 256 + i] = v;
+    }
+    n++; bar(0.55 + 0.4 * n / total);
+  }
+  const n2 = 2 ** z, px = lon => (lon + 180) / 360 * n2 * 256 - x0 * 256, py = lat => { const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n2 * 256 - y0 * 256; };
+  const latStep = 10 / 111320, lonStep = 10 / (111320 * Math.cos(((b.s + b.n) / 2) * Math.PI / 180));
+  const cols = Math.floor((b.e - b.w) / lonStep) + 1, rows = Math.floor((b.n - b.s) / latStep) + 1;
+  const out = new Array(cols * rows);
+  let sea = 0;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const lat = b.n - r * latStep, lon = b.w + c * lonStep, gx = Math.min(W - 1, Math.max(0, Math.round(px(lon)))), gy = Math.min(H - 1, Math.max(0, Math.round(py(lat))));
+    const v = grid[gy * W + gx]; out[r * cols + c] = Number.isNaN(v) ? null : Math.round(v * 10) / 10; if (Number.isNaN(v)) sea++;
+  }
+  return { step_m: 10, cols, rows, origin: 'north-west', values: out, tiles: total, missingTiles: missing, noData: sea, source: '国土地理院 標高タイル dem5a（z15）、欠けは dem（z14）で補完。値のない点（海など）は null' };
+}
+
+// 建物の輪郭（緯度経度の点列）→ 面積が最小になる向きの外接長方形。a は幅の辺の向き（度、北から時計回りではなく東を 0 とした画面の角度）
+function footprint(g) {
+  const pts = (g || []).filter(Boolean);
+  if (!pts.length) return { lat: null, lon: null };
+  const lat0 = pts[0].lat, lon0 = pts[0].lon, mx = 111320 * Math.cos(lat0 * Math.PI / 180), mz = 111320;
+  const P = pts.map(p => [(p.lon - lon0) * mx, (lat0 - p.lat) * mz]);
+  let best = null;
+  for (let i = 0; i + 1 < P.length; i++) {
+    const dx = P[i + 1][0] - P[i][0], dz = P[i + 1][1] - P[i][1], L = Math.hypot(dx, dz);
+    if (L < 0.3) continue;
+    const ux = dx / L, uz = dz / L;
+    let a0 = 1e9, a1 = -1e9, b0 = 1e9, b1 = -1e9;
+    for (const [x, z] of P) { const a = x * ux + z * uz, b = -x * uz + z * ux; a0 = Math.min(a0, a); a1 = Math.max(a1, a); b0 = Math.min(b0, b); b1 = Math.max(b1, b); }
+    const area = (a1 - a0) * (b1 - b0);
+    if (!best || area < best.area) best = { area, ux, uz, a0, a1, b0, b1 };
+  }
+  if (!best) { const c = pts.reduce((s, p) => [s[0] + p.lat, s[1] + p.lon], [0, 0]); return { lat: c[0] / pts.length, lon: c[1] / pts.length }; }
+  const ca = (best.a0 + best.a1) / 2, cb = (best.b0 + best.b1) / 2, cx = ca * best.ux - cb * best.uz, cz = ca * best.uz + cb * best.ux;
+  const r = v => Math.round(v * 10) / 10;
+  return { lat: lat0 - cz / mz, lon: lon0 + cx / mx, w: r(best.a1 - best.a0), d: r(best.b1 - best.b0), a: Math.round(((Math.atan2(best.uz, best.ux) * 180 / Math.PI) + 360) % 180) };
+}
+
+async function collect(p) {
+  const b = getBox();
+  if (![b.s, b.w, b.n, b.e].every(Number.isFinite) || b.s >= b.n || b.w >= b.e || (b.n - b.s) > 0.1 || (b.e - b.w) > 0.1) { log('範囲が正しくありません（南 < 北、西 < 東、各 0.1 度以内）'); return null; }
+  const id = ($('fid').value || 'mymap').replace(/[^a-z0-9_-]/gi, '').toLowerCase() || 'mymap', name = $('name').value || id;
+  const bb = `${b.s},${b.w},${b.n},${b.e}`;
+  const result = { format: 'sumucity-realmap', version: 1, version2: 4, id, area: name, city: p.city || '', bbox: b, collectedAt: new Date().toISOString(), osm: null, buildings: null, dem: null, errors: [] };
+  bar(0.02);
+  try {
+    log(`【${name}】1/3 道路・鉄道・土地利用・施設・海岸線`);
+    const q1 = `[out:json][timeout:240];
+(
+  way["highway"](${bb});
+  way["railway"](${bb});
+  node["railway"="station"](${bb});
+  node["place"~"^(city|town|village|suburb|quarter|neighbourhood)$"](${bb});
+  way["landuse"](${bb});
+  way["leisure"~"park|playground|pitch"](${bb});
+  way["natural"~"wood|water|scrub|coastline|beach|wetland"](${bb});
+  way["waterway"](${bb});
+  nwr["man_made"~"water_works|reservoir_covered|wastewater_plant"](${bb});
+  nwr["amenity"~"kindergarten|childcare|school|fire_station|police|hospital|clinic|townhall|library|community_centre|waste_transfer_station|waste_disposal"](${bb});
+  nwr["shop"~"supermarket|convenience|bakery"](${bb});
+);
+out geom tags;`;
+    result.osm = await overpass(q1);
+    log(`  ${result.osm.elements.length.toLocaleString()} 件`); bar(0.3);
+    log('2/3 建物（中心点・階数・用途）');
+    // 建物は数が多いので、範囲を 3×3 に分けて 1 つずつ取る（都心では 1 回で取ると途中で切れやすい）。取れなかった区画はさらに 4 つに分ける
+    const parts = [], seen = new Set(), els = [], G = 3;
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) parts.push({ s: b.s + (b.n - b.s) * j / G, n: b.s + (b.n - b.s) * (j + 1) / G, w: b.w + (b.e - b.w) * i / G, e: b.w + (b.e - b.w) * (i + 1) / G, depth: 0 });
+    let doneParts = 0;
+    while (parts.length) {
+      const c = parts.shift();
+      try {
+        const bj = await overpass(`[out:json][timeout:180];way["building"](${c.s},${c.w},${c.n},${c.e});out geom tags;`);
+        for (const e of bj.elements) if (!seen.has(e.id)) { seen.add(e.id); els.push(e); }
+        doneParts++; log(`  建物 ${doneParts} 区画目まで ${els.length.toLocaleString()} 棟`); bar(0.3 + 0.25 * Math.min(1, doneParts / (G * G)));
+      } catch (e) {
+        if (c.depth >= 1) throw e;
+        log('  この区画を 4 つに分けて取り直します');
+        const ms = (c.s + c.n) / 2, mw = (c.w + c.e) / 2;
+        parts.unshift({ s: c.s, n: ms, w: c.w, e: mw, depth: 1 }, { s: c.s, n: ms, w: mw, e: c.e, depth: 1 }, { s: ms, n: c.n, w: c.w, e: mw, depth: 1 }, { s: ms, n: c.n, w: mw, e: c.e, depth: 1 });
+      }
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    const bj = { elements: els };
+    // 建物の形は、向きのある外接長方形（中心・幅・奥行き・向き）にまとめて保存する（ファイルを小さく保つため）
+    result.buildings = bj.elements.map(e => ({ id: e.id, ...footprint(e.geometry), t: e.tags.building, lv: e.tags['building:levels'] || null, nm: e.tags.name || null, am: e.tags.amenity || e.tags.shop || null }));
+    result.footprints = true;
+    log(`  ${result.buildings.length.toLocaleString()} 棟`); bar(0.55);
+  } catch (e) { result.errors.push('OpenStreetMap: ' + e.message); log('OpenStreetMap の取得に失敗: ' + e.message); }
+  try {
+    log('3/3 標高（国土地理院）');
+    result.dem = await dem(b);
+    log(`  ${result.dem.cols} × ${result.dem.rows} 点（10m 間隔）、値のない点（海など）${result.dem.noData.toLocaleString()}`);
+  } catch (e) { result.errors.push('標高: ' + e.message); log('標高の取得に失敗: ' + e.message); }
+  bar(1);
+  const text = JSON.stringify(result);
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const ok = !result.errors.length;
+  $('out').insertAdjacentHTML('beforeend', `<p>${name}：${ok ? '完了' : !result.buildings ? '<b style="color:#b3261e">建物が取れませんでした。このファイルではゲームに取り込めません。少し時間をおいて、この地域だけもう一度集めてください</b>' : '一部取得できませんでした（取れた分だけでも使えます）'}（${(text.length / 1e6).toFixed(1)} MB）<br><a class="dl" href="${url}" download="${id}-data.json">${id}-data.json を保存</a></p>`);
+  log(ok ? '完了' : 'エラー: ' + result.errors.join(' / '));
+  done[p.id] = true; renderPresets();
+  return ok;
+}
+$('go').onclick = async () => { $('go').disabled = $('all').disabled = true; $('log').textContent = '開始'; await collect(cur); $('go').disabled = $('all').disabled = false; };
+$('all').onclick = async () => {
+  $('go').disabled = $('all').disabled = true; $('log').textContent = '開始';
+  for (const p of PRESETS) {
+    if (p.custom || done[p.id]) continue;
+    choose(p);
+    if (p.anchors) { try { setBox(await locate(p)); } catch (e) { log(e.message); } }
+    await collect(p);
+    await new Promise(r => setTimeout(r, 5000));
+  }
+  log('すべて終わりました。保存ボタンを順に押してください');
+  $('go').disabled = $('all').disabled = false;
+};
+renderPresets(); choose(cur);
+</script>
+</body>
+</html>

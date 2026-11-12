@@ -1,0 +1,11 @@
+process.env.MAPID = process.env.MAPID ?? 'hodogaya';
+const { open } = await import('./shot.mjs');
+const { browser, page } = await open();
+await page.waitForTimeout(3000);
+const cdp = await page.context().newCDPSession(page);
+await cdp.send('HeapProfiler.collectGarbage');
+const m = await cdp.send('Runtime.getHeapUsage');
+console.log('heap MB', (m.usedSize / 1e6).toFixed(0), 'total', (m.totalSize / 1e6).toFixed(0));
+const g = await page.evaluate(() => { const r = window.__sumu.view.renderer.info.memory; let v = 0, bytes = 0; window.__sumu.view.scene.traverse(o => { const ge = o.geometry; if (ge?.attributes?.position) { v += ge.attributes.position.count; for (const a of Object.values(ge.attributes)) bytes += a.array.byteLength; if (ge.index) bytes += ge.index.array.byteLength; } }); return { ...r, verts: v, MB: Math.round(bytes / 1e6) }; });
+console.log(JSON.stringify(g));
+await browser.close();

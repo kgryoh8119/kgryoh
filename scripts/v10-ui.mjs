@@ -1,0 +1,14 @@
+import { open } from './shot.mjs';
+const { browser, page, errors } = await open(1440, 900);
+await page.evaluate(() => { const g = window.__sumu.game; g.act({ type: 'goals', ids: ['wait', 'pop', 'fiscal'] }); g.state.tutorial.done = true; window.__sumu.ui.refresh(); });
+await page.click('[data-act="tab"][data-arg="home"]').catch(() => {});
+await page.waitForTimeout(400);
+await page.evaluate(() => document.querySelector('[data-act="redevshow"]')?.scrollIntoView({ block: 'center' }));
+console.log('btn', await page.evaluate(() => !!document.querySelector('[data-act="redevshow"]'))); await page.click('[data-act="redevshow"]', { timeout: 5000 });
+await page.waitForTimeout(2200);
+await page.screenshot({ path: 'shots/v10-redev-plan.png' });
+await page.click('[data-act="redevelop"]', { timeout: 5000 });
+await page.waitForTimeout(2200);
+await page.screenshot({ path: 'shots/v10-redev-done.png' });
+console.log(await page.evaluate(() => document.querySelector('.toast, #toast')?.textContent), 'errors', errors.filter(e => !e.includes('ERR_TUNNEL')));
+await browser.close();

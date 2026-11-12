@@ -1,0 +1,10 @@
+import { open } from './shot.mjs';
+const { browser, page, errors } = await open(1440, 900);
+await page.evaluate(() => { const g = window.__sumu.game; g.act({ type: 'goals', ids: ['wait', 'pop', 'fiscal'] }); g.state.tutorial.done = true; window.__sumu.ui.refresh(); });
+await page.click('[data-act="group"][data-arg="build"]');
+await page.click('[data-act="bcat"][data-arg="landmark"]');
+await page.waitForTimeout(400);
+await page.screenshot({ path: 'shots/thumbs.png' });
+const n = await page.evaluate(() => document.querySelectorAll('#flyout img.pic').length);
+console.log('pics', n, 'errors', errors.filter(e => !e.includes('ERR_TUNNEL')));
+await browser.close();

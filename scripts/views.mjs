@@ -1,0 +1,14 @@
+import { open } from './shot.mjs';
+const { browser, page, errors } = await open();
+const set = async (o, wait = 2600) => { await page.evaluate(o => { const v = window.__sumu.view, ui = window.__sumu.ui; if (o.tut === false) { window.__sumu.game.state.tutorial.done = true; ui.refreshTutorial(true); } if (o.hour !== undefined) { v.hour = o.hour; v.clockRun = false; } if (o.mode) v.setMode(o.mode); if (o.want) Object.assign(v.want, o.want); if (o.ground) Object.assign(v.ground, o.ground); if (o.layer !== undefined) { v.layer = o.layer; v.refreshOverlay(); ui.renderViewbar(); } if (o.photo !== undefined) ui.setPhoto(o.photo); }, o); await page.waitForTimeout(wait); };
+const T = 30;
+await set({ tut: false, hour: 10.5 }); await page.screenshot({ path: 'shots/02-overview.png' });
+await set({ want: { x: 21.5 * T, z: 6 * T, dist: 260, yaw: 0.5, pitch: 0.5 } }); await page.screenshot({ path: 'shots/03-station.png' });
+await set({ photo: true, want: { x: 33 * T, z: 23 * T, dist: 230, yaw: -0.7, pitch: 0.42 }, hour: 16.9 }); await page.screenshot({ path: 'shots/04-hill-dusk.png' });
+await set({ want: { x: 14 * T, z: 20 * T, dist: 200, yaw: 2.4, pitch: 0.5 }, hour: 20.5 }); await page.screenshot({ path: 'shots/05-night.png' });
+await set({ mode: 'ground', ground: { x: 21.4 * T + 4, z: 8.3 * T, yaw: Math.PI, pitch: 0.05 }, hour: 9 }); await page.screenshot({ path: 'shots/06-ground.png' });
+await set({ ground: { x: 17 * T, z: 21.5 * T + 3, yaw: Math.PI / 2, pitch: 0.03 }, hour: 14 }); await page.screenshot({ path: 'shots/07-ground2.png' });
+await set({ photo: false, mode: 'orbit', layer: 'care', want: { x: 22 * T, z: 14 * T, dist: 700, yaw: 0.2, pitch: 0.95 }, hour: 12 }); await page.screenshot({ path: 'shots/08-layer-care.png' });
+await set({ layer: 'traffic' }, 1500); await page.screenshot({ path: 'shots/09-layer-traffic.png' });
+console.log(JSON.stringify(await page.evaluate(() => window.__sumu.view.stats)), errors.filter(e => !e.includes('TUNNEL')));
+await browser.close();

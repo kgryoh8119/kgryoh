@@ -1,0 +1,10 @@
+import { open } from './shot.mjs';
+const { browser, page, errors } = await open(1440, 900);
+await page.waitForTimeout(1500);
+const out = await page.evaluate(() => { const sec = document.querySelector('.issues'); return { text: sec?.innerText, n: document.querySelectorAll('.issue').length, old: [...document.querySelectorAll('h2')].map(h => h.innerText).filter(t => /いまの課題|いま足りないもの/.test(t)), btns: [...document.querySelectorAll('.issue button')].map(b => b.dataset.act + ':' + b.dataset.arg) }; });
+console.log(JSON.stringify(out, null, 1));
+const box = await page.evaluate(() => { const h = [...document.querySelectorAll('h1,h2,h3,div,b')].find(e => e.childElementCount === 0 && e.textContent.includes('公約を 3 つ掲げてください')); let m = h; while (m && m.parentElement && m.parentElement.id !== 'app' && m.parentElement !== document.body) m = m.parentElement; if (m) m.style.display = 'none'; document.querySelector('.issues').scrollIntoView(); const r = document.getElementById('side').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height, hid: m?.id || m?.className }; });
+console.log(JSON.stringify(box));
+await page.waitForTimeout(500);
+await page.screenshot({ path: 'shots/v85-issues.png', timeout: 280000, clip: { x: box.x, y: box.y, width: box.width, height: box.height } });
+console.log('errors', errors); await browser.close();

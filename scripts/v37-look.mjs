@@ -1,0 +1,21 @@
+// v37：公約を選ぶ画面のスクロール・花火・バスとトラック・遠くの建物の夜の窓
+import { open } from './shot.mjs';
+const { browser, page, errors } = await open(1280, 800, 'sumino');
+await page.waitForTimeout(1500);
+const sc = await page.evaluate(async () => { const S = window.__sumu, el = document.getElementById('modal'), d = el.querySelector('.dialog'), b = d?.querySelector('.body'); const box = [el, d, b].find(x => x && x.scrollHeight > x.clientHeight + 10); if (!box) return 'no scroll box ' + (d?.getAttribute('aria-label')); box.scrollTop = 400; const before = box.scrollTop;
+  const btns = [...el.querySelectorAll('[data-act="gpick"]')]; const t = btns[btns.length - 1]; t.click(); await new Promise(r => setTimeout(r, 200)); const box2 = [el, el.querySelector('.dialog'), el.querySelector('.dialog .body')].find(x => x && x.scrollHeight > x.clientHeight + 10); return `before ${before} after ${box2?.scrollTop}`; });
+console.log('scroll', sc);
+await page.evaluate(() => { const S = window.__sumu, g = S.game, s = g.state; g.act({ type: 'goals', ids: ['wait', 'pop', 'fiscal'] }); s.tutorial.done = true; S.fixedQuality = true; S.view.setQuality('high');
+  for (let i = 0; i < 24; i++) { S.stepMonth(s); s.events.active = []; } if (s.mayor) { s.mayor.seenLv = 99; s.mayor.seenRank = s.mayor.ranks.at(-1)?.month ?? -1; } s.notes = []; S.ui.refresh(); S.ui.renderModal(); document.getElementById('side')?.classList.add('closed');
+  S.view.clockRun = false; S.view.hour = 21; S.view.weatherForce = 'clear'; S.view.celebrate('festival', '夏祭り'); S.view.fwNight = 2; });
+await page.waitForTimeout(500);
+await page.evaluate(() => { const v = window.__sumu.view; if (v.festAt) v.focus(Math.floor(v.festAt.z / 30) * 76 + Math.floor(v.festAt.x / 30), 700); });
+await page.waitForTimeout(3500); await page.screenshot({ path: 'shots/v37-fw.png' });
+await page.evaluate(() => { const v = window.__sumu.view; v.focus(30 * 76 + 40, 1300); });
+await page.waitForTimeout(2000); await page.screenshot({ path: 'shots/v37-lodnight.png' });
+await page.evaluate(() => { const v = window.__sumu.view; v.hour = 13; v.cars.forEach((a, i) => { a.kind = i % 3 === 0 ? 1 : i % 3 === 1 ? 2 : 0; }); v.spawnAgents?.(); const a = v.cars[0]; v.focus(30 * 76 + 30, 140); });
+await page.waitForTimeout(1500);
+await page.evaluate(() => { const v = window.__sumu.view; v.cars.forEach((a, i) => { a.kind = i % 3 === 0 ? 1 : i % 3 === 1 ? 2 : 0; }); });
+await page.waitForTimeout(1200); await page.screenshot({ path: 'shots/v37-cars.png' });
+console.log(errors.filter(e => !e.includes('TUNNEL')));
+await browser.close();
