@@ -481,6 +481,10 @@ export class Sound {
       this.hit(t, o, { f: 140, type: 'lowpass', dur: 2.6, vel: 1.6, buf: this.brown }); this.hit(t + 0.05, o, { pitch: [70, 30], dur: 1.8, vel: 0.7 });
     } else if (k === 'firstStep') { // はじめての〇〇
       const t = c.currentTime + 0.02, o = this.out('sfx', 0, 0.5); [72, 76, 79, 84].forEach((m, n) => this.tone(t + n * 0.08, mtof(m), 0.35, 0.08, o, 'glock'));
+    } else if (k.startsWith('siren') && a.v > 0.04) { // v87：緊急車両のサイレン（救急車は「ピーポー」、パトカー・消防車は「ウー」と上下する音）。3 秒ごとに鳴らし直す
+      const t = c.currentTime, os = c.createOscillator(), g = this.gain(0), o = this.out('env', a.pan, 0.25), f = os.frequency; os.type = 'triangle'; os.connect(g); g.connect(o);
+      if (k === 'siren1') for (let n = 0; n < 4; n++) { f.setValueAtTime(n % 2 ? 770 : 960, t + n * 0.75); } else { f.setValueAtTime(450, t); f.linearRampToValueAtTime(k === 'siren2' ? 880 : 1050, t + 1.3); f.linearRampToValueAtTime(450, t + 3); }
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.035 * a.v, t + 0.1); g.gain.setValueAtTime(0.035 * a.v, t + 2.85); g.gain.linearRampToValueAtTime(0, t + 3); os.start(t); os.stop(t + 3.05);
     } else if (k === 'trainStop' && a.v > 0.2) {
       const t = c.currentTime + 0.4, o = this.out('env', a.pan, 0.4);
       // 発車メロディ（オリジナル）

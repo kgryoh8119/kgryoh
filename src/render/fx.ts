@@ -41,10 +41,10 @@ export class FX {
     this.helis = new THREE.InstancedMesh(hg, new THREE.MeshStandardMaterial({ color: 0xd8382c, roughness: 0.5 }), 6); this.helis.frustumCulled = false; this.helis.count = 0; scene.add(this.helis);
   }
   /** 粒をまく。kind で色・動き・寿命が変わる */
-  burst(x: number, y: number, z: number, kind: 'confetti' | 'dust' | 'smoke' | 'spark' | 'leaf' | 'firework' | 'sparkle' | 'petal' | 'meteor', n: number, spread = 8): void {
+  burst(x: number, y: number, z: number, kind: 'confetti' | 'dust' | 'smoke' | 'spark' | 'leaf' | 'firework' | 'sparkle' | 'petal' | 'meteor' | 'water', n: number, spread = 8, dir?: [number, number, number]): void {
     if (this.lite) n = Math.ceil(n * 0.4);
     if (this.night > 0.5 && kind === 'confetti') n = Math.ceil(n * 0.3); // 夜の紙吹雪は見えにくいので少なく（きらめきが主役）
-    const C = { confetti: [0xff5a5a, 0xffd23a, 0x4ab0ff, 0x6ee07a, 0xff7ad9, 0xffffff], dust: [0xb9a88c, 0xa8977a, 0xcfc2aa], smoke: [0x55585e, 0x3e4147, 0x6b6e74], spark: [0xff9a2a, 0xffd23a, 0xff5a2a], leaf: [0x6aa04a, 0x8fbf5a, 0xc9a24a], firework: [0xff5a5a, 0xffd23a, 0x6ad0ff, 0xff7ad9, 0x9aff7a], sparkle: [0xfff2a8, 0xffffff, 0xffe066], petal: [0xffc7dc, 0xffe0ec, 0xffb0cc], meteor: [0xffffff, 0xe8f4ff] }[kind];
+    const C = { confetti: [0xff5a5a, 0xffd23a, 0x4ab0ff, 0x6ee07a, 0xff7ad9, 0xffffff], dust: [0xb9a88c, 0xa8977a, 0xcfc2aa], smoke: [0x55585e, 0x3e4147, 0x6b6e74], spark: [0xff9a2a, 0xffd23a, 0xff5a2a], leaf: [0x6aa04a, 0x8fbf5a, 0xc9a24a], firework: [0xff5a5a, 0xffd23a, 0x6ad0ff, 0xff7ad9, 0x9aff7a], sparkle: [0xfff2a8, 0xffffff, 0xffe066], petal: [0xffc7dc, 0xffe0ec, 0xffb0cc], meteor: [0xffffff, 0xe8f4ff], water: [0xe2f0ff, 0xc8e0f6, 0xffffff] }[kind];
     for (let i = 0; i < n && this.parts.length < MAXP; i++) {
       const a = Math.random() * Math.PI * 2, r = Math.random(), col = new THREE.Color(C[Math.floor(Math.random() * C.length)]);
       const p: P = { x: x + Math.cos(a) * spread * r * 0.3, y, z: z + Math.sin(a) * spread * r * 0.3, vx: 0, vy: 0, vz: 0, life: 0, max: 2, size: 0.6, grow: 0, col, g: -9.8, spin: Math.random() * 6, drag: 0.98 };
@@ -56,6 +56,7 @@ export class FX {
       else if (kind === 'firework') { const e = Math.acos(2 * Math.random() - 1); p.vx = Math.sin(e) * Math.cos(a) * 34; p.vz = Math.sin(e) * Math.sin(a) * 34; p.vy = Math.cos(e) * 34; p.max = 1.8 + Math.random() * 0.6; p.size = 1.2; p.g = -5; p.drag = 0.95; }
       else if (kind === 'meteor') { p.vx = 600 + Math.random() * 300; p.vz = 200; p.vy = -250; p.max = 1.1; p.size = 5; p.g = 0; p.drag = 1; }
       else if (kind === 'petal') { p.vx = 3 + 3 * Math.random(); p.vz = (Math.random() - 0.5) * 3; p.vy = -1.5; p.max = 7; p.size = 0.9; p.g = 0; p.drag = 1; }
+      else if (kind === 'water') { const d = dir ?? [0, 1, 0], sp = 11 + 3 * r; p.x = x; p.z = z; p.vx = d[0] * sp + (Math.random() - 0.5) * 1.6; p.vy = d[1] * sp + (Math.random() - 0.5) * 1.6; p.vz = d[2] * sp + (Math.random() - 0.5) * 1.6; p.max = 1.4; p.size = 0.5; p.grow = 1.4; p.g = -9; p.drag = 0.99; } // v87：消防車の放水
       else if (kind === 'sparkle') { p.vx = Math.cos(a) * 2; p.vz = Math.sin(a) * 2; p.vy = 4 + 6 * Math.random(); p.max = 1.8; p.size = 1.1; p.g = -1; }
       p.lit = kind === 'spark' || kind === 'firework' || kind === 'sparkle' || kind === 'meteor';
       this.parts.push(p);

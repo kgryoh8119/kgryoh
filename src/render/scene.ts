@@ -120,6 +120,8 @@ import { lmPad, carMesh, CAR_PART, carKindOf, type CarMesh, MODEL, MODEL_H, mode
 import { W, H, TILE, DEFS, isRes, isShop, isCity, fam, floodRisk, getMap, heightAt, idx, inMap, hash, buildable, GATEWAYS, roadInfo, REAL, LOT_KINDS, railBlocks, onMapChange, MAP_ID, mapEntry, baseEntry, ropewayTop, blockOf, altitude, tsunamiDepth, designWave, seaDist, terrainOf, landPrices, routeCarK } from '../sim/index';
 import { realTerrain, realStatic, realRoads, realPaths, drawRealTile, drawRealGround, drawRealStation, drawRealLot, drawRealStore, looksBuiltUp, REAL_CHUNK } from './real';
 import type { GameState, Building, Kind, Layer, MapDef } from '../sim/index';
+import { stationStats } from '../sim/index';
+import { emPlan, roadRoute, roadNear, emSite, nearestBase, jamLook, stationLook, isRightTurn, EM_VM, EM_BASE, HOSPITALS, type EmKind } from './traffic';
 
 let N = 0, MAPW = 0, MAPH = 0;
 const HW = [0, 2.5, 5, 7.5];   // 車道の半幅（m）
@@ -140,6 +142,10 @@ interface Agent extends Walk { vm?: number; vc?: number; v?: number; cur: number
 /** v86：車体の色（インスタンスの色）を、頂点が真っ白（面の種類 0）のところだけに掛ける。前照灯・ホイール・白い部品に車体色が移らない */
 const tint0 = (m: THREE.MeshStandardMaterial) => { m.onBeforeCompile = sh => { sh.vertexShader = sh.vertexShader.replace('vColor.rgb *= instanceColor.rgb;', 'vColor.rgb *= (min(color.r, min(color.g, color.b)) > 0.999 ? instanceColor.rgb : vec3(1.0));'); }; m.customProgramCacheKey = () => 'veh-tint0'; return m; };
 /** 実在都市版の車・人：実際の道路の折れ線の上を行き来する */
+/** v87：出動中の緊急車両。r は道路の区画の経路（i 番目にいる）、legs はこの後の行き先（現場→病院・拠点）。lit は赤色灯とサイレン */
+interface Em { k: EmKind; r: number[]; i: number; lit: boolean; stay: number; at: boolean; legs: number[]; wait: number; sx: number; sz: number; sir: number; h: boolean }
+/** v87：駅の人だかり（ホーム・改札前の行列・駅前広場にあふれる人・降りて改札へ向かう人）の上限 */
+const CROWD_N = 1100;
 interface PathAgent extends Walk { vm?: number; vc?: number; v?: number; p: number; d: number; dir: number; speed: number; lane: number; yaw: number; bob: number; kind?: number }
 /** 車の種類ごとの大きさ（乗用車・バス・トラック）と色 */
 /** 3 自動運転タクシー（白と青緑）・4 自動運転バス */
@@ -393,6 +399,8 @@ export class View {
   private lamps: THREE.Points | null = null;
   private sigTown = ''; private sigRoad = ''; private sigSites = ''; private sigOverlay = '';
   private cars: Agent[] = []; private peds: Agent[] = [];
+  /** v87：出動中の緊急車両（cars の後ろに並べる）・次の通報までの秒数・巡回のパトカーの割合・前のコマの緊急車両の位置（x, z） */
+  private ems: Agent[] = []; private emT = 20; private patrolP = 0.008; private emPos: number[] = [];
   /** v86：車の形ごとの描画（車体と窓）。番号は VT（乗用車 9 種・タクシー・パトカー・救急車・消防車・2t 箱車・ごみ収集車・スクーター・自転車・バス・トラック・観光バス）。毎コマ、形ごとに詰めて置く */
   private vehM: { body: THREE.InstancedMesh; cab: THREE.InstancedMesh | null }[] = []; private vehN: number[] = []; private vehWn = 0; private pedP!: People; private pedAttract: Float32Array | null = null; private pedW: number[] = []; private pedList: number[] = [];
   private headPts!: THREE.Points; private tailPts!: THREE.Points;
@@ -946,7 +954,7 @@ export class View {
     this.renderer.toneMappingExposure = lerp(0.92, 1.0, day);
     this.matWinA.emissiveIntensity = night * 1.9; NIGHT_U.value = night; NIGHT_UNI.uHour.value = this.hour; NIGHT_UNI.uT.value = performance.now() / 1000; SEASON_U.uTime.value = NIGHT_UNI.uT.value; SEASON_U.uWind.value = 0.7 + 1.6 * this.weather.rain + (this.storm ? 1.5 : 0);
     { const h = this.hour; WIN_LIT.value = h >= 16 && h < 19 ? 0.45 + 0.4 * ((h - 16) / 3) : h >= 19 && h < 22.5 ? 0.85 : h >= 22.5 ? 0.85 - 0.4 * ((h - 22.5) / 1.5) : h < 1.5 ? 0.45 - 0.2 * (h / 1.5) : h < 4.5 ? 0.22 : h < 7 ? 0.22 + 0.35 * ((h - 4.5) / 2.5) : 0.6; } this.matSign.emissiveIntensity = night * 0.75;
-    this.matLamp.opacity = night * 0.95; this.matVend.opacity = night * 0.85; this.matPool.opacity = night * 0.5; if (this.pools) this.pools.visible = night > 0.02; this.matHead.opacity = night; this.matTail.opacity = Math.min(1, 0.25 + night); this.matStars.opacity = night * (1 - up) * 0.9 * (1 - oc);
+    this.matLamp.opacity = night * 0.95; this.matVend.opacity = night * 0.85; this.matPool.opacity = night * 0.5; if (this.pools) this.pools.visible = night > 0.02; this.matHead.opacity = night; this.matTail.opacity = Math.min(1, 0.5 + night); this.matTail.size = 2.6 * Math.max(1, Math.min(3.5, this.dist / 320)); /* v87：昼もブレーキランプの列が見え、遠くからでも詰まった道が分かる */ this.matStars.opacity = night * (1 - up) * 0.9 * (1 - oc);
     this.matCloud.color.copy(C(0x2a3350).lerp(C(0xffc9a8), up).lerp(C(0xffffff), high).lerp(C(0x6b7178).multiplyScalar(0.35 + 0.65 * day), Math.min(1, oc * 0.9)));
     if (this.clouds) this.clouds.scale.set(1, 1 + oc * 0.6, 1);
     this.renderer.toneMappingExposure *= 1 - 0.06 * wet;
@@ -1337,7 +1345,7 @@ export class View {
   private drawRails(s: GameState, g: Geo, lampPos?: number[], kit?: Geo): void {
     this.railPaths = buildRailPaths(s, this.map);
     const r = drawRailPaths(g, s, this.map, this.railPaths, !this.fine() ? 0 : this.quality === 'high' ? 2 : 1, kit); if (lampPos) for (const v of r.lamps) lampPos.push(v);
-    this.gates = r.gates; this.gateAng = r.gates.map(() => Math.PI / 2); this.stSpots = r.spots;
+    this.gates = r.gates; this.gateAng = r.gates.map(() => Math.PI / 2); this.plaza.clear(); this.stSpots = r.spots;
     const ids = r.spots.map(o => o.id).sort((a, b) => a - b).join(',');
     if (ids !== [...this.railStations].sort((a, b) => a - b).join(',')) this.chunkSig.clear(); // 駅を線路側で描くかどうかが変わったら、町の塊を描き直す
     this.railStations = new Set(r.spots.map(o => o.id));
@@ -1810,6 +1818,7 @@ export class View {
   }
   /** 列車：1 編成 4 両。最大 12 編成（複線では上りと下りがすれ違う）。夜は窓とライトが光る。観光 SL の機関区があれば 1 編成は蒸気機関車 */
   private trainLoco!: THREE.InstancedMesh; private trainExp!: THREE.InstancedMesh;
+  private trainPax!: THREE.InstancedMesh; private paxM = new THREE.Matrix4(); private paxL = new THREE.Matrix4();
   private trainWin: THREE.InstancedMesh | null = null; private trainLamp: THREE.InstancedMesh | null = null; private slTrain = -1; expEvery = 3; private slPuff = 0;
   private spawnTrains(s: GameState): void {
     const MX = 12 * 4;
@@ -1833,6 +1842,9 @@ export class View {
       const wg = new THREE.BoxGeometry(2.96, 0.95, 17.2); wg.translate(0, 2.65, 0);
       this.trainWin = new THREE.InstancedMesh(wg, new THREE.MeshBasicMaterial({ color: 0xfff1cc, transparent: true, opacity: 0, depthWrite: false }), MX);
       this.trainWin.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.trainWin.frustumCulled = false; this.scene.add(this.trainWin);
+      // v87：窓ぎわの乗客（立ち客の上半身と頭）。混むほど多く、ぎっしり並ぶ。1 両の片側に最大 12 人
+      { const g = new Geo(); g.box(0, 2.2, 0, 0.06, 0.52, 0.5, 0xffffff); g.box(0, 2.74, 0, 0.06, 0.3, 0.27, 0x3a302a);
+        this.trainPax = new THREE.InstancedMesh(g.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }), MX * 24); this.trainPax.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.trainPax.frustumCulled = false; this.trainPax.castShadow = false; this.trainPax.count = 0; this.trainPax.setColorAt(0, new THREE.Color()); this.scene.add(this.trainPax); }
       // 前照灯（白）と尾灯（赤）
       const lg = new THREE.BoxGeometry(0.55, 0.32, 0.12);
       this.trainLamp = new THREE.InstancedMesh(lg, new THREE.MeshBasicMaterial({ color: 0xffffff }), 12 * 4);
@@ -1868,6 +1880,10 @@ export class View {
       for (const back of [0, 30, 60]) { const [x, , z] = railAt(P, tr.d - tr.dir * back); for (const gt of this.gates) { const cx = (gt.tile % W + 0.5) * TILE, cz = (((gt.tile / W) | 0) + 0.5) * TILE; if (Math.hypot(cx - x, cz - z) < 70) this.crossClosed.add(gt.tile); } }
     }
     const nearStation = (i: number) => { const x = i % W, y = (i / W) | 0; return stations.findIndex(b => x >= b.x - 1 && x <= b.x + b.w && y >= b.y - 1 && y <= b.y + b.h); };
+    // v87：車内の混み具合：駅の混雑率（sim の stationStats）のいちばん高い駅を基準に、朝夕に多く夜は少ない
+    const ssx = this.stStats(s), worst = ssx.reduce((m, x) => Math.max(m, x.crowd), 0), hr0 = this.hour, rsh = Math.min(1, this.rush()), dayK = hr0 < 5 || hr0 >= 23 ? 0.12 : 0.25 + 0.75 * rsh;
+    const paxLook = stationLook(worst ? worst : 60), PC = [0xf4f4f2, 0x2a3442, 0x4a5a78, 0xd8d2c4, 0x7a8a9a, 0xa83a3a, 0x3a5a3a, 0xe8e0d0];
+    let np = 0; const paxCap = this.quality === 'low' || this.lite ? 6 : 12;
     this.trains.forEach((tr, k) => {
       let P = this.railPaths[tr.path];
       if (!P) { const t = this.spawnOne(); if (!t) return; Object.assign(tr, t); P = this.railPaths[tr.path]; }
@@ -1876,7 +1892,7 @@ export class View {
         tr.d += dt * 20 * tr.dir;
         // 駅の横では止まる
         const [hx0, , hz0] = railAt(P, tr.d), ti = Math.floor(hz0 / TILE) * W + Math.floor(hx0 / TILE), st = ti >= 0 && ti < W * H ? nearStation(ti) : -1;
-        if (st >= 0 && st !== tr.stopped) { tr.stopped = st; tr.wait = 7; if (live(k)) { this.stFill.set(stations[st].id, 0.15); this.sfx('trainStop', hx0, 0, hz0); } } // 乗客が乗る
+        if (st >= 0 && st !== tr.stopped) { tr.stopped = st; tr.wait = 7; if (live(k)) { this.stFill.set(stations[st].id, this.stLeft.get(stations[st].id) ?? 0.15); this.stArr.set(stations[st].id, this.lifeT); this.sfx('trainStop', hx0, 0, hz0); } } // 乗客が乗る
         if (tr.d < 0 || tr.d > P.len) {
           const atEnd = tr.d > P.len, ext = atEnd ? P.extB : P.extA, node = atEnd ? P.b : P.a;
           const [, , , yaw] = railAt(P, atEnd ? P.len : 0), hx = Math.sin(yaw) * tr.dir, hz = Math.cos(yaw) * tr.dir;
@@ -1913,6 +1929,10 @@ export class View {
         this.trainMid.setMatrixAt(k * 4 + c, std && c === 2 ? this.tmpM : this.ZERO); this.trainPan.setMatrixAt(k * 4 + c, std && c === 1 ? this.tmpM : this.ZERO);
         if (std && (c === 0 || c === 3)) { this.tmpQ.setFromAxisAngle(up, yaw + (c === 3 ? Math.PI : 0)); this.tmpM2.compose(this.tmpV, this.tmpQ, this.tmpS1); this.trainEnd.setMatrixAt(k * 4 + c, this.tmpM2); } else this.trainEnd.setMatrixAt(k * 4 + c, this.ZERO);
         if (std) { const bc = this.tmpC.setHex([0x2f6fb5, 0x1f8a5a, 0xd9622b, 0xc8283c, 0x6a3fa0, 0x1a9ad6][k % 6]); this.trainMid.setColorAt(k * 4 + c, bc); this.trainPan.setColorAt(k * 4 + c, bc); this.trainEnd.setColorAt(k * 4 + c, bc); }
+        if ((std || exp) && live(k)) { // 窓の乗客：両側に、混むほど多く（超満員では窓いっぱい）
+          const m = Math.min(paxCap, Math.round(paxLook.pax * dayK * (0.75 + 0.5 * ((k * 0.37) % 1)))); this.tmpQ.setFromAxisAngle(up, yaw); this.paxM.compose(this.tmpV, this.tmpQ, this.tmpS1);
+          for (const sd of [-1, 1]) for (let q = 0; q < m && np < this.trainPax.instanceMatrix.count; q++) { const hz = (q * 0.618 + k * 0.13 + c * 0.29 + (sd > 0 ? 0.5 : 0)) % 1, zz = -7.6 + 15.2 * (m > 1 ? (q + 0.5 * hz) / m : hz);
+            this.paxL.makeTranslation(sd * 1.5, (hz - 0.5) * 0.12, zz); this.tmpM2.multiplyMatrices(this.paxM, this.paxL); this.trainPax.setMatrixAt(np, this.tmpM2); this.trainPax.setColorAt(np, this.tmpC.setHex(PC[(q * 3 + k + c) % PC.length])); np++; } }
         this.trainCars!.setMatrixAt(k * 4 + c, (sl && c === 0) || exp || std ? this.ZERO : this.tmpM); this.trainWin!.setMatrixAt(k * 4 + c, sl && c === 0 ? this.tmpM.clone().scale(this.tmpV.set(0.001, 0.001, 0.001)) : this.tmpM);
         this.trainCars!.setColorAt(k * 4 + c, this.tmpC.setHex(sl ? (c === 0 ? 0x1c1c1e : 0x6b3a22) : kd === 1 ? 0xf2f2ee : kd === 2 ? 0xe8f1f6 : [0xe6e8ea, 0x2f6fb5, 0xd9dde0, 0x1f8a5a, 0xf2f2f2, 0xd9622b][k % 6]));
         const half = (kd === 1 ? 0.76 : kd === 2 ? 0.45 : sl && c === 0 ? 0.62 : 1) * 9.5, fx = Math.sin(yaw), fz = Math.cos(yaw);
@@ -1926,6 +1946,7 @@ export class View {
       // 蒸気機関車の煙
       if (sl && slOn && tr.wait <= 0) { this.slPuff -= dt; if (this.slPuff <= 0) { this.slPuff = 0.22; this.fx.burst(headX - Math.sin(headYaw) * 3, headY + 4.6, headZ - Math.cos(headYaw) * 3, 'smoke', 1, 1.5); } }
     });
+    this.trainPax.count = np; if (np) { this.trainPax.instanceMatrix.needsUpdate = true; if (this.trainPax.instanceColor) this.trainPax.instanceColor.needsUpdate = true; }
     this.trainCars!.instanceMatrix.needsUpdate = true; if (this.trainCars!.instanceColor) this.trainCars!.instanceColor.needsUpdate = true;
     for (const im of [this.trainMid, this.trainPan, this.trainEnd]) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
     this.trainLoco.instanceMatrix.needsUpdate = true; this.trainExp.instanceMatrix.needsUpdate = true; if (this.trainExp.instanceColor) this.trainExp.instanceColor.needsUpdate = true;
@@ -1952,23 +1973,54 @@ export class View {
     const ck = `${calMonth(s.month)}:${Math.floor(h / 3)}`;
     if (ck !== this.crowdKey) {
       this.crowdKey = ck; const rr = seeded(7 + Math.floor(h / 3));
-      for (let i = 0; i < 700; i++) { let t = pickType(h, rr); if (t === 'dog' || t === 'jogger' || t === 'parent') t = 'worker'; const L = makeLook(t, rr, calMonth(s.month), false); this.crowdLooks[i] = L; this.crowdP.setLook(i, L); this.crowdP.setPose(i, 0, 0); }
+      for (let i = 0; i < CROWD_N; i++) { let t = pickType(h, rr); if (t === 'dog' || t === 'jogger' || t === 'parent') t = 'worker'; const L = makeLook(t, rr, calMonth(s.month), false); this.crowdLooks[i] = L; this.crowdP.setLook(i, L); this.crowdP.setPose(i, 0, 0); }
       this.crowdP.commitLooks();
     }
-    const byId = new Map(s.buildings.map(b => [b.id, b] as const));
+    const byId = new Map(s.buildings.map(b => [b.id, b] as const)), crowd = new Map(this.stStats(s).map(x => [x.b.id, x.crowd] as const));
+    const cap = Math.round(CROWD_N * (this.quality === 'low' || this.lite ? 0.4 : this.quality === 'mid' ? 0.7 : 1)), rk = night ? 0.08 : 0.3 + 0.7 * r;
     let n = 0;
+    const put = (x: number, y: number, z: number, yaw: number, ph: number, amp: number) => {
+      const L = this.crowdLooks[n]; this.tmpQ.setFromAxisAngle(up, yaw); this.tmpV.set(x, y, z); this.tmpS.set(L.scale * L.width, L.scale, L.scale); this.tmpM.compose(this.tmpV, this.tmpQ, this.tmpS); this.tmpS.set(1, 1, 1);
+      this.crowdP.mesh.setMatrixAt(n, this.tmpM); this.crowdP.setPose(n, ph, amp * L.amp); n++; };
     for (const sp of this.stSpots) {
       const b = byId.get(sp.id); if (!b || b.status !== 'operating' || !sp.pts.length) continue;
+      // v87：駅の混雑率（sim の stationStats）で、ホームの人数・乗り残し・駅前にあふれる人が変わる
+      const lk = stationLook(crowd.get(sp.id) ?? 100); this.stLeft.set(sp.id, lk.left);
       const f = Math.min(1, (this.stFill.get(sp.id) ?? 1) + dt / 40); this.stFill.set(sp.id, f);
-      const want = Math.round(Math.min(sp.pts.length / 3, (6 + (b.used ?? 0) / 18) * (night ? 0.08 : 0.3 + 0.7 * r)) * f);
-      for (let k = 0; k < want && n < 700; k++, n++) {
-        this.tmpQ.setFromAxisAngle(up, (k * 2.39) % (Math.PI * 2)); this.tmpV.set(sp.pts[k * 3], sp.pts[k * 3 + 1], sp.pts[k * 3 + 2]); this.tmpM.compose(this.tmpV, this.tmpQ, this.tmpS);
-        const L = this.crowdLooks[n]; this.tmpS.set(L.scale * L.width, L.scale, L.scale); this.tmpM.compose(this.tmpV, this.tmpQ, this.tmpS); this.tmpS.set(1, 1, 1);
-        this.crowdP.mesh.setMatrixAt(n, this.tmpM);
-      }
+      const want = Math.round(Math.min(sp.pts.length / 3 * Math.min(3, Math.max(1, lk.fill * 1.4)), (6 + (b.used ?? 0) / 18) * rk * lk.fill) * f);
+      for (let k = 0; k < want && n < cap; k++) put(sp.pts[k * 3], sp.pts[k * 3 + 1], sp.pts[k * 3 + 2], (k * 2.39) % (Math.PI * 2), 0, 0);
+      const pz = this.plazaPts(s, sp, b); if (!pz.length) continue;
+      // 列車が着いた直後：降りた人がホームから改札・駅前へ歩いていく（混むほど多い）
+      const ta = this.lifeT - (this.stArr.get(sp.id) ?? -99);
+      if (ta < 10 && !night) { const m = Math.round(Math.min(60, 6 + lk.load * 14) * (0.4 + 0.6 * rk));
+        for (let k = 0; k < m && n < cap; k++) { const u = ta / 10 * 1.7 - (k % 20) * 0.035; if (u <= 0 || u >= 1) continue; const a0 = ((k * 7) % (sp.pts.length / 3 | 0)) * 3, g = (k % 12) * 4;
+          const x0 = sp.pts[a0], y0 = sp.pts[a0 + 1], z0 = sp.pts[a0 + 2], x1 = pz[g], y1 = pz[g + 1], z1 = pz[g + 2];
+          put(x0 + (x1 - x0) * u, y0 + (y1 - y0) * u, z0 + (z1 - z0) * u, Math.atan2(x1 - x0, z1 - z0), this.lifeT * 6 + k, 1); } }
+      // 改札前の行列と駅前広場：ホームに収まらない人（混雑率が高い朝夕ほど多い）
+      const spill = Math.round(Math.min(pz.length / 4, lk.spill * rk * (30 + (b.used ?? 0) / 8)) * (0.5 + 0.5 * f));
+      for (let k = 0; k < spill && n < cap; k++) put(pz[k * 4], pz[k * 4 + 1], pz[k * 4 + 2], pz[k * 4 + 3], 0, 0);
     }
     if (n !== this.crowdP.mesh.count || n) { this.crowdP.mesh.count = n; this.crowdP.commitPose(); }
     this.stats.peds = this.peds.length + n;
+  }
+  /** v87：駅ごとの混雑率（sim の stationStats を読むだけ。政策の記録がまだ無い街では空） */
+  private stStats(s: GameState): { b: Building; crowd: number }[] {
+    if (s.pol) { try { return stationStats(s); } catch { return []; } }
+    // 政策の記録がまだ無い街：同じ計算を、空の政策で（月と建物が変わったときだけ）
+    const k = `${s.month}:${s.bVersion}`; if (this.stSK !== k) { this.stSK = k; try { this.stSC = stationStats({ ...s, pol: {} } as GameState); } catch { this.stSC = []; } } return this.stSC; }
+  private stSK = ''; private stSC: { b: Building; crowd: number }[] = [];
+  /** v87：駅前広場の立ち位置（x, y, z, 向き）。改札（駅舎の正面）に近い順で、線路と直角の向きに伸びる行列から広場いっぱいへ */
+  private plaza = new Map<number, number[]>(); private stLeft = new Map<number, number>(); private stArr = new Map<number, number>();
+  private plazaPts(s: GameState, sp: StationSpot, b: Building): number[] {
+    const c = this.plaza.get(sp.id); if (c) return c;
+    const P = this.railPaths[sp.path], out: number[] = []; if (!P) { this.plaza.set(sp.id, out); return out; }
+    const [tx0, , tz0, yaw] = railAt(P, sp.d), tx = Math.sin(yaw), tz = Math.cos(yaw), nx = -tz, nz = tx, lx = (b.x + b.w / 2) * TILE, lz = (b.y + b.h / 2) * TILE;
+    const dot = (lx - tx0) * nx + (lz - tz0) * nz, side = dot >= 0 ? 1 : -1, along = Math.max(-30, Math.min(30, (lx - tx0) * tx + (lz - tz0) * tz)), across = Math.max(14, Math.min(35, dot * side));
+    const sx = tx0 + tx * along + nx * side * across, sz = tz0 + tz * along + nz * side * across, rr = seeded(sp.id * 31 + 7), pts: [number, number, number][] = [];
+    for (let u = -21; u <= 21; u += 1.05) for (let v = 6.5; v <= 16; v += 1.05) { const ju = u + (rr() - 0.5) * 0.5, jv = v + (rr() - 0.5) * 0.5; pts.push([ju, jv, Math.abs(ju) * 1.7 + (jv - 6.5) * 0.9 + rr() * 1.5]); }
+    pts.sort((p, q) => p[2] - q[2]);
+    for (const [u, v] of pts) { const x = sx + tx * u + nx * side * v, z = sz + tz * u + nz * side * v; out.push(x, this.surfY(x, z) + 0.15, z, Math.atan2(-nx * side, -nz * side) + (rr() - 0.5) * 0.8); } // 駅舎の方を向く
+    this.plaza.set(sp.id, out); return out;
   }
   // ------------------------------------------------------------ 交通の流れ（混雑レイヤーで、道路の上を流れる矢印。混むほど遅く赤く）
   private flowArrows!: THREE.InstancedMesh;
@@ -2068,6 +2120,61 @@ export class View {
   /** 毎コマの始めと終わり：形ごとの置いた数を 0 に戻し、終わりに数と色を描画に渡す */
   private vehBegin(): void { this.vehN.fill(0); }
   private vehEnd(): void { this.vehM.forEach((m, t) => { const n = this.vehN[t]; m.body.count = n; m.body.instanceMatrix.needsUpdate = true; if (m.body.instanceColor) m.body.instanceColor.needsUpdate = true; if (m.cab) { m.cab.count = n; m.cab.instanceMatrix.needsUpdate = true; } }); }
+  // ------------------------------------------------------------ v87：緊急出動（パトカー・救急車・消防車）
+  /** 道路の区画 i につながる道路の数（3 以上が交差点） */
+  private roadDeg(s: GameState, i: number): number { const x = i % W, y = (i / W) | 0; return (x > 0 && s.road[i - 1] ? 1 : 0) + (x < W - 1 && s.road[i + 1] ? 1 : 0) + (y > 0 && s.road[i - W] ? 1 : 0) + (y < H - 1 && s.road[i + W] ? 1 : 0); }
+  /** 経路の i 番目から、いま・次・次の次の区画を決める */
+  private emRoute(a: Agent, em: Em): void { const r = em.r, n = r.length - 1; em.i = Math.min(em.i, Math.max(0, n - 1)); a.cur = r[em.i]; a.next = r[Math.min(n, em.i + 1)]; a.nn = r[Math.min(n, em.i + 2)]; }
+  /** 出動：kinds の車を、それぞれ最寄りの拠点から現場（対象の区画・建物）へ。拠点が無い種類は隣の市から（地図の端の入口。遅れて来る） */
+  dispatch(s: GameState, kinds: EmKind[], target: number): number {
+    if (REAL && !REAL.deformed) return 0; const site = emSite(s, target, W, H, Math.random); if (!site) return 0;
+    const b = site.b, bx = b ? b.x : site.x, by = b ? b.y : site.y, bw = b ? b.w : 1, bh = b ? b.h : 1, dest = roadNear(s.road, W, H, bx, by, bw, bh); if (dest < 0) return 0;
+    const sx = (bx + bw / 2) * TILE, sz = (by + bh / 2) * TILE; let n = 0;
+    kinds.forEach((k, q) => {
+      if (this.ems.length >= (this.lite ? 5 : 9)) return;
+      const base = nearestBase(s, EM_BASE[k], bx, by); let from = base ? roadNear(s.road, W, H, base.x, base.y, base.w, base.h) : -1, wait = 0.5 + q * 1.4;
+      if (from < 0) { const g = GATEWAYS.filter(t => s.road[t]); if (!g.length) return; from = g[(Math.random() * g.length) | 0]; wait += 20; } // 市に拠点が無い：隣の市から応援（遅い）
+      let r = roadRoute(s.road, W, H, from, dest); if (!r) return;
+      if (r.length < 2) { const x = dest % W, y = (dest / W) | 0, nb = [dest - 1, dest + 1, dest - W, dest + W].find((t, j) => t >= 0 && t < W * H && s.road[t] && (j > 1 || ((t / W) | 0) === y) && (j < 2 || (t % W) === x)); if (nb === undefined) return; r = [nb, dest]; }
+      const hosp = k === 1 ? nearestBase(s, HOSPITALS, bx, by) : null, ht = hosp ? roadNear(s.road, W, H, hosp.x, hosp.y, hosp.w, hosp.h) : -1;
+      const em: Em = { k, r, i: 0, lit: true, stay: k === 2 ? 32 : k === 1 ? 9 : 16 + Math.random() * 8, at: false, legs: [ht >= 0 ? ht : from], wait, sx, sz, sir: Math.random() * 2, h: ht >= 0 };
+      const a: Agent = { cur: r[0], next: r[1], prev: -1, t: 0.05, speed: 12, lane: 0, yaw: 0, bob: 0, kind: 0, vm: EM_VM[k], vc: [0x1c1e22, 0xf6f6f2, 0xc0261c][k] };
+      (a as any).em = em; this.emRoute(a, em); { const d = this.lanePath(s, -1, a.cur, a.next, a.nn!, 0.05, 0); a.yaw = Math.atan2(d.dx, d.dz); }
+      this.ems.push(a); if (this.cars.length >= 320) this.cars.splice(0, 1); this.cars.push(a); n++;
+    });
+    return n;
+  }
+  /** 毎コマ：ふだんの通報（人口で救急、治安でパトカー）・現場での待機と放水・次の行き先・サイレン・まわりの車が道を空ける */
+  private emTick(s: GameState, dt: number): void {
+    if (REAL && !REAL.deformed) return;
+    this.emT -= dt;
+    if (this.emT <= 0) { // 見ている所の近くの家・店で、救急の呼び出しや事件の通報
+      const pop = s.stats.pop || 0, cr = s.stats.crime || 0, rate = Math.max(0.3, Math.min(2.5, pop / 25000 + cr * 1.5)); this.emT = (30 + Math.random() * 50) / rate;
+      if (this.ems.length < 4 && pop > 500) { const cx = this.target.x / TILE, cz = this.target.z / TILE, near = s.buildings.filter(b => b.status === 'operating' && Math.abs(b.x - cx) < 14 && Math.abs(b.y - cz) < 14 && (b.hh || isShop(b.kind)));
+        if (near.length) { const b = near[(Math.random() * near.length) | 0]; this.dispatch(s, Math.random() < 0.3 + cr * 0.6 ? [0] : [1], idx(b.x, b.y)); } }
+    }
+    const pos = this.emPos; pos.length = 0;
+    for (let j = this.ems.length - 1; j >= 0; j--) {
+      const a = this.ems[j], em: Em = (a as any).em;
+      if (em.r.some(t => !s.road[t])) { this.ems.splice(j, 1); const ci = this.cars.indexOf(a); if (ci >= 0) this.cars.splice(ci, 1); continue; } // 道路が壊された・付け替えられた
+      if (em.wait > 0) { em.wait -= dt; continue; }
+      const px: number = (a as any).px ?? 0, pz: number = (a as any).pz ?? 0;
+      if (em.lit) { pos.push(px, pz, Math.sin(a.yaw), Math.cos(a.yaw)); em.sir -= dt; if (em.sir <= 0) { em.sir = 3; this.sfx('siren' + em.k, px, 0, pz); } }
+      if (!em.at && (a.v ?? 0) < 0.4 && ((em.i >= em.r.length - 2 && a.t >= 0.45) || (em.legs.length && em.lit && Math.hypot(px - em.sx, pz - em.sz) < 75))) em.at = true; // 着いた（先に着いた車の後ろに並んでも）
+      if (!em.at) continue;
+      if (em.k === 2 && em.legs.length && em.stay > 2 && Math.random() < dt * (this.lite ? 12 : 30)) { const dx = em.sx - px, dz = em.sz - pz, L = Math.hypot(dx, dz) || 1; this.fx.burst(px, this.surfY(px, pz) + 3.6, pz, 'water', this.lite ? 2 : 3, 0, [dx / L * 0.75, 0.62, dz / L * 0.75]); } // 放水
+      em.stay -= dt; if (em.stay > 0) continue;
+      const to = em.legs.shift();
+      const r2 = to !== undefined ? roadRoute(s.road, W, H, a.next, to) : null;
+      if (!r2 || to === undefined) { this.ems.splice(j, 1); const ci = this.cars.indexOf(a); if (ci >= 0) this.cars.splice(ci, 1); continue; } // 拠点・病院に戻った
+      em.r = r2.length > 1 ? [a.cur, ...r2] : [a.cur, a.next]; em.i = 0; em.at = false; em.lit = em.k === 1 && em.h; em.stay = em.lit ? 4 : 0; em.h = false; // 救急車は病院へ赤色灯のまま（着いたら終わり）。ほかは消灯して拠点へ帰る
+      this.emRoute(a, em);
+    }
+    // まわりの車：赤色灯の緊急車両が後ろ・前から 34m 以内に来たら左に寄って止まる
+    for (const a of this.cars) { if ((a as any).em) continue; let y = false; const px: number | undefined = (a as any).px;
+      if (pos.length && px !== undefined) { const pz: number = (a as any).pz; for (let q = 0; q < pos.length; q += 4) { const dx = px - pos[q], dz = pz - pos[q + 1]; if (dx * dx + dz * dz < 34 * 34 && dx * pos[q + 2] + dz * pos[q + 3] > -6) { y = true; break; } } }
+      (a as any).yl = y; }
+  }
   /** 車（形 vm・色 vc）を今の行列 tmpM で置く */
   private placeVeh(a: { vm?: number; vc?: number }): void { const t = a.vm ?? 0, m = this.vehM[t], n = this.vehN[t]++; if (n >= 320) { this.vehN[t] = 320; return; } m.body.setMatrixAt(n, this.tmpM); m.body.setColorAt(n, this.tmpC2.setHex(a.vc ?? 0xf4f4f2)); m.cab?.setMatrixAt(n, this.tmpM); }
   /** 車の形・色・速さを決める（v86）：日本の街の分布。乗用車は白・黒・銀・灰が多く、まれにパトカー・救急車・消防車、タクシー、バイク、自転車。トラックは大型・2t・ごみ収集車 */
@@ -2076,7 +2183,7 @@ export class View {
     if (k === 1) { vm = 17; vc = VEH_C[1]; } else if (k === 4) { vm = 19; vc = pk([0xf2f2ee, 0x2a5fb0, 0xd8382c, 0x2aa060]); } else if (k === 3) { vm = 0; vc = VEH_C[3]; }
     else if (k === 2) { const r = R(); if (r < 0.4) { vm = 18; vc = pk([0x2a7fe0, 0x2aa060, 0xd8382c, 0xf2f2ee]); } else if (r < 0.8) { vm = 13; vc = pk([0xf4f4f2, 0xf4f4f2, 0xf4f4f2, 0xe8c030, 0x2a64b8, 0xd8382c, 0x2aa060]); } else { vm = 14; vc = pk([0xf4f4f2, 0xf4f4f2, 0x2a8a50, 0x2a64b8]); } }
     else { const r = R(), q = R();
-      if (r < 0.008) { vm = 10; vc = 0x1c1e22; } else if (r < 0.014) { vm = 11; vc = 0xf6f6f2; } else if (r < 0.018) { vm = 12; vc = 0xc0261c; }
+      const pp = this.patrolP; if (r < pp) { vm = 10; vc = 0x1c1e22; } else if (r < pp + 0.004) { vm = 11; vc = 0xf6f6f2; } else if (r < pp + 0.006) { vm = 12; vc = 0xc0261c; }
       else if (r < 0.05) { vm = 15; vc = pk([0x2a2c33, 0x3a5a8a, 0xc0392b, 0x6a8a4a, 0xd9a03a, 0xf2f2f2, 0x7a5a8a]); a.speed = 6 + R() * 3; }
       else if (r < 0.1) { vm = 16; vc = pk([0x2a2c33, 0x3a5a8a, 0xc0392b, 0x6a8a4a, 0xd9a03a, 0xf2f2f2, 0x7a5a8a, 0x8a6a4a]); a.speed = 5.5 + R() * 1.5; }
       else if (r < 0.14) { vm = 9; vc = pk([0x24262a, 0x24262a, 0xf4f4f2, 0xe8c840, 0x2f8a5a]); }
@@ -2275,7 +2382,7 @@ export class View {
     this.buildVeh(this.wheelN());
     // 人：脚と腕を振って歩く（people.ts）。道を歩く人・駅のホームの乗客・施設に集まる人
     this.pedP = new People(420, this.scene);
-    this.crowdP = new People(700, this.scene);
+    this.crowdP = new People(CROWD_N, this.scene);
     // 踏切の遮断機の竿（黄と黒のしま。長さ 1 を区間の長さに伸ばす）
     { const gg = new Geo(); for (let k = 0; k < 8; k++) gg.box((k + 0.5) / 8, -0.11, 0, 1 / 8, 0.22, 0.22, k % 2 ? 0x1d1d1d : 0xf2c230); this.gateArms = mk(gg.build(), 64, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 })); this.gateArms.count = 0; this.gateArms.castShadow = false; }
     // 交通の流れの矢印（平たい三角）
@@ -2555,14 +2662,17 @@ export class View {
     const jamCars: Agent[] = [];
     for (const i of roads) {
       const v = (s.vc[i] || 0) * f.jam; if (v < 0.9) continue;
-      const per = Math.min(4, Math.round((v - 0.6) * 2.5)), x = i % W, y = (i / W) | 0;
+      const per = jamLook(v).per, x = i % W, y = (i / W) | 0; // v87：混雑率 1 超で列が伸び、1.5 超では区画いっぱい（交差点をまたいで）に詰まる
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const nx = x + dx, ny = y + dy; if (!inMap(nx, ny) || !s.road[idx(nx, ny)]) continue;
-        for (let q = 0; q < per && jamCars.length < 220 * k; q++) jamCars.push({ cur: i, next: idx(nx, ny), prev: -1, t: (q + 0.3) / (per + 0.5), speed: 7 + Math.random() * 4, lane: q % 2, yaw: 0, bob: Math.random() * 6 });
+        for (let q = 0; q < per && jamCars.length < 240 * k; q++) jamCars.push({ cur: i, next: idx(nx, ny), prev: -1, t: (q + 0.3) / (per + 0.5), speed: 7 + Math.random() * 4, lane: q % 2, yaw: 0, bob: Math.random() * 6 });
       }
     }
-    this.cars = jamCars.concat(mk(Math.max(0, Math.min(320 - jamCars.length, nCar - jamCars.length / 2)), roads, cw, false)); this.peds = this.dressPeds(mk(Math.round(nPed * 0.8), peds, pw, true), 420);
-    this.cars.forEach(a => this.dressVeh(a)); this.lookPeds(this.peds);
+    { let np = 0; for (const b of s.buildings) if (b.status === 'operating' && (b.kind === 'police' || b.kind === 'koban')) np++; // v87：巡回のパトカーは治安が悪いほど、交番・警察署が多いほど多い
+      this.patrolP = Math.min(0.03, (0.003 + 0.016 * (s.stats.crime || 0)) * (np ? 1 + 0.3 * Math.min(3, np) : 0.35)); }
+    this.ems = this.ems.filter(a => s.road[a.cur]);
+    this.cars = jamCars.slice(0, 320 - this.ems.length).concat(mk(Math.max(0, Math.min(320 - this.ems.length - jamCars.length, nCar - jamCars.length / 2)), roads, cw, false)); this.peds = this.dressPeds(mk(Math.round(nPed * 0.8), peds, pw, true), 420);
+    this.cars.forEach(a => this.dressVeh(a)); this.cars.push(...this.ems); this.lookPeds(this.peds);
     this.stats.cars = this.cars.length; this.stats.peds = this.peds.length;
   }
   private moveAgents(s: GameState, dt: number): void {
@@ -2582,8 +2692,12 @@ export class View {
     for (const b of this.busSegs) put(b.cur, b.next, b.t, VEH_HL[1], -1, 0);
     this.cars.forEach((a, i) => { let lim = 9; const me = HL(a), wide = this.laneOff(s, a.cur, 1) !== this.laneOff(s, a.cur, 0);
       // 同じ区間の前の車（同じ位置なら番号の若いほうを前とみなす。4 車線の道では同じ車線だけ）
-      const own = segs.get(keyOf(a.cur, a.next)); if (own) for (const o of own) if (o.id !== i && (o.t > a.t || (o.t === a.t && o.id < i)) && (!wide || o.lane === a.lane || o.id < 0)) lim = Math.min(lim, o.t - (me + o.hl + 2) / TILE);
-      const nx = a.nn !== undefined && a.nn !== a.next ? segs.get(keyOf(a.next, a.nn)) : undefined; if (nx) for (const o of nx) lim = Math.min(lim, 1 + o.t - (me + o.hl + 2) / TILE);
+      const jv = (s.vc[a.cur] || 0) * jam, gp = jv > 1.5 ? 0.9 : jv > 1 ? 1.3 : 2; // v87：渋滞では車間を詰める
+      const own = segs.get(keyOf(a.cur, a.next)); if (own) for (const o of own) if (o.id !== i && (o.t > a.t || (o.t === a.t && o.id < i)) && (!wide || o.lane === a.lane || o.id < 0)) lim = Math.min(lim, o.t - (me + o.hl + gp) / TILE);
+      const nx = a.nn !== undefined && a.nn !== a.next ? segs.get(keyOf(a.next, a.nn)) : undefined; if (nx) for (const o of nx) lim = Math.min(lim, 1 + o.t - (me + o.hl + gp) / TILE);
+      if ((a as any).em?.lit) { lim = 9; const ce = this.cars; // 赤色灯の緊急車両は、道を空けた車の横を抜けていく（前の緊急車両には続く）
+        if (own) for (const o of own) if (o.id >= 0 && o.id !== i && (ce[o.id] as any)?.em && (o.t > a.t || (o.t === a.t && o.id < i))) lim = Math.min(lim, o.t - (me + o.hl + 3) / TILE);
+        if (nx) for (const o of nx) if (o.id >= 0 && (ce[o.id] as any)?.em) lim = Math.min(lim, 1 + o.t - (me + o.hl + 3) / TILE); }
       (a as any).limit = lim; });
     const sigG = this.signals(s), cyc = this.lifeT % 36, sigAxis = cyc < 18 ? 0 : 1, amber = cyc % 18 > 15, h = this.hour;
     const stepPed = (a: Agent, i: number) => {
@@ -2632,12 +2746,21 @@ export class View {
     const step = (a: Agent, ped: boolean, i: number) => {
       if (ped) { stepPed(a, i); return true; }
       if (!s.road[a.cur] || !s.road[a.next]) { const list = ped ? this.pedTiles : this.roadTiles; a.cur = this.pickTile(list); if (a.cur < 0) return false; a.next = this.nextTile(s, a.cur, -1, ped); a.prev = -1; a.t = 0; a.nn = undefined; }
-      if (a.nn === undefined || !s.road[a.nn] || a.nn === a.next) a.nn = a.cur === a.next ? a.next : this.nextTile(s, a.next, a.cur, false);
+      const em: Em | undefined = (a as any).em;
+      if (em) this.emRoute(a, em); else if (a.nn === undefined || !s.road[a.nn] || a.nn === a.next) a.nn = a.cur === a.next ? a.next : this.nextTile(s, a.next, a.cur, false);
       // v86：目標の速さ（道・渋滞・曲がり角で変わる）まで加減速する。前の車・赤信号・踏切の手前では、止まれる速さまで落とす（前は一定の速さで、止まるときは瞬間に止まっていた）
       const vc = (s.vc[a.cur] || 0) * jam; let vt = a.speed * (s.road[a.cur] >= 2 ? 1.25 : 0.8) / (1 + 1.6 * vc * vc * vc);
+      if (em?.lit) vt = 13 / (1 + 0.5 * vc * vc); // 緊急走行（渋滞がひどいと、それでも遅れる）
+      else { const cr = jamLook(vc).crawl; if (cr > 0) vt *= Math.max(0, 1 - cr * (0.55 + 0.6 * Math.sin(this.lifeT * 0.9 - (a.cur % W + ((a.cur / W) | 0) + a.t) * 0.8))); // v87：のろのろ（止まっては少し進む波が後ろへ伝わる）
+        if ((a as any).yl) vt = 0; } // 緊急車両が近い：左に寄って止まる
       if ((a.t > 0.62 && a.nn !== undefined && a.nn !== a.next && a.nn - a.next !== a.next - a.cur) || (a.t < 0.3 && a.prev >= 0 && a.next - a.cur !== a.cur - a.prev)) vt = Math.min(vt, 3.6 + a.speed * 0.18); // 曲がる前後は減速
       let lim = Math.min(9, (a as any).limit ?? 9);
-      if (a.cur !== a.next) {
+      if (em) { if (em.wait > 0 || em.at) lim = Math.min(lim, a.t); else if (em.i >= em.r.length - 2) lim = Math.min(lim, 0.5); } // 出動の準備中・現場では止まる。経路の終わりの区間の中ほどで止まる
+      else if (a.cur !== a.next && vc > 0.6 && a.nn !== a.next && this.roadDeg(s, a.next) >= 3 && isRightTurn(W, a.cur, a.next, a.nn!)) { // v87：右折待ち（混むほど対向車が切れず、交差点の中で長く待つ）
+        const key = a.cur * 100000 + a.next; if ((a as any).rk !== key) { (a as any).rk = key; (a as any).rw = Math.random() < Math.min(0.9, vc * 0.7) ? 1 + Math.random() * 3 * vc : 0; }
+        if ((a as any).rw > 0) { lim = Math.min(lim, 0.9); if (a.t > 0.85) (a as any).rw -= dt; }
+      }
+      if (a.cur !== a.next && !em?.lit) {
         if (closed.size && closed.has(a.next) && a.t < 0.6) lim = Math.min(lim, 0.55); // 踏切：遮断機が下りていたら手前で待つ
         if (sigG[a.next]) { // 信号：幹線の交差点の手前（横断歩道の前）で、赤なら止まる。黄で止まれない位置なら通り抜ける
           const stopT = 1 - ((HW[s.road[a.next]] || 2.5) + 5.4) / TILE, axis = Math.abs(a.next - a.cur) === 1 ? 0 : 1;
@@ -2651,9 +2774,12 @@ export class View {
       let nt = a.t + a.v * dt / TILE; if (nt > Math.max(a.t, lim)) { nt = Math.max(a.t, lim); a.v = Math.min(a.v, (nt - a.t) * TILE / Math.max(dt, 1e-3)); }
       (a as any).brk = (pv - a.v) / Math.max(dt, 1e-3) > 0.9 || (a.v < 0.6 && tgt < 0.6) ? 1 : Math.max(0, ((a as any).brk ?? 0) - dt * 2); // ブレーキランプ：減速中と停止中
       a.t = nt;
-      if (a.t >= 1) { a.t -= 1; a.prev = a.cur; a.cur = a.next; a.next = a.nn!; a.nn = a.cur === a.next ? a.next : this.nextTile(s, a.next, a.cur, false); }
+      if (a.t >= 1) { a.t -= 1; a.prev = a.cur; if (em) { em.i++; this.emRoute(a, em); } else { a.cur = a.next; a.next = a.nn!; a.nn = a.cur === a.next ? a.next : this.nextTile(s, a.next, a.cur, false); } }
       // 左側通行：車線の線に沿って走る（曲がり角・折り返しも車線から車線へ）
-      const lp = this.lanePath(s, a.prev, a.cur, a.next, a.nn!, a.t, a.lane), px = lp.x, pz = lp.z, dx = lp.dx, dz = lp.dz;
+      const lp = this.lanePath(s, a.prev, a.cur, a.next, a.nn!, a.t, a.lane), dx = lp.dx, dz = lp.dz;
+      // v87：緊急車両が来たら左へ寄せる。緊急車両は少し右（中央寄り）を走る
+      let sh = (a as any).sh ?? 0; const shT = em?.lit ? -1.1 : (a as any).yl ? 1.5 : 0; if (sh !== shT) { sh += Math.max(-dt * 1.6, Math.min(dt * 1.6, shT - sh)); (a as any).sh = sh; }
+      const px = lp.x + dz * sh, pz = lp.z - dx * sh; (a as any).px = px; (a as any).pz = pz;
       if (this.dbgVeh) this.dbgVeh.push(px, pz, dx, dz, (a.kind ?? 0) * 2);
       const yaw = Math.atan2(dx, dz);
       let d = yaw - a.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
@@ -2663,9 +2789,11 @@ export class View {
       this.tmpQ.setFromAxisAngle(up, a.yaw); this.tmpV.set(px, py, pz); this.tmpM.compose(this.tmpV, this.tmpQ, this.tmpS); this.tmpS.set(1, 1, 1);
       this.placeVeh(a); { const hl = VT_HL[a.vm ?? 0]; head.setXYZ(i, px + Math.sin(a.yaw) * hl, py + 0.7, pz + Math.cos(a.yaw) * hl);
         const b = (a as any).brk ?? 0, nk = this.night; tail.setXYZ(i, px - Math.sin(a.yaw) * hl, py + 0.75, pz - Math.cos(a.yaw) * hl); tailC.setXYZ(i, (0.3 * nk + b) * 1.0, (0.3 * nk + b) * 0.06, (0.3 * nk + b) * 0.04);
-        if (a.vm !== undefined && a.vm >= 10 && a.vm <= 12) { const f = ((this.lifeT * 4) | 0) & 1; tailC.setXYZ(i, f ? 1.5 : 0.1, f ? 0.08 : 0.3, f ? 0.06 : 1.5); } } // 緊急車両の回転灯は赤と青を交互に
+        if (em?.lit) { const f = ((this.lifeT * 5 + i) | 0) & 1; tailC.setXYZ(i, f ? 1.8 : 0.25, f ? 0.08 : 0.02, f ? 0.05 : 0.01); tail.setXYZ(i, px, py + 2.3, pz); } // v87：出動中の赤色灯（屋根の上で点滅。巡回中・帰りは消す）
+        else if ((a as any).rw > 0 && a.t > 0.8) { const f = ((this.lifeT * 3) | 0) & 1; if (f) tailC.setXYZ(i, 1.4, 0.55, 0.02); } } // 右折待ちのウインカー
       return true;
     };
+    this.emTick(s, dt);
     this.cars.forEach((a, i) => step(a, false, i)); this.peds.forEach((a, i) => step(a, true, i));
     this.moveLife(s, dt); this.moveFlow(s, dt);
     if (s.rail) { this.moveTrains(s, dt); this.moveGates(dt); this.moveCrowd(s, dt); }
@@ -3013,6 +3141,7 @@ export class View {
     if (!this.evInit) { this.evInit = true; for (const e of s.events.active) this.seenEv.add(`${e.id}:${e.start}`); }
     for (const e of s.events.active) {
       const key = `${e.id}:${e.start}`; if (this.seenEv.has(key)) continue; this.seenEv.add(key);
+      { const pl = emPlan(e.id); if (pl) this.dispatch(s, this.lite ? pl.slice(0, 3) : pl, e.target); } // v87：できごとの現場へ出動
       const big = e.id === 'nankai' ? 3 : e.id === 'megaQuake' ? 2.2 : e.id === 'quake' ? 1.4 : 0;
       if (big) {
         this.fx.shake(big, 2.5 + big);
@@ -3025,7 +3154,7 @@ export class View {
     // 続いている災害：火事の煙と火の粉、台風の木の葉
     const act = s.events.active.map(e => e.id);
     for (const e of s.events.active) if (e.id === 'bigFire' || e.id === 'fireDelay') {
-      const b = s.buildings.find(o => o.id === e.target) ?? s.buildings.find(o => isRes(o.kind)); if (!b) continue; const p = this.place(s, b);
+      const st = emSite(s, e.target, W, H, () => 0), b = st?.b ?? s.buildings.find(o => isRes(o.kind)); if (!b) continue; const p = this.place(s, b); // v87：対象は区画番号（前は建物 id として探していた）
       if (Math.random() < dt * 14) this.fx.burst(p.x, p.y + 6, p.z, 'smoke', 1, 6); if (Math.random() < dt * 10) this.fx.burst(p.x, p.y + 4, p.z, 'spark', 2, 4);
     }
     // 季節：4 月は桜の花びら、11 月は落ち葉が、カメラのまわりに舞う
