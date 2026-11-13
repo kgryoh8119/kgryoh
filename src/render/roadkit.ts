@@ -181,7 +181,7 @@ export function roadTile(o: RoadTileArgs): void {
     if (junction) {
       if (xw) for (let k = -ah + 0.5; k < ah - 0.3; k += 0.9) AL(dx, dz, hw + 0.6, hw + 0.6 + cwL, k, k + 0.45, W1);
       if (stopAt) AL(dx, dz, stopAt, stopAt + 0.45, ap > 0 ? 0 : -(ah - 0.8), ap > 0 ? ah - 0.8 : 0, W1);
-      if (minor && !xw) { const [px, pz] = WP(dx, dz, stopAt + 2.3, ap * Math.min(1.25, ah * 0.5)); decal(kit, RK.stop, px, pz, -dx, -dz, 2.8, 2.1, hA, 0xffffff, pw); }
+      if (minor && !xw) { const [px, pz] = WP(dx, dz, stopAt + 2.3, ap * Math.min(1.25, ah * 0.5)); decal(kit, RK.stop, px, pz, -dx, -dz, 3.4, 2.3, hA, 0xffffff, pw); }
     }
     // --- 交差点の手前の区画：矢印（幹線の車線ごと）とダイヤマーク（横断歩道あり）。2 車線はダイヤだけ
     if (approach && t >= 2) {

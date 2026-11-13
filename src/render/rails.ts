@@ -248,7 +248,7 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
         const n0x = -az, n0z = ax, n1x = -bz, n1z = bx;
         up([x0 + n0x * oA0, y0 + yA0, z0 + n0z * oA0], [x1 + n1x * oA1, y1 + yA1, z1 + n1z * oA1], [x1 + n1x * oB1, y1 + yB1, z1 + n1z * oB1], [x0 + n0x * oB0, y0 + yB0, z0 + n0z * oB0], col, sh);
       };
-      const rot = Math.atan2(-az, ax), jh = hash(j, P.a, 3), bal = 0x9b968c, span = spanOf(paths.indexOf(P), P.d[j]);
+      const rot = Math.atan2(-az, ax), jh = hash(j, P.a, 3), bal = 0x8c877e, span = spanOf(paths.indexOf(P), P.d[j]);
       if (struct) {
         // 高架橋・鉄橋：桁（床と側面）と防音壁
         const steel = P.off[j] < 3 && [-5, 0, 5].some(q => !!m.water[P.tile[Math.max(0, Math.min(n - 1, j + q))]]); // 鋼の桁は川を渡る低い橋だけ（v76：高架へ上がる坂まで鋼の色になり、分岐で色が食い違っていた）
