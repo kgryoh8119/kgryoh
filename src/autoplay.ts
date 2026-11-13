@@ -36,7 +36,7 @@ export function autoResolve(s: GameState): string[] {
     const waters = s.buildings.filter(b => b.kind && DEFS[b.kind].fam === 'water' && b.status !== 'construction');
     const waterCost = waters.filter(b => b.age + DEFS[b.kind].ageRate * s.termLength >= 38).reduce((a, b) => a + DEFS[b.kind].renewCost, 0);
     const score: Record<string, number> = {
-      fiscal: 3, pop: grow >= 0.1 ? 2.6 : grow >= 0.06 ? 1.6 : 0.7, jobs: s.stats.localJobs < s.stats.workers * 0.9 && grow >= 0.06 ? 2.3 : 1.0,
+      fiscal: 3, pop: grow >= 0.2 ? 2.6 : grow >= 0.13 ? 1.6 : 0.7, // v86：公約が 1.15 倍になったので、見込みの線も上げた jobs: s.stats.localJobs < s.stats.workers * 0.9 && grow >= 0.06 ? 2.3 : 1.0,
       taxcut: s.tax.res <= 0.95 && opNow > 300 ? 2.5 : 0.3, // すでに 5% 下げていれば「維持」で取れる
       wait: s.stats.waitlist <= P.pledgeWait * 3 ? 2.4 : 0.8,
       water: waterCost <= 12000 ? 2.2 : 0.6,

@@ -42,6 +42,17 @@ function macroNotes(s: GameState, run: () => void): void {
   if (M.warLeft === 0 && M0.warLeft > 0) s.notes.push('🕊 海外の戦争が停戦しました。原油の値段が少しずつ落ち着きます');
   const lv = (v: number) => Math.floor(v / 5000); if (lv(M.nikkei) !== lv(M0.nikkei) && M0.nikkei > 0) s.notes.push(`💹 日経平均が ${(lv(M.nikkei) * 5000).toLocaleString()} 円を${M.nikkei > M0.nikkei ? '上回りました' : '割り込みました'}（${M.nikkei.toLocaleString()} 円）`);
 }
+/** v86：移転収入の内訳（難易度・できごとの倍率を掛ける前）。L は税を集計済みの台帳（ふるさと納税で住民税を減らす前）。
+ *  標準的な税収 = 税率を標準（100%）に戻した税収。超過課税・減税の分は交付税の計算に入れない（実際の制度と同じ）ので、増税した分は市の手元に残る */
+export function transferParts(s: GameState, L: Pick<Ledger, 'taxResident' | 'taxProperty' | 'taxBusiness'>): { need: number; stdTax: number; kofu: number; grants: number } {
+  const tax = s.tax ?? { res: 1, prop: 1, biz: 1, stay: 0 }, pop = s.stats.pop;
+  const stdTax = L.taxResident / Math.max(0.5, tax.res) + L.taxProperty / Math.max(0.5, tax.prop) + L.taxBusiness / Math.max(0.5, tax.biz);
+  const need = P.transferBase + P.needPerCapita * pop + P.needPerElder * elderPersons(s);
+  return { need, stdTax, kofu: Math.max(0, need - P.kofuOffset * stdTax), grants: P.transferPerCapita * pop };
+}
+/** 高齢世帯の人数（高齢化の負担の計算に使う） */
+export const elderPersons = (s: GameState) => (s.stats.hhByType?.[4] ?? 0) * P.persons[4];
+function transferOf(s: GameState, L: Ledger): number { const t = transferParts(s, L); return t.kofu + t.grants; }
 /** 今の状態が 1 か月続いたときの毎月の収支の内訳（表示・予測・月次処理で共用） */
 export function monthlyBudget(s: GameState): Ledger {
   const L = emptyLedger(s.month);
@@ -70,8 +81,8 @@ export function monthlyBudget(s: GameState): Ledger {
     }
   }
   if (tax.stay && hotel) L.taxStay! += s.stats.visitors * P.stayShare * P.stayTax;
-  L.transfer = (P.transferBase + s.stats.pop * P.transferPerCapita) * modMul(s, 'transfer') * diffOf(s).transfer * ((s.stats.yudoShare ?? 0) >= 0.6 ? 1.03 : 1); // 立地適正化計画で居住誘導区域に 6 割が住むと、国の補助（コンパクトシティ）
-  L.admin = (P.adminBase + s.stats.pop * P.adminPerCapita) * modMul(s, 'prices') * (hasOp(s, 'cityHall') ? 0.93 : 1) * (hasOp(s, 'cityOS') ? 0.9 : 1) * (1 - 0.01 * Math.min(4, countOp(s, 'branchOffice')));
+  L.transfer = transferOf(s, L) * modMul(s, 'transfer') * diffOf(s).transfer * ((s.stats.yudoShare ?? 0) >= 0.6 ? 1.03 : 1); // 立地適正化計画で居住誘導区域に 6 割が住むと、国の補助（コンパクトシティ）
+  L.admin = (P.adminBase + s.stats.pop * P.adminPerCapita + elderPersons(s) * P.elderCost) * modMul(s, 'prices') * (hasOp(s, 'cityHall') ? 0.93 : 1) * (hasOp(s, 'cityOS') ? 0.9 : 1) * (1 - 0.01 * Math.min(4, countOp(s, 'branchOffice')));
   // 市内の斎場で受け入れられない火葬は、隣の市に頼む（1 件 8 万円の上乗せ）
   L.admin += Math.max(0, (s.stats?.deaths ?? 0) - (s.stats?.cremCap ?? 0)) * P.cremOut;
   // 道の駅：市内の農地が多いほど売上が伸び、市の収入が増える
