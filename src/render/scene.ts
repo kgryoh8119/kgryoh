@@ -159,8 +159,17 @@ if (vSurf > 0.5) { float dd = length(vViewPosition), fd = 1.0 - smoothstep(60.0,
   if (fd > 0.0) {
   vec3 wn = normalize(vWNor); vec4 P = profAt(vWPos); float pr = floor(P.r * 255.0 + 0.5), yy = vWPos.y - (P.g * 255.0 / 3.0 - 20.0);
   float hz = vWPos.x * abs(wn.z) + vWPos.z * abs(wn.x), tint = 1.0, rough = roughnessFactor;
-  if (vSurf < 1.5) {
-    if (pr > 0.5 && pr < 1.5) tint = 1.0 - 0.08 * lnAA(yy / 0.4, 0.09);                                                        // 住宅：横張りのサイディングの重ね目
+  if (vSurf < 1.5 || vSurf > 3.5) {
+    if (vSurf > 3.5) { float mt = floor(vSurf + 0.5);                                                                          // 外壁の素材（v86。geo.ts の wallMat）
+      if (mt < 4.5) { float rw = floor(yy / 0.455), of = mod(rw, 2.0) * 0.5; tint = 1.0 - 0.13 * max(lnAA(yy / 0.455, 0.035), lnAA(hz / 0.91 + of, 0.02)) + 0.08 * (dh3(vec3(floor(hz / 0.91 + of), rw, 4.0)) - 0.5); } // 窯業サイディング：ずらした目地と、板ごとの色むら
+      else if (mt < 5.5) { tint = 1.0 - 0.13 * lnAA(hz / 0.36, 0.05) + 0.05 * lnAA(hz / 0.36 + 0.5, 0.03); rough = 0.36; }            // ガルバリウム鋼板：縦はぜの筋
+      else if (mt < 6.5) { float rw = floor(yy / 0.12), of = mod(rw, 2.0) * 0.5; tint = 1.0 - 0.12 * max(lnAA(yy / 0.12, 0.1), lnAA(hz / 0.24 + of, 0.05)) + 0.12 * (dh3(vec3(floor(hz / 0.24 + of), rw, 6.0)) - 0.5); rough = 0.62; } // 磁器タイル：細かい目地と焼きむら
+      else if (mt < 7.5) { vec2 q = vec2(hz / 1.82, yy / 0.91), sp = (fract(q * vec2(3.0, 2.0)) - 0.5) * vec2(0.607, 0.455); float cw = smoothstep(0.3, 0.08, fwidth(q.x * 3.0));
+        tint = 1.0 - 0.08 * max(lnAA(q.x, 0.012), lnAA(q.y, 0.02)) - 0.22 * cw * (1.0 - smoothstep(0.035, 0.055, length(sp))) + 0.07 * (dh3(floor(vec3(q, 7.0))) - 0.5) + 0.05 * (dvn(vWPos * 1.7) - 0.5); rough = 0.8; } // 打放し：型枠の目地・セパ穴・板ごとの色
+      else if (mt < 8.5) { tint = 0.95 + 0.09 * dvn(vWPos * 2.6) + 0.05 * dvn(vWPos * 9.0) - 0.05; rough = 0.95; }                // 塗り壁：こてむら
+      else if (mt < 9.5) tint = 1.0 - 0.09 * lnAA(yy / 0.4, 0.09);                                                            // 横張りのサイディング
+      else { float rw = floor(yy / 0.21); tint = 1.0 - 0.2 * lnAA(yy / 0.21, 0.08) + 0.14 * (dh3(vec3(rw, floor(hz / 3.6), 10.0)) - 0.5) + 0.06 * (dvn(vec3(hz * 0.9, yy * 14.0, 1.0)) - 0.5); rough = 0.85; } // 板張り：板ごとの色と木目
+    } else if (pr > 0.5 && pr < 1.5) tint = 1.0 - 0.08 * lnAA(yy / 0.4, 0.09);                                                        // 住宅：横張りのサイディングの重ね目
     else if (pr > 1.5 && pr < 2.5) { float m = max(lnAA(hz / 1.8, 0.05), lnAA((yy - 0.9) / 3.4, 0.07)); tint = 1.0 - 0.14 * m; rough = 0.5; } // 会社：縦の方立てと各階の帯
     else { float jn = max(lnAA(hz / 1.8, 0.025), lnAA(yy / 0.9, 0.04)), cw = smoothstep(0.35, 0.1, fwidth(hz / 1.8));
       tint = 1.0 - 0.07 * jn + 0.05 * cw * (dh3(floor(vec3(hz / 1.8, yy / 0.9, pr))) - 0.5); }                               // コンクリート：型枠の目地と、板ごとの色むら
@@ -461,7 +470,7 @@ export class View {
     this.setQuality(this.quality);
   }
   setQuality(q: Quality): void {
-    const f0 = this.fine(); this.quality = q; if (this.fine() !== f0) { this.sigTown = ''; this.sigSites = ''; } // 細部の有無が変わったら建物を作り直す
+    const f0 = this.fine(), h0 = this.quality === 'high'; this.quality = q; if (this.fine() !== f0 || (q === 'high') !== h0) { this.sigTown = ''; this.sigSites = ''; this.chunkSig.clear(); } // 細部の有無が変わったら建物を作り直す（v86：高品質だけの細部もある）
     const dpr = Math.min(window.devicePixelRatio || 1, q === 'high' ? 2 : q === 'mid' ? 1.5 : 1, this.lite ? 1.25 : 9);
     this.renderer.setPixelRatio(dpr);
     const big = q === 'high' && !this.lite && !matchMedia('(pointer: coarse)').matches && this.renderer.capabilities.maxTextureSize >= 8192;
@@ -1323,7 +1332,7 @@ export class View {
     return { x, y, z, rot };
   }
   private drawBuilding(c: Ctx, s: GameState, b: Building): void {
-    Geo.ao = true; DETAIL.frames = !REAL && this.quality !== 'low'; try { this.drawBuilding0(c, s, b); } finally { Geo.ao = false; DETAIL.frames = false; }
+    Geo.ao = true; DETAIL.frames = !REAL && this.quality !== 'low'; DETAIL.hi = !REAL && !this.lite && this.quality === 'high'; try { this.drawBuilding0(c, s, b); } finally { Geo.ao = false; DETAIL.frames = false; DETAIL.hi = false; c.g.wallMat = 1; }
   }
   private drawBuilding0(c: Ctx, s: GameState, b: Building): void {
     const p = this.place(s, b);
