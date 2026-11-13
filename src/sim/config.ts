@@ -652,7 +652,7 @@ export const DEFS: Record<Kind, Def> = {
   rdf: { ...city('waste', 'infra'), name: 'ごみ固形燃料（RDF）の工場', note: '燃えるごみを乾かして固め、燃料にする工場。', w: 2, h: 2, cost: 9000, months: 18, upkeep: 80, lvMax: 0, pollution: 0.4 },
   pylon: { ...req('power', 'infra', '電力会社'), name: '高圧送電線の鉄塔', note: '遠くの発電所から電気を運ぶ鉄塔。景観を気にする声もあります。', w: 1, h: 3, cost: 1500, months: 8 },
   districtHeat: { ...req('gas', 'infra', 'ガス会社'), name: '地域冷暖房のプラント', note: '街の一角のビルにまとめて冷水と温水を送る設備。オフィス街の電気を減らします。', w: 2, h: 2, cost: 8000, months: 18, jobs: 20 },
-  kyodoko: { ...city('gov', 'infra'), name: '共同溝（地下の電線・水道のトンネル）', note: '電線・ガス・水道をまとめて道路の下に通すトンネルの入口。工事で道路を掘り返さずに済みます。', w: 1, h: 1, cost: 6000, months: 24, upkeep: 20, lvMax: 0 },
+  kyodoko: { ...city('gov', 'infra'), name: '共同溝（地下の電線・水道のトンネル）', note: '電線・ガス・水道をまとめて道路の下に通すトンネルの入口。工事で道路を掘り返さずに済みます。v87：周り 240m の生活道路の電柱と電線がなくなり（無電柱化 15 区間ぶん）、景観と災害への強さが上がります。', w: 1, h: 1, cost: 6000, months: 24, upkeep: 20, lvMax: 0 },
   gasHolder: { ...req('gas', 'infra', 'ガス会社'), name: '球形のガスタンク', note: '都市ガスをためる大きな球形のタンク。', w: 2, h: 2, cost: 5000, months: 18, jobs: 5 },
   waterTower: { ...city('water', 'infra'), name: '給水塔', note: '高い所から水を送る塔。高台の水圧を保ちます。', w: 1, h: 1, cost: 1500, months: 8, upkeep: 10, lvMax: 0 },
   oilStockpile: { ...req('power', 'infra', '国（石油備蓄）'), name: '石油備蓄基地', note: '国の石油を蓄える巨大なタンク群。交付金が入ります。', w: 5, h: 4, cost: 30000, months: 36, jobs: 60, income: 120, pollution: 0.3 },
@@ -920,6 +920,17 @@ export const DEFS: Record<Kind, Def> = {
   clubTeam: { ...city('park', 'park'), name: '地域スポーツクラブ（ユースのクラブチーム）', note: 'サッカー・野球・バスケットの子どものクラブチームと練習場。部活動の地域移行の受け皿になり、子育て（就学）世帯の満足が上がります。', lvMax: 2, w: 2, h: 2, cost: 2500, months: 10, upkeep: 25, staffReq: 4, staffKind: '指導者', wage: 28, hire: 2, capacity: 300, capUnit: '人', ageRate: 0.1, renewCost: 800, renewMonths: 2, renewFactor: 0.7 },
   arcade: { ...city('park', 'leisure'), owner: '市と商店街振興組合', name: 'アーケード商店街（屋根付きの商店街）', note: '雨でも歩ける屋根のある商店街。近くに店が出やすくなり、高齢世帯の買い物が楽になって満足が上がります。来訪者も少し増えます。', lvMax: 2, w: 3, h: 1, cost: 3000, months: 8, upkeep: 15, visitors: 800, capacity: 1, ageRate: 0.12, renewCost: 1000, renewMonths: 2, renewFactor: 0.7 },
   station: { ...base, fam: 'station', cat: 'other', build: 'none', name: '鉄道駅', owner: '鉄道事業者', authority: 'consult', note: '市外との接続拠点。運行や改築は鉄道事業者が決めます。市は協議しかできません。', w: 3, h: 1, months: 18, cost: 30000 },
+  // ---- v87 インフラと国の施設（地下駐車場・ビジネスジェット・法務省の施設・メガソーラーの型） ----
+  // 地下駐車場：立体駐車場（2×2・9,000 万円・効果 240m）の約 4 倍の費用。掘削と換気・防災設備で 1 台あたりの費用は地上の数倍（駅前広場の地下駐車場は 500〜1,000 台で数十億円）。地上は広場・公園のまま（緑 0.5）
+  ugParking: { ...city('transport', 'transport'), name: '地下駐車場（駅前広場の地下）', note: '広場や公園の地下に 800 台。地上は広場のまま、出入口のスロープと換気塔だけが見えます。近く（300m 以内）の店の売上が 1.5 割増え、路上駐車が減って周りの道路の渋滞が軽くなります。建設費は高めです。', lvMax: 0, w: 3, h: 3, cost: 36000, months: 30, upkeep: 140, capacity: 1, capUnit: '', ageRate: 0.08, renewCost: 12000, renewMonths: 6, renewFactor: 0.5, income: 260, green: 0.5 },
+  // ビジネスジェット専用ターミナル：空港（市の負担 60,000 万円・知名度 18）の一部の施設。国内の FBO は羽田・成田・中部・関空など。来訪者は空港の 1/15 ほど（富裕層・企業の役員）
+  fbo: { ...req('transport', 'transport', '空港会社・運航会社'), name: 'ビジネスジェット専用ターミナル（FBO）', note: '企業の役員や富裕層が使う小型ジェットの専用ターミナルと格納庫。市内に空港が要ります。知名度が上がり、本社やホテルが来やすくなります。小さいながら機体の騒音があります（1 か所）。', w: 3, h: 2, cost: 12000, months: 18, jobs: 60, use: 60, visitors: 1600, fame: 4, income: 40, bizTax: 30, unique: true },
+  // 法務省の施設（拘置所・少年院・検察庁は v49 からある。ここでは足りない 2 つ）：刑務所（5×5・雇用 350・交付金 200）にならい、規模に比べて控えめに。周辺の不安は NIMBY の表、再犯防止の効果は core.ts の犯罪の計算で（保護観察所 4%・少年院 3% 減）
+  kanbetsu: { ...req('gov', 'safety', '国（法務省）'), name: '少年鑑別所（法務少年支援センター）', note: '少年の心と行動を調べる国の施設。地域の子育てや非行の相談にも応じます（1 か所）。', w: 2, h: 1, cost: 900, months: 24, jobs: 35, income: 20, unique: true },
+  hogoKansatsu: { ...req('gov', 'safety', '国（法務省）と更生保護法人'), name: '保護観察所・更生保護施設', note: '刑務所や少年院を出た人の生活と仕事を支え、保護司と見守ります。再び罪を犯す人が減り、市の治安が少し良くなります。', w: 2, h: 1, cost: 800, months: 12, jobs: 30, income: 10, unique: true },
+  // メガソーラーの型：市営メガソーラー（3×3・18,000 万円・900 世帯）と面積あたり同じ水準。斜面は造成と土砂の対策で費用が 1 割高く、水上は水で冷えて発電量が 1 割多い
+  solarSlope: { ...city('power', 'infra'), name: '斜面のメガソーラー', note: '山の斜面に段々にパネルを並べる大きな太陽光発電所。急斜面の近くに置きます。造成で費用が高く、土砂の流出と景観を気にする声があります。', lvMax: 0, w: 4, h: 4, cost: 36000, months: 12, upkeep: 50, capacity: 1600, capUnit: '世帯相当（発電）', gen: 1600, income: 260, ageRate: 0.2, renewCost: 16000, renewMonths: 4, renewFactor: 0.5 },
+  solarFloat: { ...city('power', 'infra'), name: '水上メガソーラー（ため池）', note: 'ため池の水面にパネルを浮かべる太陽光発電所。土地を使わず、水で冷えて発電量が少し多い。水辺の近くに置きます。', lvMax: 0, w: 3, h: 3, cost: 21000, months: 8, upkeep: 30, capacity: 1000, capUnit: '世帯相当（発電）', gen: 1000, income: 170, ageRate: 0.2, renewCost: 10000, renewMonths: 3, renewFactor: 0.5, req: 'water' },
 };
 
 export const RES_KINDS: Kind[] = ['house', 'apartment', 'mansion', 'towerMansion'];
@@ -932,7 +943,7 @@ export const NIMBY: Partial<Record<Kind, [number, number]>> = {
   waste: [0.5, 2], wasteL: [0.8, 3], recycleCenter: [0.4, 2], sewage: [0.4, 2], sewageS: [0.2, 1], factory: [0.6, 2], smallFactory: [0.2, 1], industrialPark: [0.5, 3],
   coalPower: [1, 4], lngPower: [0.7, 3], nuclear: [1, 5], biomass: [0.4, 2], windFarm: [0.3, 2], substation: [0.2, 1], gas: [0.3, 1],
   airport: [1, 5], vertiport: [0.3, 2], port: [0.4, 3], logistics: [0.4, 2], semicon: [0.3, 2], battery: [0.4, 2], foodFactory: [0.2, 1], pharma: [0.2, 1],
-  crematorium: [0.7, 3], cemetery: [0.2, 1], funeralHall: [0.2, 1], prison: [0.8, 4], sdfBase: [0.6, 4], shipyard: [0.6, 3], racecourse: [0.3, 2], market: [0.3, 2], pachinko: [0.25, 1], smr: [0.6, 3], offshoreWind: [0.2, 2], yokocho: [0.1, 1], nightDistrict: [0.35, 2], fuzokuDistrict: [0.8, 3], carPlant: [0.6, 3], heavyInd: [0.6, 3], foodMaker: [0.2, 1], spaceport: [0.5, 4], casino: [0.5, 3], boatRace: [0.3, 2], keirin: [0.3, 2], robotFactory: [0.3, 2], usBase: [1.0, 5], oilRefinery: [0.6, 4], oilField: [0.3, 2],
+  crematorium: [0.7, 3], cemetery: [0.2, 1], funeralHall: [0.2, 1], prison: [0.8, 4], kochisho: [0.5, 2], shonenin: [0.4, 2], kanbetsu: [0.2, 1], hogoKansatsu: [0.3, 1], fbo: [0.3, 2], solarSlope: [0.2, 1], pylon: [0.1, 1], sdfBase: [0.6, 4], shipyard: [0.6, 3], racecourse: [0.3, 2], market: [0.3, 2], pachinko: [0.25, 1], smr: [0.6, 3], offshoreWind: [0.2, 2], yokocho: [0.1, 1], nightDistrict: [0.35, 2], fuzokuDistrict: [0.8, 3], carPlant: [0.6, 3], heavyInd: [0.6, 3], foodMaker: [0.2, 1], spaceport: [0.5, 4], casino: [0.5, 3], boatRace: [0.3, 2], keirin: [0.3, 2], robotFactory: [0.3, 2], usBase: [1.0, 5], oilRefinery: [0.6, 4], oilField: [0.3, 2],
 };
 export const BUILD_KINDS: Kind[] = (Object.keys(DEFS) as Kind[]).filter(k => DEFS[k].build !== 'none');
 /** 誘致して建てる住宅（v49）。ふつうの住宅と同じく世帯が入居する */

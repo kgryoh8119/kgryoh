@@ -203,10 +203,10 @@ export function modAdd(s: GameState, key: string): number {
 }
 
 /** 道路の種類の効果：並木道は暮らしの満足と空気、石畳は来訪者と高齢者の歩きやすさ、無電柱化は災害の被害と景観（区間の数で頭打ち） */
-const stN = (s: GameState, k: 'tree' | 'stone' | 'nopole' | 'charge', cap: number) => Math.min(1, (s.streets?.[k]?.length ?? 0) / cap);
+const stN = (s: GameState, k: 'tree' | 'stone' | 'nopole' | 'charge', cap: number) => Math.min(1, ((s.streets?.[k]?.length ?? 0) + (k === 'nopole' ? 15 * countOp(s, 'kyodoko') : 0)) / cap); // v87：共同溝 1 か所は無電柱化 15 区間ぶん（周り 240m の電線を地下に入れる）
 function streetAdd(s: GameState, key: string): number {
   if (key === 'safety') return threatSafety(s); // 暴力団・詐欺・過激派・テロの脅威（v42）
-  if (!s.streets) return 0;
+  if (!s.streets && !hasOp(s, 'kyodoko')) return 0;
   if (key === 'sat:all') return 0.006 * stN(s, 'tree', 80) + 0.003 * stN(s, 'nopole', 60);
   if (key === 'sat:4') return 0.004 * stN(s, 'stone', 40) + (hasOp(s, 'droneHub') ? 0.006 : 0);
   if (key === 'fame') return 2 * stN(s, 'stone', 40) + 1.5 * stN(s, 'nopole', 60) + 3 * stN(s, 'charge', 40);
@@ -218,11 +218,11 @@ function streetMul(s: GameState, key: string): number {
   if (key === 'peakTrips') return (1 - 0.05 * Math.min(3, countOp(s, 'mobilityHub')) / 3 * 1) * (hasOp(s, 'logiTunnel') ? 0.9 : 1) * (s.streets ? streetMul0(s, key) : 1);
   if (key === 'powerCap') return hasOp(s, 'gridBattery') ? 1.06 : 1;
   if (key === 'econ') return hasOp(s, 'logiTunnel') ? 1.01 : 1;
-  if (!s.streets) return 1;
+  if (!s.streets && !hasOp(s, 'kyodoko')) return 1;
   return streetMul0(s, key);
 }
 function streetMul0(s: GameState, key: string): number {
-  if (!s.streets) return 1;
+  if (!s.streets && !hasOp(s, 'kyodoko')) return 1;
   if (key === 'visitors') return 1 + 0.05 * stN(s, 'stone', 40);
   if (key === 'econ') return 1 + 0.008 * stN(s, 'charge', 40); // 物流の EV トラックが止まらずに走れる
   if (key === 'disasterDmg') return 1 - 0.12 * stN(s, 'nopole', 60);
@@ -323,10 +323,10 @@ export function laneMul(s: GameState, i: number): number { return (s.wide && s.r
 const PT_CACHE = new WeakMap<GameState, { v: number; n: number; m: number; xs: number[] }>();
 function nearParkingTower(s: GameState, i: number): boolean {
   let c = PT_CACHE.get(s);
-  if (!c || c.v !== s.bVersion || c.n !== s.buildings.length || c.m !== s.month) { const xs: number[] = []; for (const b of s.buildings) if (b.kind === 'parkingTower' && b.status === 'operating') xs.push(b.x, b.y); c = { v: s.bVersion, n: s.buildings.length, m: s.month, xs }; PT_CACHE.set(s, c); }
+  if (!c || c.v !== s.bVersion || c.n !== s.buildings.length || c.m !== s.month) { const xs: number[] = []; for (const b of s.buildings) if ((b.kind === 'parkingTower' || b.kind === 'ugParking') && b.status === 'operating') xs.push(b.x + (b.kind === 'ugParking' ? 1 : 0), b.y + (b.kind === 'ugParking' ? 1 : 0), b.kind === 'ugParking' ? 10 : 8); /* v87：地下駐車場（800 台）は 300m */ c = { v: s.bVersion, n: s.buildings.length, m: s.month, xs }; PT_CACHE.set(s, c); }
   if (!c.xs.length) return false;
   const x = i % W, y = (i / W) | 0;
-  for (let k = 0; k < c.xs.length; k += 2) if (Math.abs(c.xs[k] + 0.5 - x) <= 8 && Math.abs(c.xs[k + 1] + 0.5 - y) <= 8) return true;
+  for (let k = 0; k < c.xs.length; k += 3) if (Math.abs(c.xs[k] + 0.5 - x) <= c.xs[k + 2] && Math.abs(c.xs[k + 1] + 0.5 - y) <= c.xs[k + 2]) return true;
   return false;
 }
 export function roadCapacity(s: GameState, i: number): number {
@@ -588,6 +588,8 @@ export function recompute(s: GameState, lite = false): void {
   cover(health, b => reachOf(b, 25), b => (b.kind === 'hospital' || b.kind === 'univHospital' ? 1 : 0.7), healthCov, true);
   cover(B.filter(b => b.kind === 'fireL' || b.kind === 'hospital' || b.kind === 'univHospital' || b.kind === 'nightClinic' || b.kind === 'perinatal' || b.kind === 'heliport'), b => (b.kind === 'hospital' ? 80 : b.kind === 'univHospital' ? 150 : b.kind === 'nightClinic' ? 60 : b.kind === 'perinatal' ? 120 : b.kind === 'heliport' ? 220 : b.effCap), b => (b.kind === 'nightClinic' ? 0.7 : b.kind === 'heliport' ? 0.8 : 1), emerg, false); // ドクターヘリは遠くまで届く
   cover([...safety, ...B.filter(b => b.kind === 'court')], b => reachOf(b, b.kind === 'court' ? 40 : 22), b => (b.kind === 'police' ? 0.7 : b.kind === 'court' ? 0.25 : 0.8), safetyCov, true);
+  // v87：法務省の施設は fam を gov にして交番のようには効かせず、検察庁（裁判所があると強め）と保護観察所だけ控えめに治安の満足を足す
+  cover(B.filter(b => b.kind === 'kensatsu' || b.kind === 'hogoKansatsu'), () => 40, b => (b.kind === 'kensatsu' ? (hasOp(s, 'court') ? 0.2 : 0.1) : 0.12), safetyCov, true);
   const CULT: Partial<Record<string, number>> = { ancientRuins: 0.14, dome: 0.2, liveHouse: 0.08, fitness: 0.1, ropeway: 0.06, libraryS: 0.12, library: 0.22, gym: 0.18, hall: 0.2, museum: 0.18, stadium: 0.15, tower: 0.08, parkL: 0.12, highschool: 0.05, convention: 0.1, arena: 0.18, aquarium: 0.15, zoo: 0.15, cinema: 0.1, onsen: 0.06, university: 0.12, forestPark: 0.1, camp: 0.06, golf: 0.04, allotment: 0.05, mall: 0.05, biotope: 0.04, flowerPark: 0.08, beach: 0.08, tourFarm: 0.04, shrine: 0.04, temple: 0.06, grandShrine: 0.12, church: 0.04, castle: 0.18, castleRuins: 0.1, observatory: 0.08, botanical: 0.12, operaHouse: 0.22, ferrisWheel: 0.04, racecourse: 0.04, lighthouse: 0.03, jidokan: 0.14, kidsPark: 0.08, amusementPark: 0.1, megaPark: 0.15, pool: 0.1, athletics: 0.12, rugby: 0.08, japaneseGarden: 0.12, giantRobot: 0.06, esportsArena: 0.06, musicArena: 0.1, weddingHall: 0.03, outletMall: 0.04, skiResort: 0.05, casino: 0.05, kodomoMirai: 0.15, ecoCenter: 0.08 };
   cover(B.filter(b => CULT[b.kind] !== undefined), b => reachOf(b, 40), b => CULT[b.kind]! * lvK(b), cultCov, true);
   // 路面電車・LRT：車両基地から範囲内の世帯
@@ -653,6 +655,8 @@ export function recompute(s: GameState, lite = false): void {
   if (lots.length) for (const sh of shopsOp) if (lots.some(p => Math.abs(p.x - sh.x) <= 6 && Math.abs(p.y - sh.y) <= 6)) sh.revenue *= 1.1;
   const towers = B.filter(b => b.kind === 'parkingTower' && b.status === 'operating');
   if (towers.length) for (const sh of shopsOp) if (towers.some(p => Math.abs(p.x + 0.5 - sh.x) <= 8 && Math.abs(p.y + 0.5 - sh.y) <= 8)) sh.revenue *= 1.15;
+  const ugp = B.filter(b => b.kind === 'ugParking' && b.status === 'operating'); // v87：地下駐車場（立体駐車場と同じ 1.5 割、範囲は 300m。重ねては効かない）
+  if (ugp.length) for (const sh of shopsOp) if (!towers.some(p => Math.abs(p.x + 0.5 - sh.x) <= 8 && Math.abs(p.y + 0.5 - sh.y) <= 8) && ugp.some(p => Math.abs(p.x + 1 - sh.x) <= 10 && Math.abs(p.y + 1 - sh.y) <= 10)) sh.revenue *= 1.15;
   // 来訪者の買物：店の集客力の比で分け合う
   if (st.visitors > 0 && shopsOp.length) { const tot = shopsOp.reduce((a, b) => a + DEFS[b.kind].attract!, 0); for (const sh of shopsOp) sh.revenue += st.visitors * P.visitorSpend * DEFS[sh.kind].attract! / tot; }
   res.forEach((r, ri) => { if (r.connected) spendLocal += spend[ri] * r.shopP / (r.shopP + OW); });
@@ -888,7 +892,7 @@ export function recompute(s: GameState, lite = false): void {
   st.satParts = partV.map(v => partN > 0 ? Math.round(v / partN * 1000) / 1000 : 0); st.satDrag = partDrag.map(v => partN > 0 ? Math.round(v / partN * 10000) / 10000 : 0);
   for (let d = 0; d < DISTRICTS.length; d++) st.satDistrict[d] = dDen[d] > 0 ? dNum[d] / dDen[d] : 0;
   st.lv = lvSum.map(v => (lvDen > 0 ? v / lvDen : 0.5));
-  st.crime = Math.round(crimeBase * (1.4 - st.lv[2]) * 1000) / 1000;
+  st.crime = Math.round(crimeBase * (1.4 - st.lv[2]) * (1 - (hasOp(s, 'hogoKansatsu') ? 0.04 : 0) - (hasOp(s, 'shonenin') ? 0.03 : 0)) * 1000) / 1000; // v87：再犯防止（保護観察・少年院の矯正教育）で犯罪が少し減る
   st.waitlist = Math.max(0, st.careDemand - st.careServed);
   st.avgDelay = delayDen > 0 ? delayNum / delayDen : 1;
   st.fireCover = st.households > 0 ? covered / st.households : 1;
