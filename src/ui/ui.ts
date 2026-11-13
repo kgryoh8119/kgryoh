@@ -11,7 +11,7 @@ import { startForecast } from '../forecastRunner';
 import { routeRoad, snapPlace, railPath, railLayPath } from './route';
 import { findCandidates, hasCandidates, type Cand } from './candidates';
 import {
-  W, H, P, DEFS, MISSIONS, VISION_PERKS, furusatoCalc, econFactor, AIR_ROUTES, airportUpCheck, airRouteCheck, bondCap, POLICIES, CITY_KINDS, DISTRICTS, HH_NAMES, ZONE_NAMES, ROAD_NAMES, SAT_PARTS, SAT_W, isRes, isShop, isCity, getMap, idx, landReason, heightAt,
+  W, H, P, DEFS, MISSIONS, VISION_PERKS, furusatoCalc, econFactor, AIR_ROUTES, airportUpCheck, airRouteCheck, bondCap, POLICIES, policyCost, CITY_KINDS, DISTRICTS, HH_NAMES, ZONE_NAMES, ROAD_NAMES, SAT_PARTS, SAT_W, isRes, isShop, isCity, getMap, idx, landReason, heightAt,
   SISTERS, SIS, EXCHANGES, MAX_SISTERS, altitude, hasSea, seaDist, tsunamiDepth, designWave, liquefyRisk,
   CHALLENGES, CH, maxLv, stageName, upgradeBlock, expandCost, optionsFor, optSlots, optCost, STYLES, STYLE_COST, sponsorOf, moveCost,
   LEVELS, MEDALS, RANK_CATS, N_CITIES, mayorDiff, MAYOR_DIFF, levelOf, blockRect, blockName, annexable, BX, BY,
@@ -1467,7 +1467,7 @@ export class UI {
     const s = this.s;
     return `<section><h2>政策 <small>効果は時間をかけて出ます</small></h2>${POLICIES.map(p => {
       const st = s.policies[p.id], on = !!st?.on, f = on ? Math.min(1, (s.month - st.since) / p.ramp) : 0;
-      return `<div class="card"><h3>${p.name}<em>月 ${yenT(p.cost)}</em></h3><p>${p.desc}</p><p><b>効く理由：</b>${p.why}</p><p><b>影響する住民：</b>${p.who}</p>
+      return `<div class="card"><h3>${p.name}<em>月 ${yenT(policyCost(s, p))}</em></h3><p>${p.desc}</p><p><b>効く理由：</b>${p.why}</p><p><b>影響する住民：</b>${p.who}</p>
         <label class="switch"><input type="checkbox" id="pol-${p.id}" data-policy="${p.id}" ${on ? 'checked' : ''}> ${on ? `実施中（効果 ${Math.round(f * 100)}% 発現）` : `実施する（満額まで ${p.ramp} か月）`}</label></div>`;
     }).join('')}</section>
     ${s.modifiers.length ? `<section><h2>実施中の臨時対応</h2><table class="t"><tr><th>内容</th><th>月額</th><th>終了</th></tr>${s.modifiers.map(m => `<tr><td>${m.src}</td><td>${m.cost ? n0(m.cost) + ' 万円' : '—'}</td><td>${m.until < 0 ? '継続' : dateStr(m.until)}</td></tr>`).join('')}</table></section>` : ''}`;
@@ -1481,7 +1481,7 @@ export class UI {
       case 'unroad': return `<b>道路の撤去 ${sum(a.tiles)} 区画</b>：すぐに接続が切れる場合があります。未接続の住宅は翌月から転出が進みます。`;
       case 'repair': return `<b>道路の補修 ${sum(a.tiles)} 区画</b>：すぐ老朽度が 0 に戻り、容量の低下がなくなります。`;
       case 'zone': return `<b>用途の指定 ${sum(a.tiles)} 区画</b>：需要と水道の余力があれば民間が着工します（戸建て 2 か月、集合住宅 4 か月、マンション 8 か月）。いつ建つかは需要と乱数しだいです。`;
-      case 'policy': { const p = POLICIES.find(o => o.id === a.id)!; return `<b>「${p.name}」を${a.on ? '開始' : '終了'}</b>：${a.on ? `月 ${yenT(p.cost)}。効果は ${p.ramp} か月かけて満額になります。` : '翌月から費用も効果もなくなります。'}`; }
+      case 'policy': { const p = POLICIES.find(o => o.id === a.id)!; return `<b>「${p.name}」を${a.on ? '開始' : '終了'}</b>：${a.on ? `月 ${yenT(policyCost(this.s, p))}。効果は ${p.ramp} か月かけて満額になります。` : '翌月から費用も効果もなくなります。'}`; }
       case 'repayTemp': return `<b>一時借入の繰り上げ返済</b>：手元の資金で一時借入を返します。`;
       case 'airportUp': return '<b>空港の拡張</b>：国・県と工事をし、完成すると国際線が飛べるようになります。';
       case 'airRoute': return a.on ? '<b>路線の誘致</b>：半年分の補助を前払いし、翌月から就航します。' : '<b>路線からの撤退</b>：補助をやめると、その便はなくなります。';

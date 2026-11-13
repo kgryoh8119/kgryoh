@@ -1,5 +1,5 @@
 // プレイヤーの操作。全て dispatch() を通し、直列化できる Action として記録・再生できる。
-import { LV_CAP, lvK, maxLv, stageName, NIMBY, AIR_ROUTES, W, H, P, DEFS, POLICIES, GOALS, VISIONS, isRes, isShop, isCity, isBiz, lvOf, diffOf, DIFFS, SPORTS, bondCap, SCALE } from './config';
+import { LV_CAP, lvK, maxLv, stageName, NIMBY, AIR_ROUTES, W, H, P, DEFS, POLICIES, GOALS, VISIONS, isRes, isShop, isCity, isBiz, lvOf, diffOf, DIFFS, SPORTS, bondCap, SCALE, policyCost } from './config';
 import { getMap, baseMap, syncTerrain, idx, inMap, buildable, landReason, NEIGH, ropewayTop } from './map';
 import { recompute, roadInfo, accessTile, invalidateCaches, modMul, modAdd, repairState } from './core';
 import { validateAction, validateState, derivedFinite, cleanTiles, ACTION_NAMES } from './validate';
@@ -808,7 +808,7 @@ function apply(s: GameState, a: Action): Result {
       if (a.on && fiscalCrisis(s)) return { ok: false, msg: crisisMsg(s) };
       if (!!s.policies[p.id]?.on === a.on) return { ok: false, msg: a.on ? 'その政策は既に実施中です' : 'その政策は実施していません' };
       s.policies[p.id] = { on: a.on, since: s.month };
-      return { ok: true, msg: a.on ? `「${p.name}」を始めました（月 ${man(p.cost)}）。効果が出そろうまで ${p.ramp} か月` : `「${p.name}」をやめました` };
+      return { ok: true, msg: a.on ? `「${p.name}」を始めました（月 ${man(policyCost(s, p))}。人口に比例）。効果が出そろうまで ${p.ramp} か月` : `「${p.name}」をやめました` };
     }
     case 'repayTemp': {
       const td = tempDebt(s), amt = Math.floor(Math.min(td, a.amount ?? td, Math.max(0, s.cash)));

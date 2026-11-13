@@ -38,6 +38,9 @@ export const P = {
   /** 転入希望（世帯/月）。駅前開発で子育て世帯が多いシナリオ */
   baseInflow: [7, 7, 12, 4, 3],
   baseOutRate: 0.006,                 // 月あたりの基礎転出率
+  /** v86：類型ごとの転出のしやすさ（baseOutRate に掛ける）。単身は転勤・進学でよく動き、子育て・高齢の世帯は動きにくい。
+   *  はじめの街の平均はほぼ 1（v85 と同じ総量）。v85 は全類型が年 7% で入れ替わり、住民が高齢になる前に出ていって高齢化が進まなかった */
+  outByType: [2.0, 1.0, 0.8, 0.6, 0.3],
   /** 住宅の好み [類型][house, apartment, mansion] */
   housingPref: [
     [0.2, 1, 0.8], [0.6, 0.8, 1], [0.9, 0.6, 1], [1, 0.4, 0.6], [1, 0.6, 0.3],
@@ -1000,6 +1003,11 @@ export interface PolicyDef {
   effects: { key: string; op: 'mul' | 'add'; v: number }[];
 }
 
+/** v86：政策の毎月の費用は、人口に比例させる（cost は人口 6,000 人の街での額）。子どもの医療費・給食費・手当は対象の人数で費用が決まるため。
+ *  v85 は定額で、人口 3 万人の街では同じ政策が 5 分の 1 の負担になり、終盤は政策をすべて入れても痛まなかった。小さな町でも 6 割は下回らない */
+export const POLICY_POP = 6000;
+export const policyScale = (s: { stats: { pop: number } }) => Math.max(0.6, (s.stats?.pop ?? 0) / (POLICY_POP * SCALE));
+export const policyCost = (s: { stats: { pop: number } }, p: { cost: number }) => Math.round(p.cost * policyScale(s));
 /** 政策。効果は開始から ramp か月かけて満額になる（時間差）。 */
 export const POLICIES: PolicyDef[] = [
   {

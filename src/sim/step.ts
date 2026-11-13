@@ -1,6 +1,6 @@
 // 月次処理。1 回の呼び出しで 1 か月進む。描画やフレームレートには依存しない。
 import { onMapChange, REAL } from './real';
-import { W, H, P, DEFS, POLICIES, AIR_ROUTES, GOALS, VISIONS, isRes, isShop, isCity, isBiz, RES_TYPE, LV_UPKEEP, LV_CAP, lvK, lvOf, stageName, diffOf, hasOp, countOp, SPORTS, SCALE } from './config';
+import { W, H, P, DEFS, POLICIES, policyCost, AIR_ROUTES, GOALS, VISIONS, isRes, isShop, isCity, isBiz, RES_TYPE, LV_UPKEEP, LV_CAP, lvK, lvOf, stageName, diffOf, hasOp, countOp, SPORTS, SCALE } from './config';
 import { getMap, idx, buildable, syncTerrain, terrainOf } from './map';
 import { mayorMonthly } from './mayor';
 import { challengeMonthly } from './challenge';
@@ -98,7 +98,7 @@ export function monthlyBudget(s: GameState): Ledger {
   // 路線バスの赤字補助（バス停の数に比例。自動運転バスの車庫があると半分）と、航空路線の誘致の補助
   const nStop = s.busStops?.length ?? 0; if (nStop) L.policy += nStop * P.busStopSubsidy * (hasOp(s, 'autoBusDepot') ? 0.5 : 1);
   for (const r of s.airRoutes ?? []) { const d = AIR_ROUTES.find(o => o.id === r.id); if (d) L.policy += d.subsidy; }
-  for (const p of POLICIES) if (s.policies[p.id]?.on) L.policy += p.cost;
+  for (const p of POLICIES) if (s.policies[p.id]?.on) L.policy += policyCost(s, p); // v86：人口に比例
   for (const t of s.teams ?? []) { L.policy += SPORTS[t.sport].support; L.taxBusiness += SPORTS[t.sport].bizTax * tax.biz * econ; } // チームへの支援と、球団・クラブの会社からの税
   for (const m of s.modifiers) L.policy += m.cost;
   L.policy += execCost(s); { const d = routeDeficit(s); if (d > 0) L.policy += d; else L.fees! += -d; } // 幹部の給与と、バス路線の赤字（黒字なら収入）
@@ -298,7 +298,7 @@ export function stepMonth(s: GameState, opts: { forecast?: boolean } = {}): void
     // 高齢世帯以外の、病気や事故で亡くなる人（少し）
     for (let t = 0; t < 4; t++) deaths += hh[t] * P.persons[t] * 0.00003 * mort;
     for (let t = 0; t < NHH; t++) {
-      let rate = P.baseOutRate * (1 + 3 * Math.max(0, 0.55 - r.sat[t])) * outMul * (1 + 1.5 * Math.max(0, tax.res - 1));
+      let rate = P.baseOutRate * (P.outByType?.[t] ?? 1) * (1 + 3 * Math.max(0, 0.55 - r.sat[t])) * outMul * (1 + 1.5 * Math.max(0, tax.res - 1));
       rate *= 1 + 2 * (1 - waterLv);
       if (!r.connected) rate = 0.3;
       hh[t] = Math.max(0, hh[t] * (1 - Math.min(1, rate)));
