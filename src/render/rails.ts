@@ -2,7 +2,8 @@
 // 地上はバラスト・枕木・レール、高架はコンクリートの桁と橋脚、川は鉄橋、地下はトンネルの坑口だけを描く。
 // 道路と地上の線路が交わる区画は踏切（遮断機・警報機）。列車もこの線の上を走る。
 import { Geo } from './geo';
-import { W, H, TILE, heightAt, idx } from '../sim/index';
+import { RK, decal, face } from './roadkit';
+import { W, H, TILE, heightAt, idx, hash } from '../sim/index';
 import { railChains } from '../sim/railnet';
 import type { GameState, MapDef, Building } from '../sim/index';
 
@@ -166,7 +167,8 @@ function stationAnchors(s: GameState, paths: RailPath[]): Anchor[] {
 }
 
 /** 線路・高架・鉄橋・坑口・踏切・架線柱・駅（ホーム・屋根・駅舎・跨線橋）を描く。動かす遮断機と、ホームの乗客の立ち位置を返す */
-export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]): { gates: Gate[]; spots: StationSpot[]; lamps: number[] } {
+/** detail：0 簡略（品質「低」）・1 中・2 高。kit：標識の面と路面の文字を描く Geo（render/roadkit.ts。無ければ描かない） */
+export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[], detail = 2, kit?: Geo): { gates: Gate[]; spots: StationSpot[]; lamps: number[] } {
   const lamps: number[] = []; // 夜に灯る明かり（ホームの蛍光灯・線路沿いの灯）
   g.at(0, 0, 0);
   const gates: Gate[] = [], spots: StationSpot[] = [];
@@ -180,7 +182,7 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
   const both = (a: number[], b: number[], c: number[], d: number[], col: number) => { g.quad(a as any, b as any, c as any, d as any, col); g.quad(d as any, c as any, b as any, a as any, col); };
   // 上向きの面（線路の向きによって三角形の回りが逆になり、上から見えなくなっていたので、法線が上を向く順に並べる）
   type V3 = [number, number, number];
-  const up = (a: V3, b: V3, c: V3, d: V3, col: number) => { const ux = b[0] - a[0], uz = b[2] - a[2], vx = c[0] - a[0], vz = c[2] - a[2]; if (uz * vx - ux * vz >= 0) g.quad(a, b, c, d, col); else g.quad(a, d, c, b, col); };
+  const up = (a: V3, b: V3, c: V3, d: V3, col: number, sh = 1) => { const ux = b[0] - a[0], uz = b[2] - a[2], vx = c[0] - a[0], vz = c[2] - a[2]; if (uz * vx - ux * vz >= 0) g.quad(a, b, c, d, col, sh); else g.quad(a, d, c, b, col, sh); };
   // 分岐・合流：同じ区画で出会う線の端（位置・線へ入っていく向き・桁の半幅）。防音壁が相手の線路を横切らないように使う
   type End = { P: RailPath; x: number; z: number; dx: number; dz: number; half: number };
   const junc = new Map<number, End[]>();
@@ -196,7 +198,9 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
     const n = P.p.length / 3, X = (j: number) => P.p[j * 3], Y = (j: number) => P.p[j * 3 + 1], Z = (j: number) => P.p[j * 3 + 2];
     const tan = (j: number): [number, number] => { const a = Math.max(0, j - 1), b = Math.min(n - 1, j + 1), dx = X(b) - X(a), dz = Z(b) - Z(a), L = Math.hypot(dx, dz) || 1; return [dx / L, dz / L]; };
     const vis = (j: number) => P.off[j] > -1.2 || (P.cut[j] === 1 && P.off[j] > -7.5);
-    let poleAcc = 0, pierAcc = 12, poleN = 0;
+    let poleAcc = 0, pierAcc = 12, poleN = 0, sigAcc = 160, kmAcc = 0, kmN = 0;
+    // v86：線ごとの決まり（作り直しても同じ）：まくらぎ（PC か木）・高架の型（ラーメンか壁の橋脚）・鉄橋のトラス・柵・架線柱の型
+    const phs = hash(P.a, P.b, 5), pcS = P.lv[0] >= 2 || phs < 0.55, vType = phs < 0.5 ? 1 : 0, truss = hash(P.a, P.b, 9) < 0.5, fence = detail >= 2 && hash(P.a, P.b, 13) < 0.75, catT = (hash(P.a, P.b, 17) * 3) | 0;
     for (let j = 0; j < n - 1; j++) {
       const v0 = vis(j), v1 = vis(j + 1);
       // トンネルの坑口：見える区間から地下へ入る所
@@ -216,9 +220,9 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
       const lv = P.lv[j], dbl = lv >= 2, quad4 = lv === 3, cut = P.cut[j] === 1, cr = !cut && (crossing(P.tile[j]) || crossing(P.tile[j + 1]));
       const g0 = ground(x0, z0), lift = y0 - g0, struct = lift > 2.2;
       // 曲線の帯（中心から o だけ横にずらした幅 w の帯）
-      const band = (o: number, w: number, dy: number, col: number) => {
+      const band = (o: number, w: number, dy: number, col: number, sh = 1) => {
         const n0x = -az, n0z = ax, n1x = -bz, n1z = bx;
-        up([x0 + n0x * (o - w / 2), y0 + dy, z0 + n0z * (o - w / 2)], [x1 + n1x * (o - w / 2), y1 + dy, z1 + n1z * (o - w / 2)], [x1 + n1x * (o + w / 2), y1 + dy, z1 + n1z * (o + w / 2)], [x0 + n0x * (o + w / 2), y0 + dy, z0 + n0z * (o + w / 2)], col);
+        up([x0 + n0x * (o - w / 2), y0 + dy, z0 + n0z * (o - w / 2)], [x1 + n1x * (o - w / 2), y1 + dy, z1 + n1z * (o - w / 2)], [x1 + n1x * (o + w / 2), y1 + dy, z1 + n1z * (o + w / 2)], [x0 + n0x * (o + w / 2), y0 + dy, z0 + n0z * (o + w / 2)], col, sh);
       };
       const side = (o: number, lo: number, hi: number, col: number) => {
         const n0x = -az, n0z = ax, n1x = -bz, n1z = bx;
@@ -239,23 +243,42 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
         if (pierAcc >= 24) { pierAcc = 0; const gy = ground(x0, z0); g.at(x0, gy, z0, Math.atan2(-az, ax)); g.box(0, 0, 0, 1.3, Math.max(0.5, y0 - 1.4 - gy), 1.3, 0xb3b0a9); g.box(0, y0 - 2.4 - gy, 0, 1.6, 1.0, w2 - 0.6, 0xb3b0a9); g.at(0, 0, 0); }
         continue;
       }
+      // 2 本の線の間の帯（内側 oA・外側 oB、それぞれ高さ dy。前後の点で違ってよい）。法面・バラストの肩に使う
+      const strip = (oA0: number, yA0: number, oB0: number, yB0: number, oA1: number, yA1: number, oB1: number, yB1: number, col: number, sh = 1) => {
+        const n0x = -az, n0z = ax, n1x = -bz, n1z = bx;
+        up([x0 + n0x * oA0, y0 + yA0, z0 + n0z * oA0], [x1 + n1x * oA1, y1 + yA1, z1 + n1z * oA1], [x1 + n1x * oB1, y1 + yB1, z1 + n1z * oB1], [x0 + n0x * oB0, y0 + yB0, z0 + n0z * oB0], col, sh);
+      };
+      const rot = Math.atan2(-az, ax), jh = hash(j, P.a, 3), bal = 0x8c877e, span = spanOf(paths.indexOf(P), P.d[j]);
       if (struct) {
         // 高架橋・鉄橋：桁（床と側面）と防音壁
         const steel = P.off[j] < 3 && [-5, 0, 5].some(q => !!m.water[P.tile[Math.max(0, Math.min(n - 1, j + q))]]); // 鋼の桁は川を渡る低い橋だけ（v76：高架へ上がる坂まで鋼の色になり、分岐で色が食い違っていた）
         band(0, half * 2 + 1.6, -0.05, steel ? 0x7e858c : 0xb3b1aa);
-        if (!spanOf(paths.indexOf(P), P.d[j])) for (const o of [-(half + 0.8), half + 0.8]) { // 防音壁：分岐では、相手の線路の上にかかる所は立てない（桁の側面だけ残す）
+        if (!span && !(steel && truss)) for (const o of [-(half + 0.8), half + 0.8]) { // 防音壁：分岐では、相手の線路の上にかかる所は立てない（桁の側面だけ残す）
           const mx = (x0 + x1) / 2 - (az + bz) / 2 * o, mz = (z0 + z1) / 2 + (ax + bx) / 2 * o, cov = onOther(P, mx, mz);
           side(o, -1.9, cov ? -0.05 : 1.3, steel ? 0x6f767d : 0xbab7b0); }
         band(0, half * 2 + 1.6, -1.9, 0x8f8c86);
+        if (detail >= 1 && !steel) band(0, half * 2 - 0.4, 0.2, bal, 0.94 + jh * 0.1); // 高架の上もバラスト
+        // v86：鋼の下路トラス（川を渡る線の半分）：両側に上弦材と、交互の斜材・垂直材
+        if (steel && truss && detail >= 1) { const tw = half + 0.7, n0x = -az, n0z = ax, n1x = -bz, n1z = bx, TH = 6.2;
+          for (const sg of [-1, 1]) { const o = sg * tw; side(o, -0.4, 0.5, 0x5f6c78); side(o, TH - 0.45, TH, 0x5f6c78);
+            const up2 = j % 2 === 0, A: V3 = [x0 + n0x * o, y0 + (up2 ? 0.3 : TH - 0.3), z0 + n0z * o], B: V3 = [x1 + n1x * o, y1 + (up2 ? TH - 0.3 : 0.3), z1 + n1z * o];
+            both([A[0], A[1] - 0.18, A[2]], [B[0], B[1] - 0.18, B[2]], [B[0], B[1] + 0.18, B[2]], [A[0], A[1] + 0.18, A[2]], 0x5f6c78);
+            if (up2) { g.at(x0 + n0x * o, y0, z0 + n0z * o, rot); g.box(0, 0, 0, 0.3, TH, 0.3, 0x5f6c78); g.at(0, 0, 0); } }
+          if (j % 2 === 0) { g.at(x0, y0 + TH - 0.3, z0, rot); g.box(0, 0, 0, 0.25, 0.25, tw * 2, 0x5f6c78); g.at(0, 0, 0); } } // 上の横つなぎ
         pierAcc += seg;
-        if (pierAcc >= 24) {
+        const frame = vType === 1 && !steel && lift < 14, gap = frame ? 12 : 24;
+        if (pierAcc >= gap) {
           pierAcc = 0;
           const gy = ground(x0, z0), tl = P.tile[j];
           if (s.road[tl] && !(m.water[tl])) {
             // 道路の上は門の形の橋脚（道路をまたぐ）
-            for (const o of [-(half + 5), half + 5]) { g.at(x0 - az * o, gy, z0 + ax * o, Math.atan2(-az, ax)); g.box(0, 0, 0, 1.6, y0 - 1.9 - gy, 1.6, 0xa9a69f); }
-            g.at(x0, y0 - 3.2, z0, Math.atan2(-az, ax)); g.box(0, 0, 0, 1.8, 1.4, half * 2 + 12, 0xa9a69f);
-          } else { g.at(x0, Math.min(gy, y0 - 2), z0, Math.atan2(-az, ax)); g.box(0, 0, 0, 2.2, Math.max(0.5, y0 - 1.9 - Math.min(gy, y0 - 2)), half * 2 - 1, steel ? 0x8a8f94 : 0xa9a69f); }
+            for (const o of [-(half + 5), half + 5]) { g.at(x0 - az * o, gy, z0 + ax * o, rot); g.box(0, 0, 0, 1.6, y0 - 1.9 - gy, 1.6, 0xa9a69f); }
+            g.at(x0, y0 - 3.2, z0, rot); g.box(0, 0, 0, 1.8, 1.4, half * 2 + 12, 0xa9a69f);
+          } else if (frame) { // ラーメン高架橋：2 本の柱と、上の梁・下の地中梁（柱の間から向こうが見える）
+            g.at(x0, Math.min(gy, y0 - 2), z0, rot); const hh = Math.max(0.5, y0 - 1.9 - Math.min(gy, y0 - 2));
+            for (const sg of [-1, 1]) g.box(0, 0, sg * (half - 0.9), 1.0, hh, 1.0, 0xaeaba3);
+            g.box(0, hh - 1.0, 0, 1.2, 1.0, half * 2 + 0.4, 0xa9a69f);
+          } else { g.at(x0, Math.min(gy, y0 - 2), z0, rot); g.box(0, 0, 0, 2.2, Math.max(0.5, y0 - 1.9 - Math.min(gy, y0 - 2)), half * 2 - 1, steel ? 0x8a8f94 : 0xa9a69f); }
           g.at(0, 0, 0);
         }
       } else if (cut) {
@@ -263,37 +286,83 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
         const gy = ground(x0, z0), wallTop = Math.max(0.6, gy - y0 + 1.1);
         side(-(half + 1.4), -0.4, wallTop, 0xb3b0a8); side(half + 1.4, -0.4, wallTop, 0xb3b0a8);
         side(-(half + 1.45), wallTop, wallTop + 1.2, 0x6f767d); side(half + 1.45, wallTop, wallTop + 1.2, 0x6f767d);
-        band(0, half * 2 + 2.6, 0.08, 0x8f8a80); band(0, half * 2 - 0.6, 0.2, 0x9b968c);
+        band(0, half * 2 + 2.6, 0.08, 0x8f8a80); band(0, half * 2 - 0.6, 0.2, bal, 0.94 + jh * 0.1);
       } else if (!cr) {
-        if (!s.road[P.tile[j]]) { side(-(half + 1.1), -3, 0.1, 0x86806f); side(half + 1.1, -3, 0.1, 0x86806f); } // 盛土の法面（地面との段差を隠す）
+        // v86：築堤は斜めの法面（高い所は草、低い所は砂利）。前は地面まで垂直の壁だった
+        if (!s.road[P.tile[j]]) { const l0 = Math.max(0, y0 - g0), l1 = Math.max(0, y1 - ground(x1, z1)), col = l0 + l1 > 1.6 ? 0x6e8650 : 0x86806f;
+          if (detail >= 1) for (const sg of [-1, 1]) strip(sg * (half + 1.1), 0.1, sg * (half + 1.5 + 1.5 * l0), -l0 - 0.5, sg * (half + 1.1), 0.1, sg * (half + 1.5 + 1.5 * l1), -l1 - 0.5, col, sg > 0 ? 0.9 : 1);
+          else { side(-(half + 1.1), -3, 0.1, 0x86806f); side(half + 1.1, -3, 0.1, 0x86806f); } }
         band(0, half * 2 + 2.2, 0.1, 0x8f8a80);   // 路盤
-        band(0, half * 2 - 0.6, 0.2, 0x9b968c);   // バラスト
+        // バラスト：上面（区切りごとに色むら）と肩の斜面、レールの間は錆で茶色っぽい
+        band(0, half * 2 - 0.6, 0.3, bal, 0.93 + jh * 0.12);
+        if (detail >= 1) { for (const sg of [-1, 1]) strip(sg * (half - 0.3), 0.3, sg * (half + 0.85), 0.1, sg * (half - 0.3), 0.3, sg * (half + 0.85), 0.1, bal, 0.88);
+          for (const o of offs) band(o, 1.3, 0.305, 0x86786a, 0.95 + jh * 0.08); }
+        // 線路沿いの柵（町の中の線の多く）：分岐で相手の線路にかかる所と駅は立てない
+        if (fence && !s.road[P.tile[j]] && !span) for (const o of [-(half + 2.3), half + 2.3]) { const mx = (x0 + x1) / 2 - (az + bz) / 2 * o, mz = (z0 + z1) / 2 + (ax + bx) / 2 * o; if (!onOther(P, mx, mz)) { side(o, 0.1, 1.4, 0x7f8a84); if (j % 2 === 0) { g.at(x0 - az * o, y0, z0 + ax * o, rot); g.box(0, 0, 0, 0.1, 1.55, 0.1, 0x5d6660); g.at(0, 0, 0); } } }
       }
       if (cr) band(0, half * 2 + 2, 0.16, 0x45474b); // 踏切の中は道路の舗装
-      // レールと枕木。踏切の中は道路の舗装の上に、レールの間を板で埋める
+      // レールと枕木。踏切の中は道路の舗装の上に、レールの間を板（ゴムの踏板）で埋める
       for (const o of offs) {
-        if (cr) band(o, 3.6, 0.28, 0x77746d);
-        for (const r of [-0.72, 0.72]) band(o + r, 0.18, 0.45, cr ? 0x3c3a37 : 0x5d5953);
-        if (!cr) for (let t = 0.25; t < 1; t += 0.5) {
-          const sx = x0 + (x1 - x0) * t, sz = z0 + (z1 - z0) * t, sy = y0 + (y1 - y0) * t, nx = -(az + bz) / 2, nz = (ax + bx) / 2, tx2 = (ax + bx) / 4, tz2 = (az + bz) / 4;
-          up([sx + nx * (o - 1.25) - tx2 * 0.4, sy + 0.33, sz + nz * (o - 1.25) - tz2 * 0.4], [sx + nx * (o - 1.25) + tx2 * 0.4, sy + 0.33, sz + nz * (o - 1.25) + tz2 * 0.4], [sx + nx * (o + 1.25) + tx2 * 0.4, sy + 0.33, sz + nz * (o + 1.25) + tz2 * 0.4], [sx + nx * (o + 1.25) - tx2 * 0.4, sy + 0.33, sz + nz * (o + 1.25) - tz2 * 0.4], 0x6b5a48);
-        }
+        if (cr) band(o, 3.6, 0.28, 0x6a6862);
+        for (const r of [-0.72, 0.72]) { band(o + r, 0.18, 0.45, cr ? 0x3c3a37 : 0x5b4c40); if (detail >= 1) band(o + r, 0.065, 0.457, 0xc2c6c9); } // レールの側面は錆色、頭は車輪で磨かれて光る
+        if (!cr) { const ns = detail >= 2 ? 4 : 2, hwS = detail >= 2 ? 0.11 : 0.2;
+          for (let q = 0; q < ns; q++) { const t = (q + 0.5) / ns;
+            const sx = x0 + (x1 - x0) * t, sz = z0 + (z1 - z0) * t, sy = y0 + (y1 - y0) * t, nx = -(az + bz) / 2, nz = (ax + bx) / 2, tx2 = (ax + bx) / 2 * hwS, tz2 = (az + bz) / 2 * hwS, sc = 0.9 + hash(j * 4 + q, P.b, 7) * 0.16;
+            up([sx + nx * (o - 1.25) - tx2, sy + 0.34, sz + nz * (o - 1.25) - tz2], [sx + nx * (o - 1.25) + tx2, sy + 0.34, sz + nz * (o - 1.25) + tz2], [sx + nx * (o + 1.25) + tx2, sy + 0.34, sz + nz * (o + 1.25) + tz2], [sx + nx * (o + 1.25) - tx2, sy + 0.34, sz + nz * (o + 1.25) - tz2], pcS ? 0xa29f98 : 0x5e4b3b, sc);
+          } }
       }
       // 架線（v76）：線路ごとに、トロリ線（下）と、ちょう架線（上、柱の間でたるむ）。駅のホームの中にも通す
       if (!cut || lift > -3) for (const o of offs) { const sag = (q: number) => 6.75 - 0.75 * Math.sin(Math.PI * Math.min(1, q / 36)), s0 = sag(poleAcc), s1 = sag(poleAcc + seg);
         band(o, 0.07, 5.55, 0x2e3033);
         { const n0x = -az, n0z = ax, n1x = -bz, n1z = bx; both([x0 + n0x * o, y0 + s0, z0 + n0z * o], [x1 + n1x * o, y1 + s1, z1 + n1z * o], [x1 + n1x * o, y1 + s1 + 0.06, z1 + n1z * o], [x0 + n0x * o, y0 + s0 + 0.06, z0 + n0z * o], 0x3a3d40); } }
-      // 架線柱（約 36m おき）：線路の横の柱と、線路の上へ張り出す腕
+      // 架線柱（約 36m おき）。v86：線ごとに型を変える。0 鋼管の柱と腕・1 コンクリート柱と 2 段の腕（トラス風）・2 複線をまたぐ門型のトラスビーム（高品質）
       poleAcc += seg;
-      if (poleAcc >= 36 && !cr && !spanOf(paths.indexOf(P), P.d[j])) {
+      if (poleAcc >= 36 && !cr && !span) {
         poleAcc = 0;
-        const po = half + (struct ? 0.4 : 1.4), px = x0 - az * po, pz = z0 + ax * po, top = y0 + 6.8;
-        g.at(px, y0 + (struct ? 0 : 0.1), pz); g.cyl(0, 0, 0, 0.16, 6.9, 0x8b9094, 5); g.at(0, 0, 0);
-        const ex = x0 + az * (half - 0.6), ez = z0 - ax * (half - 0.6);
-        both([px, top, pz], [ex, top, ez], [ex, top + 0.25, ez], [px, top + 0.25, pz], 0x7d8287);
+        const po = half + (struct ? 0.4 : 1.4), px = x0 - az * po, pz = z0 + ax * po, top = y0 + 6.8, py = y0 + (struct ? 0 : 0.1);
+        if (catT === 2 && dbl && detail >= 2) { // 門型：両側の柱と、上下の弦材と縦の格子
+          g.at(x0, py, z0, rot);
+          for (const sg of [-1, 1]) g.box(0, 0, sg * po, 0.32, 7.7, 0.32, 0x8b9094);
+          for (const hy of [6.85, 7.55]) g.box(0, hy, 0, 0.2, 0.16, po * 2, 0x8b9094);
+          for (let zz = -po + 0.8; zz < po - 0.5; zz += 1.0) g.box(0, 6.95, zz, 0.07, 0.62, 0.07, 0x8b9094);
+          for (const o of offs) g.box(0, 6.25, o, 0.1, 0.6, 0.1, 0x3a3d40); // つり下げ
+          g.at(0, 0, 0);
+        } else {
+          g.at(px, py, pz); if (catT === 1) g.cyl(0, 0, 0, 0.22, 7.2, 0xbcb9b1, 6); else g.cyl(0, 0, 0, 0.16, 6.9, 0x8b9094, 5); g.at(0, 0, 0);
+          const ex = x0 + az * (half - 0.6), ez = z0 - ax * (half - 0.6);
+          both([px, top, pz], [ex, top, ez], [ex, top + 0.25, ez], [px, top + 0.25, pz], 0x7d8287);
+          if (catT === 1 && detail >= 1) { both([px, top - 0.9, pz], [ex, top - 0.9, ez], [ex, top - 0.75, ez], [px, top - 0.75, pz], 0x7d8287); const mx = (px + ex) / 2, mz = (pz + ez) / 2; both([px, top - 0.8, pz], [mx, top + 0.1, mz], [mx, top + 0.2, mz], [px, top - 0.7, pz], 0x7d8287); }
+          if (detail >= 1) for (const o of offs) { g.at(x0 - az * o, top - 0.75, z0 + ax * o); g.box(0, 0, 0, 0.1, 0.75, 0.1, 0x3a3d40); g.at(0, 0, 0); } // がいしと、つり下げ
+        }
         if ((++poleN) % 2 === 0) { g.at(px, y0, pz); g.box(az * -0.5, 4.6, ax * 0.5, 0.35, 0.18, 0.35, 0xe9e9e4); g.at(0, 0, 0); lamps.push(px - az * 0.5, y0 + 4.5, pz + ax * 0.5); } // 線路沿いの灯（2 本に 1 本）
       }
+      // v86：信号機（約 320m おき、線路の左側の柱に黒い灯器と 3 つの灯）・キロポスト（100m おきの白い杭、500m ごとに数字の板）・勾配標（勾配が変わる所）
+      sigAcc += seg; kmAcc += seg;
+      if (detail >= 1 && !cr && !span && !P.kind) {
+        if (sigAcc >= 320) { sigAcc = 0; const so = -(half + (struct ? 0.5 : 1.6)), sx = x0 - az * so, sz = z0 + ax * so;
+          g.at(sx, y0 + 0.1, sz, rot); g.cyl(0, 0, 0, 0.09, 4.6, 0x6f757b, 5); g.box(0, 3.6, 0, 0.06, 1.7, 0.95, 0x1d1e20); g.box(-0.12, 3.75, 0, 0.3, 1.35, 0.5, 0x262729);
+          for (let k = 0; k < 3; k++) g.box(-0.29, 3.88 + k * 0.4, 0, 0.04, 0.26, 0.26, [0x1f9a78, 0xa88a2a, 0xa8302a][k]);
+          g.at(0, 0, 0); }
+        if (kmAcc >= 100) { kmAcc = 0; kmN++; const ko = half + (struct ? 0.5 : 1.9), kx = x0 - az * ko, kz = z0 + ax * ko;
+          g.at(kx, y0 + 0.1, kz, rot); g.box(0, 0, 0, 0.14, kmN % 5 === 0 ? 1.1 : 0.6, 0.14, 0xf2f2ee); g.at(0, 0, 0);
+          if (kmN % 5 === 0 && kit) face(kit, RK.kilo, kx + az * 0.08, y0 + 0.95, kz - ax * 0.08, az, -ax, 0.34, 0.42);
+          // 勾配標：前後 30m の勾配の向きが違えば、白い柱に 2 本の腕（上り・下り・水平）
+          if (kmN % 2 === 0 && j > 10 && j < n - 11) { const sb = (Y(j) - Y(j - 10)) / 30, sf = (Y(j + 10) - Y(j)) / 30, gx = x0 - az * (ko + 0.5), gz = z0 + ax * (ko + 0.5);
+            if (Math.abs(sb - sf) > 0.004 || Math.abs(sf) > 0.006) { g.at(gx, y0 + 0.1, gz); g.box(0, 0, 0, 0.12, 1.3, 0.12, 0xf2f2ee); g.at(0, 0, 0);
+              for (const [sg, sl] of [[1, sf], [-1, sb]] as const) { const dy = Math.max(-0.25, Math.min(0.25, sl * 40)) * sg, ex2 = gx + ax * sg * 0.5, ez2 = gz + az * sg * 0.5; both([gx, y0 + 1.25, gz], [ex2, y0 + 1.25 + dy, ez2], [ex2, y0 + 1.36 + dy, ez2], [gx, y0 + 1.36, gz], 0xf2f2ee); } } }
+        }
+      }
     }
+  }
+  // v86：分岐器（転てつ機の箱と標識）と、行き止まりの線路の端の車止め（赤い鋼の枠と白い板、砂利の山）
+  if (detail >= 1) for (const es of junc.values()) {
+    if (es.length === 1) { const e = es[0], P = e.P, n2 = P.p.length / 3, j0 = Math.hypot(P.p[0] - e.x, P.p[2] - e.z) < 0.5 ? 0 : n2 - 1, yy = P.p[j0 * 3 + 1], lv = P.lv[j0];
+      if (P.off[j0] < -1.2) continue;
+      for (const o of lv === 3 ? [-6.6, -2.2, 2.2, 6.6] : lv >= 2 ? [-2.2, 2.2] : [0]) { const bx = e.x - e.dz * o + e.dx * 1.2, bz = e.z + e.dx * o + e.dz * 1.2;
+        g.at(bx, yy + 0.3, bz, Math.atan2(-e.dz, e.dx)); g.box(0, 0, 0, 0.5, 1.0, 2.0, 0xc8342c); g.box(0.28, 0.45, 0, 0.08, 0.45, 1.7, 0xf2f2ee); g.box(-1.0, -0.2, 0, 1.6, 0.5, 2.4, 0x9b968c); g.at(0, 0, 0); } }
+    else { const e = es[0], yy = e.P.p[(Math.hypot(e.P.p[0] - e.x, e.P.p[2] - e.z) < 0.5 ? 0 : e.P.p.length / 3 - 1) * 3 + 1], q = e.half + 0.9, px = e.x - e.dz * q + e.dx * 5, pz = e.z + e.dx * q + e.dz * 5;
+      if (yy < ground(e.x, e.z) - 1.2) continue;
+      g.at(px, yy + 0.3, pz, Math.atan2(-e.dz, e.dx)); g.box(0, 0, 0, 1.3, 0.45, 0.6, 0x6f7378, 0xd9b23a); g.cyl(1.2, 0, 0, 0.04, 1.1, 0x9aa0a6, 4); g.box(1.2, 1.1, 0, 0.05, 0.3, 0.3, 0xf2f2ee); g.at(0, 0, 0); }
   }
   // 踏切：道路と地上の線路が交わる区画ごとに、遮断機（上がった竿）と警報機（×印と赤い灯）を道路の両側に
   for (let i = 0; i < s.rail!.length; i++) {
@@ -309,14 +378,23 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
       for (let b = 0; b < 6; b++) g.cyl(0, b * 0.6, 0, 0.13, 0.6, b % 2 ? 0x1d1d1d : 0xf2c230, 6); // 黄と黒の柱
       g.box(0, 3.4, 0, 0.5, 0.45, 0.5, 0x2a2a2a); // 灯の箱
       g.at(0, 0, 0);
-      // 赤い灯（道路側へ向けて 2 つ）
-      for (const o of [-0.45, 0.45]) { g.at(px - rx * sg * 0.3 + wx * o, py + 3.15, pz - rz * sg * 0.3 + wz * o); g.box(0, 0, 0, 0.36, 0.36, 0.36, 0xd6322a); g.at(0, 0, 0); }
-      // ×印（踏切警標）
+      // 赤い灯（v86：両面に 2 つずつ、ひさしつき）と、下に進行方向の指示器、上に警報のスピーカー
+      for (const f of [-1, 1]) for (const o of [-0.45, 0.45]) { g.at(px + rx * f * 0.3 + wx * o, py + 3.15, pz + rz * f * 0.3 + wz * o); g.box(0, 0, 0, 0.36, 0.36, 0.36, 0xd6322a); if (detail >= 1) g.box(rx * f * 0.12, 0.36, rz * f * 0.12, rx ? 0.22 : 0.4, 0.06, rz ? 0.22 : 0.4, 0x1d1d1d); g.at(0, 0, 0); }
+      if (detail >= 1) { g.at(px, py, pz); g.box(0, 2.55, 0, rx ? 0.5 : 0.7, 0.3, rz ? 0.5 : 0.7, 0x1d1d1d); g.box(0, 2.62, 0, rx ? 0.52 : 0.4, 0.14, rz ? 0.52 : 0.4, 0xf2f2ee); g.cyl(0, 5.0, 0, 0.16, 0.3, 0x2a2a2a, 6); g.at(0, 0, 0); }
+      // ×印（踏切警標）：黒いふちの上に黄色
       const cy = py + 4.3;
-      for (const k of [1, -1]) both([px + wx * (-0.85), cy - 0.55 * k - 0.1, pz + wz * (-0.85)], [px + wx * 0.85, cy + 0.55 * k - 0.1, pz + wz * 0.85], [px + wx * 0.85, cy + 0.55 * k + 0.1, pz + wz * 0.85], [px + wx * (-0.85), cy - 0.55 * k + 0.1, pz + wz * (-0.85)], 0xf2c230);
+      for (const k of [1, -1]) { both([px + wx * (-0.9), cy - 0.58 * k - 0.15, pz + wz * (-0.9)], [px + wx * 0.9, cy + 0.58 * k - 0.15, pz + wz * 0.9], [px + wx * 0.9, cy + 0.58 * k + 0.15, pz + wz * 0.9], [px + wx * (-0.9), cy - 0.58 * k + 0.15, pz + wz * (-0.9)], 0x1d1d1d);
+        for (const f of [-1, 1]) both([px + wx * (-0.85) + rx * f * 0.02, cy - 0.55 * k - 0.1, pz + wz * (-0.85) + rz * f * 0.02], [px + wx * 0.85 + rx * f * 0.02, cy + 0.55 * k - 0.1, pz + wz * 0.85 + rz * f * 0.02], [px + wx * 0.85 + rx * f * 0.02, cy + 0.55 * k + 0.1, pz + wz * 0.85 + rz * f * 0.02], [px + wx * (-0.85) + rx * f * 0.02, cy - 0.55 * k + 0.1, pz + wz * (-0.85) + rz * f * 0.02], 0xf2c230); }
+      // 路面：踏切の手前の停止線（近づく車線の側）と、踏切の中の黄色い外側線。手前の道ばたに「踏切あり」の標識。線路沿いの短い柵
+      if (detail >= 1) { const rw = s.road[i] === 3 ? 7.5 : s.road[i] === 2 ? 5 : 2.5, hy = (q: number, r2: number) => heightAt(m, cx + rx * r2 + wx * q, cz + rz * r2 + wz * q) + 0.17;
+        const flatQ = (r0: number, r1: number, q0: number, q1: number, col: number) => { const P = (r2: number, q: number): V3 => [cx + rx * r2 + wx * q, hy(q, r2), cz + rz * r2 + wz * q]; up(P(r0, q0), P(r1, q0), P(r1, q1), P(r0, q1), col); };
+        flatQ(sg * (dl + 2.2), sg * (dl + 2.65), 0, sg * (rw - 0.6), 0xeeeeea);
+        for (const q of [-(rw - 0.35), rw - 0.35]) flatQ(sg * (dl + 2.2), -sg * (dl + 2.2), q - 0.08, q + 0.08, 0xf0bc2c);
+        if (kit) { const qx = cx + rx * sg * (dl + 13) + wx * sg * (rw + 2.0), qz = cz + rz * sg * (dl + 13) + wz * sg * (rw + 2.0), qy = heightAt(m, qx, qz); g.at(qx, qy, qz); g.cyl(0, 0, 0, 0.05, 2.6, 0x9aa0a6, 5); g.at(0, 0, 0); face(kit, RK.sRail, qx + rx * sg * 0.03, qy + 2.2, qz + rz * sg * 0.03, rx * sg, rz * sg, 0.95, 0.95); }
+        for (const f of [-1, 1]) { const fq = sg * (rw + 2.8), r0 = f * (dl - 0.8); g.at(cx + rx * r0 + wx * (fq + sg * 3), py, cz + rz * r0 + wz * (fq + sg * 3)); g.box(0, 0, 0, rx ? 0.08 : 6, 1.2, rz ? 0.08 : 6, 0x7f8a84); g.at(0, 0, 0); } }
       // 遮断機の台。竿は画面側で、列車が近づくと下ろす
       const bx = px - wx * sg * 0.5, bz = pz - wz * sg * 0.5;
-      g.at(bx, py, bz); g.box(0, 0, 0, 0.6, 1.1, 0.6, 0xe9e7e0); g.at(0, 0, 0);
+      g.at(bx, py, bz); g.box(0, 0, 0, 0.55, 1.15, 0.5, 0x3a3c3e, 0xf2c230); g.at(0, 0, 0); // 遮断機（黒い箱、上は黄色）
       gates.push({ x: bx, y: py + 1.0, z: bz, dx: -wx * sg, dz: -wz * sg, len: hw + 0.4, tile: i });
     }
   }
@@ -362,7 +440,8 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
         if (jc === 0 || jc === 9 || jc === -9) put(back - sd * 0.35, () => { for (const u of [-1.0, 1.0]) g.cyl(u, 0, 0, 0.05, 2.3, 0x70767c, 5); g.box(0, 1.35, 0, 2.5, 0.95, 0.08, 0xf6f6f2); g.box(0, 1.35, -sd * 0.05, 2.5, 0.16, 0.02, 0x2f8f57); g.box(0, 1.75, -sd * 0.05, 1.2, 0.3, 0.02, 0x2b2f33); }); // 駅名標（白い板・緑の帯・駅名の黒い文字の帯）
         if (jc === 4) put(back - sd * 0.5, () => { g.box(0, 0, 0, 1.05, 1.85, 0.7, 0xf0f0ee); g.box(0, 0.75, -sd * 0.36, 0.95, 1.0, 0.02, 0xc8362e); });   // 自動販売機
         if (jc === -5) put(back - sd * 0.45, () => { g.box(0, 0, 0, 0.55, 0.95, 0.5, 0x8d9499); g.box(0.6, 0, 0, 0.55, 0.95, 0.5, 0x4d7fb0); });         // ごみ箱・リサイクル箱
-        if (ad > 46.5 && ad < 50) { const e = dd > 0 ? 1 : 0; both(A(o0 - w2, ph, e) as any, A(o0 + w2, ph, e) as any, A(o0 + w2, ph + 1.2, e) as any, A(o0 - w2, ph + 1.2, e) as any, 0xdedcd5); } // ホームの端の柵
+        if (ad > 46.5 && ad < 50) { const e = dd > 0 ? 1 : 0; both(A(o0 - w2, ph, e) as any, A(o0 + w2, ph, e) as any, A(o0 + w2, ph + 1.2, e) as any, A(o0 - w2, ph + 1.2, e) as any, 0xdedcd5); both(A(o0 - w2, -2.2, e) as any, A(o0 + w2, -2.2, e) as any, A(o0 + w2, ph, e) as any, A(o0 - w2, ph, e) as any, 0xa9a49a); } // ホームの端の柵と、端の壁
+        if (detail >= 1) up(A(o0 - w2 * sd, ph + 0.015, 0), A(o0 - w2 * sd, ph + 0.015, 1), A(o0 - w2 * sd + 0.3 * sd, ph + 0.015, 1), A(o0 - w2 * sd + 0.3 * sd, ph + 0.015, 0), 0xe4e0d4); // v86：ホームの縁石（線路側の白いふち）
         // 乗客の立ち位置（ホームの中ほど）
         if (Math.abs(P.d[j] - dC) < 40) for (const u of [-0.9, 0.2, 1.1]) { const [px, py, pz] = A(o0 + u * sd * 0.9, ph, 0); pts.push(px + (Math.random() - 0.5) * 2, py, pz + (Math.random() - 0.5) * 2); }
       }
