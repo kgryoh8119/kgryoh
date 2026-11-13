@@ -4,6 +4,7 @@ import {
   W, H, P, DEFS, GOALS, voteText, POLICIES, AIR_ROUTES, VISION_PERKS, VISIONS, airportUpCheck, airRouteCheck, floodRisk, isCanal, isJunction, isRes, isCity, idx, getMap, buildable, roadInfo, checkPlace, dispatch, sumHH, monthlyBudget, staffReq, fam, DISTRICTS, rerunCheck, teamCheck, SPORTS, stationDist, buyoutCost, SV_NAMES, upgradeCost, bondCap, goalProgress, tempDebt, stationUpCheck, shinCheck, REAL, NIMBY,
 } from './sim/index';
 import type { GameState, Kind, Action, Zone } from './sim/index';
+import { isCastaway } from './sim/index';
 import { annexable, blockRect, blockName, SISTERS, SIS, MAX_SISTERS, GRANTS, PLANS, voteForecast, campaignOpen, calMonth, POSTS, candidates, execOf, roadPath } from './sim/index';
 import { findCandidates, hasCandidates } from './ui/candidates';
 import { planRedevelop } from './devplan';
@@ -160,8 +161,48 @@ function newBlock(s: GameState, free: (i: number) => boolean, conn: Uint8Array):
   return best && bestScore > 6 ? best : null;
 }
 
+/** v88：無人島の開拓の手番（人口 1,500 人まで）。桟橋 → 道 → 水 → 電気 → 小屋 → 食べ物 → 通信・診療所 → ごみ の順に、足りないものを埋める */
+function islandTurn(s: GameState): string[] {
+  const out: string[] = [], st = s.stats, m = getMap(s.seed), info = () => roadInfo(s);
+  const build = (k: Kind, near?: (x: number, y: number) => boolean): boolean => {
+    const c = info().conn;
+    for (let i = 0; i < W * H; i++) { if (!s.road[i] || !c[i]) continue; const x = i % W, y = (i / W) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const bx = dx < 0 ? x - DEFS[k].w : dx > 0 ? x + 1 : x, by = dy < 0 ? y - DEFS[k].h : dy > 0 ? y + 1 : y;
+        if (near && !near(bx, by)) continue; const ck = checkPlace(s, k, bx, by); if (ck.level !== 'ok' || s.cash < ck.cost + 1500) continue;
+        if (dispatch(s, { type: 'build', kind: k, x: bx, y: by }).ok) { out.push(`${DEFS[k].name}を建てる`); return true; } } }
+    return false;
+  };
+  const piers = s.buildings.filter(b => b.kind === 'pier');
+  if (!piers.length) { for (let y = H - 3; y > 2; y--) for (let x = 2; x < W - 3; x++) { const d = Math.hypot(x - 70, y - 86); if (d > 14) continue; if (checkPlace(s, 'pier', x, y).level === 'ok' || checkPlace(s, 'pier', x, y).reasons.every(r => r.startsWith('道路に接して'))) { if (dispatch(s, { type: 'build', kind: 'pier', x, y }).ok) { out.push('入り江に桟橋をつくる'); return out; } } } return out; }
+  // 道：つながった道路のはしから、空いた平地へ 6 区画ずつのばす（はじめは桟橋の上から北へ）
+  const extend = (): boolean => {
+    const c = info().conn, starts: number[] = [];
+    if (!s.road.some((v, i) => v && c[i])) { const p = piers[0]; for (let dx = 0; dx < p.w; dx++) starts.push((p.y - 1) * W + p.x + dx); }
+    else for (let i = 0; i < W * H; i++) if (s.road[i] && c[i]) { const x = i % W, y = (i / W) | 0; let n = 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (s.road[(y + dy) * W + x + dx]) n++; if (n <= 1) starts.push(i); }
+    for (const i0 of starts) for (const [dx, dy] of [[0, -1], [1, 0], [-1, 0], [0, 1]]) {
+      const t: number[] = []; let x = i0 % W, y = (i0 / W) | 0; if (s.road[i0]) { x += dx; y += dy; }
+      for (let k = 0; k < 6; k++, x += dx, y += dy) { const i = y * W + x; if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1 || !buildable(m, i) || s.occ[i] || s.road[i]) break; t.push(i); }
+      if (t.length >= 4 && dispatch(s, { type: 'road', tiles: t, road: 1 }).ok) { out.push(`道路を ${t.length} 区間のばす`); return true; }
+    }
+    return false;
+  };
+  if (!info().conn.some((v, i) => v && s.road[i])) { extend(); return out; }
+  const hh = st.households, units = s.buildings.filter(b => isRes(b.kind)).reduce((a, b) => a + (b.units ?? 0), 0);
+  if (st.waterCap < Math.max(12, st.waterDemand * 1.25)) { if (!(units > 80 && build('miniWater')) && !build('well') && !build('rainTank')) extend(); return out; }
+  if (st.powerCap < Math.max(12, st.powerDemand * 1.25)) { if (!build('solarKit') && !build('dieselGen')) extend(); return out; }
+  if (units < hh + 6 || units < 12) { if (!build('kaitaku') && !build('kaitaku')) extend(); else build('kaitaku'); return out; }
+  const food = s.buildings.filter(b => b.kind === 'kaitakuFarm' || b.kind === 'fishRaft').reduce((a, b) => a + DEFS[b.kind].capacity, 0);
+  if (food < hh * 0.7 && s.cash > 4000) { if (!build('fishRaft') && !build('kaitakuFarm')) extend(); return out; }
+  if (hh > 15 && !s.buildings.some(b => b.kind === 'musenTower')) { build('musenTower'); return out; }
+  if (hh > 25 && !s.buildings.some(b => b.kind === 'clinic' || b.kind === 'heliport')) { build('clinic'); return out; }
+  if (st.wasteDemand > st.wasteCap * 0.9 && hh > 20) { build('miniIncin', (x, y) => !s.buildings.some(b => isRes(b.kind) && Math.abs(b.x - x) + Math.abs(b.y - y) < 4)); return out; }
+  if (s.cash > 8000 && s.month % 4 === 0) extend();
+  return out;
+}
+
 /** 毎月の手番。打った手の説明を返す */
 export function autoTurn(s: GameState): string[] {
+  if (isCastaway(s.seed) && s.stats.pop < 1500) return islandTurn(s); // v88：無人島の開拓のはじめは、専用の手順で
   const out: string[] = [], st = s.stats, L = monthlyBudget(s);
   const hadPlan = !!s.plan, plan = cityPlan(s); // 地区ごとの役割（10 年ごとに見直す）
   if (!hadPlan || plan.made === s.month) out.push(`都市計画を${hadPlan ? '見直す' : 'つくる'}：${plan.roles.map((r, d) => `${DISTRICTS[d]}＝${['住宅', '中心市街地', '産業', '観光', '自然', '郊外住宅'][r]}`).join('・')}`);

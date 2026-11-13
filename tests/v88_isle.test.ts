@@ -68,3 +68,12 @@ test('無人島を 20 年回しても NaN や例外が出ない', () => {
   expect(s.stats.pop).toBeGreaterThan(0);
   console.log('20 年後', Math.round(s.stats.pop), '人', Math.round(s.cash), '万円', 'sat', s.stats.sat.toFixed(2));
 }, 300000);
+
+test('無人島でもオートプレイで開拓が進む', async () => {
+  const { autoTurn } = await import('../src/autoplay');
+  const s = fresh(); const log: string[] = [];
+  for (let m = 0; m < 72; m++) { log.push(...autoTurn(s)); stepMonth(s); s.events.active = []; }
+  console.log('auto', Math.round(s.stats.pop), '人', Math.round(s.cash), '万円', s.buildings.length, '棟', log.slice(0, 12).join('／'));
+  expect(s.stats.pop).toBeGreaterThan(30);
+  expect(Number.isFinite(s.cash)).toBe(true);
+}, 300000);

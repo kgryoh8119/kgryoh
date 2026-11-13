@@ -1,5 +1,5 @@
 // 地形。シードから毎回同じものを作るので GameState には保存しない。
-import { W, H, TILE } from './config';
+import { W, H, TILE, FIC_PREV_W, FIC_PREV_H } from './config';
 import { REAL, RF, onMapChange } from './real';
 
 export interface MapDef {
@@ -31,7 +31,7 @@ export interface MapDef {
   waterLv?: Float32Array;
   /** 造作の前の地形（元の地図） */
   base?: MapDef;
-  /** v70：地形の見た目だけの印（計算には使わない）。1 砂浜 2 田んぼ 3 岩肌 4 河原 5 雪の頂 */
+  /** v70：地形の見た目だけの印（計算には使わない）。1 砂浜 2 田んぼ 3 岩肌 4 河原 5 雪の頂。v88：6 畑 7 草地（野原） 8 屋敷林・雑木林の跡 9 空き地（土） */
   deco?: Uint8Array;
 }
 
@@ -220,9 +220,35 @@ export function baseMap(seed: number): MapDef {
     if (hm > snowT) { deco[i] = 5; if (V2) forest[i] = 0; } else if (hm > rockT && (!forest[i] || V2)) { deco[i] = 3; if (V2) forest[i] = 0; }
     if (!deco[i] && !forest[i] && !steep[i] && (T === 'rural' || ((T === 'mountain' || T === 'inland') && hm > 2 && hm < 16)) && hash(x >> 1, y >> 1, seed + 77) < (T === 'rural' ? 0.85 : 0.55)) deco[i] = 2;
   }
+  if (W > FIC_PREV_W) extDeco(seed, T, heights, water, forest, steep, deco);
   const m: MapDef = { seed, heights, water, rail, forest, steep, district, deco };
   cache.set(seed, m);
   return m;
+}
+
+/** v88：v87 で広げた土地（76 列目から東・68 行目から南）の見た目。一様な草地に見えないよう、田んぼ・畑・草地・屋敷林・空き地を
+ *  区画（3×2 区画を基本に、行ごとにずらす）のまとまりで置く。見た目だけの印なので、古いセーブの計算は変わらない */
+function extDeco(seed: number, T: string, heights: Float32Array, water: Uint8Array, forest: Uint8Array, steep: Uint8Array, deco: Uint8Array): void {
+  const S = W + 1, hv = (x: number, y: number) => heights[y * S + x];
+  const vn = (x: number, y: number, g: number, k: number) => { const gx = Math.floor(x / g), gy = Math.floor(y / g), sx = smooth((x - gx * g) / g), sy = smooth((y - gy * g) / g), q = (a: number, b: number) => hash(a + k * 977, b, seed);
+    return (q(gx, gy) * (1 - sx) + q(gx + 1, gy) * sx) * (1 - sy) + (q(gx, gy + 1) * (1 - sx) + q(gx + 1, gy + 1) * sx) * sy; };
+  // 地形ごとの割合：[田んぼ, 畑, 草地, 屋敷林, 空き地]
+  const MIX: Record<string, number[]> = { coast: [0.34, 0.2, 0.22, 0.08, 0.04], inland: [0.38, 0.22, 0.16, 0.1, 0.02], rural: [0.5, 0.22, 0.1, 0.1, 0.02], river: [0.42, 0.16, 0.2, 0.08, 0.04],
+    lake: [0.3, 0.18, 0.28, 0.1, 0.04], mountain: [0.3, 0.26, 0.16, 0.16, 0.02], urban: [0.1, 0.14, 0.3, 0.06, 0.22], island: [0.18, 0.26, 0.3, 0.1, 0.04] };
+  const mix = MIX[T] ?? MIX.coast;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (x < FIC_PREV_W && y < FIC_PREV_H) continue;
+    const i = idx(x, y); if (water[i] || forest[i] || steep[i] || deco[i]) continue;
+    const hm = (hv(x, y) + hv(x + 1, y) + hv(x, y + 1) + hv(x + 1, y + 1)) / 4;
+    // 区画：3×2 の田畑を、行ごとにずらして並べる。まとまり（10 区画ほど）ごとに田んぼの多い所・草地の多い所が分かれる
+    const py = y >> 1, px = Math.floor((x + Math.floor(hash(py, 3, seed + 301) * 3)) / 3), r = hash(px, py, seed + 303), reg = vn(x, y, 11, 1);
+    const low = hm < 4 ? 1 : hm < 9 ? 0.5 : 0.15; // 低い所ほど田んぼ
+    const w = [mix[0] * low * (0.1 + 2.4 * smooth((reg - 0.35) / 0.35)), mix[1] * (0.3 + 1.4 * vn(x, y, 8, 4)), mix[2] * (0.3 + 1.9 * smooth((0.62 - reg) / 0.3)), mix[3], mix[4] * (0.3 + 1.4 * vn(x, y, 7, 2))];
+    const sum = w.reduce((a, b) => a + b, 0) / Math.min(0.92, mix.reduce((a, b) => a + b, 0) + 0.1);
+    let acc = 0, pick = 0; for (let k = 0; k < 5; k++) { acc += w[k] / sum; if (r < acc) { pick = k + 1; break; } }
+    if (pick === 4 && vn(x, y, 5, 3) < 0.45) pick = 3; // 屋敷林は小さな塊だけ（ほかは草地）
+    deco[i] = pick === 1 ? 2 : pick === 2 ? 6 : pick === 3 ? 7 : pick === 4 ? 8 : pick === 5 ? 9 : 0;
+  }
 }
 
 /** v88：無人島の地形。中央に山（森）、山から南の入り江へ流れる沢、西の湧水、まわりは砂浜と海。地図の縁はすべて海 */
