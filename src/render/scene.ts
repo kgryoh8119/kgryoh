@@ -2145,7 +2145,7 @@ export class View {
       if (em.wait > 0) { em.wait -= dt; continue; }
       const px: number = (a as any).px ?? 0, pz: number = (a as any).pz ?? 0;
       if (em.lit) { pos.push(px, pz, Math.sin(a.yaw), Math.cos(a.yaw)); em.sir -= dt; if (em.sir <= 0) { em.sir = 3; this.sfx('siren' + em.k, px, 0, pz); } }
-      if (!em.at && em.i >= em.r.length - 2 && a.t >= 0.45 && (a.v ?? 0) < 0.4) em.at = true; // 着いた
+      if (!em.at && (a.v ?? 0) < 0.4 && ((em.i >= em.r.length - 2 && a.t >= 0.45) || (em.legs.length && em.lit && Math.hypot(px - em.sx, pz - em.sz) < 75))) em.at = true; // 着いた（先に着いた車の後ろに並んでも）
       if (!em.at) continue;
       if (em.k === 2 && em.legs.length && em.stay > 2 && Math.random() < dt * (this.lite ? 8 : 18)) { const dx = em.sx - px, dz = em.sz - pz, L = Math.hypot(dx, dz) || 1; this.fx.burst(px, this.surfY(px, pz) + 3.6, pz, 'water', 1, 0, [dx / L * 0.75, 0.62, dz / L * 0.75]); } // 放水
       em.stay -= dt; if (em.stay > 0) continue;
@@ -2680,7 +2680,9 @@ export class View {
       const jv = (s.vc[a.cur] || 0) * jam, gp = jv > 1.5 ? 0.9 : jv > 1 ? 1.3 : 2; // v87：渋滞では車間を詰める
       const own = segs.get(keyOf(a.cur, a.next)); if (own) for (const o of own) if (o.id !== i && (o.t > a.t || (o.t === a.t && o.id < i)) && (!wide || o.lane === a.lane || o.id < 0)) lim = Math.min(lim, o.t - (me + o.hl + gp) / TILE);
       const nx = a.nn !== undefined && a.nn !== a.next ? segs.get(keyOf(a.next, a.nn)) : undefined; if (nx) for (const o of nx) lim = Math.min(lim, 1 + o.t - (me + o.hl + gp) / TILE);
-      if ((a as any).em?.lit) lim = 9; // 赤色灯の緊急車両は、道を空けた車の横を抜けていく
+      if ((a as any).em?.lit) { lim = 9; const ce = this.cars; // 赤色灯の緊急車両は、道を空けた車の横を抜けていく（前の緊急車両には続く）
+        if (own) for (const o of own) if (o.id >= 0 && o.id !== i && (ce[o.id] as any)?.em && (o.t > a.t || (o.t === a.t && o.id < i))) lim = Math.min(lim, o.t - (me + o.hl + 3) / TILE);
+        if (nx) for (const o of nx) if (o.id >= 0 && (ce[o.id] as any)?.em) lim = Math.min(lim, 1 + o.t - (me + o.hl + 3) / TILE); }
       (a as any).limit = lim; });
     const sigG = this.signals(s), cyc = this.lifeT % 36, sigAxis = cyc < 18 ? 0 : 1, amber = cyc % 18 > 15, h = this.hour;
     const stepPed = (a: Agent, i: number) => {
