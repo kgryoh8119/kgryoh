@@ -253,4 +253,29 @@ export function roadTile(o: RoadTileArgs): void {
     for (let q = -hw + 0.7; q <= hw - 0.6; q += 1.3) { const [px, pz] = WP(dx, dz, -(hw - 0.4), q), hy = hA(px, pz); g.at(px, hy, pz); g.cyl(0, 0, 0, 0.08, 0.85, 0xf2f2ee, 6, 0xd8342a); g.cyl(0, 0.55, 0, 0.085, 0.12, 0xd8342a, 6); g.at(0, 0, 0); }
     const [px, pz] = WP(dx, dz, -(hw - 0.2), Wd - 0.6), hy = hA(px, pz); g.at(px, hy, pz); g.cyl(0, 0, 0, 0.05, 2.4, 0x9aa0a6, 5); g.at(0, 0, 0);
     face(kit, RK.sDead, px + dx * 0.03, hy + 2.05, pz + dz * 0.03, dx, dz, 0.75, 0.75); }
+  // --- v88：路面の色と質感（補修のパッチ・掘り返しの跡・交差点のカラー舗装・バスレーン・自転車レーン・ゾーン 30）と、古い道の補修工事
+  if (!fine) return;
+  /** 道に沿った座標 (u：進む向き, v：横) の四角を、区画の向きに合わせて塗る */
+  const UV = (u0: number, v0: number, u1: number, v1: number, col: number, o2: number) => { if (ewS) flat(u0, v0, u1, v1, col, o2); else flat(v0, u0, v1, u1, col, o2); };
+  const lineH = hash(ewS ? y : x, ewS ? 17 : 19, 73); // 同じ通り（行・列）で同じ値
+  if (straight && !o.stone) {
+    // 補修のパッチ（新しい濃いアスファルトの四角）と、管を埋めた細長い掘り返しの跡。古い道ほど多い
+    if (o.ak > 0.25 && sh(74) < 0.2 + o.ak * 0.5) { const u = (sh(75) - 0.5) * 18, v = (sh(76) - 0.5) * (hw - 1), l = 1.4 + sh(77) * 3, w = 1 + sh(78) * 1.8; UV(u - l / 2, v - w / 2, u + l / 2, v + w / 2, 0x313438, 0.122); }
+    if (sh(79) < 0.12 + o.ak * 0.15) { const v = (sh(80) - 0.5) * (hw * 1.4); UV(-15, v - 0.35, 15, v + 0.35, o.ak > 0.5 ? 0x3b3e42 : 0x5a5853, 0.121); }
+    // バスレーン（幹線の外側の車線を茶色に。通りごとに決める）と自転車レーン（2 車線の道の左端を青く、矢羽根の白）
+    if (big4 && lineH < 0.4) for (const sg of [-1, 1]) UV(-15, sg * (hw - 3.2), 15, sg * (hw - 0.35), fade(0x9a4a3c), 0.123);
+    else if (t === 2 && !o.wide && lineH < 0.35) for (const sg of [-1, 1]) { UV(-15, sg * (hw - 1.25), 15, sg * (hw - 0.3), fade(0x3f6fb8), 0.123); for (let u = -12; u < 15; u += 7.5) UV(u, sg * (hw - 0.95), u + 1.6, sg * (hw - 0.6), W1, 0.13); }
+    // ゾーン 30（住宅地の生活道路の入口：路面の赤い帯と「30」の円）
+    else if (t === 1 && lineH < 0.18 && sh(81) < 0.5) { UV(-2.2, -hw + 0.3, 2.2, hw - 0.3, fade(0xa8463a), 0.123); decal(kit, RK.n30, ewS ? cx + 6 : cx, cz + (ewS ? 0 : 6), ewS ? 1 : 0, ewS ? 0 : 1, 2.6, 2.6, hA); }
+  }
+  // 交差点のカラー舗装（信号のある大きな交差点は、中を薄い赤茶に）
+  if (junction && o.sig && !o.stone && hash(x, y, 82) < 0.6) flat(-hw + 0.4, -hw + 0.4, hw - 0.4, hw - 0.4, fade(0xa0645a), 0.121);
+  // 補修工事中（とても古い道のひとつまみ）：片側の車線をカラーコーンと工事の柵で囲み、誘導員と矢印板
+  if (straight && o.ak > 0.85 && sh(83) < 0.18 && !o.stone) { const sg = sh(84) < 0.5 ? -1 : 1, v0 = sg * 0.3, v1 = sg * (hw - 0.4), vm = (v0 + v1) / 2;
+    UV(-6, Math.min(v0, v1), 6, Math.max(v0, v1), 0x2c2f33, 0.124);
+    const P = (u: number, v: number): [number, number] => ewS ? [cx + u, cz + v] : [cx + v, cz + u];
+    for (let u = -7; u <= 7; u += 1.75) for (const v of [v0, v1]) { const [px, pz] = P(u, v); g.at(px, hA(px, pz) + 0.1, pz); g.box(0, 0, 0, 0.34, 0.04, 0.34, 0x2a2a2c); g.cyl(0, 0.04, 0, 0.13, 0.62, 0xe8501e, 6, 0xf2f2ee); g.at(0, 0, 0); } // カラーコーン（赤と白）
+    for (const u of [-7.4, 7.4]) { const [px, pz] = P(u, vm), hy = hA(px, pz) + 0.1; g.box(px, hy + 0.25, pz, ewS ? 0.08 : Math.abs(v1 - v0), 0.55, ewS ? Math.abs(v1 - v0) : 0.08, 0xf2d030); g.box(px, hy + 0.95, pz, ewS ? 0.1 : 1.0, 1.0, ewS ? 1.0 : 0.1, 0x2a2a2c); }      // 柵と矢印板
+    { const [px, pz] = P(-9.5, vm * 0.4), hy = hA(px, pz) + 0.1; g.box(px, hy + 0.45, pz, 0.36, 0.9, 0.3, 0x2c3a5a); g.box(px, hy + 1.15, pz, 0.42, 0.55, 0.32, 0xe8e030); g.box(px, hy + 1.6, pz, 0.24, 0.3, 0.24, 0xd8b090); g.box(px, hy + 1.8, pz, 0.3, 0.1, 0.3, 0xf2f2ee); } // 誘導員（反射ベストとヘルメット）
+  }
 }

@@ -110,7 +110,7 @@ import { Landmarks, type LmItem } from './landmarks';
 import { roadKitMat, roadTile, face, RK } from './roadkit';
 import { drawPowerLines, drawUtilities, kyodokoTiles, infraKey, pipeReach, pipeOverlay } from './infra'; // v87
 import TRAIN from '../assets/train.json';
-import { makeVeh, makeTrain, VEH_MODELS, carColor, TRAIN_PART } from './vehgen';
+import { makeVeh, makeTrain, makeWork, VEH_MODELS, WORK_MODELS, WORK_HL, carColor, TRAIN_PART } from './vehgen';
 import VEH from '../assets/vehicles.json';
 import CLOUDS from '../assets/clouds.json';
 import VEH2 from '../assets/vehicles2.json';
@@ -159,8 +159,10 @@ const VEH_K = [1, 0.8, 0.88, 1, 0.84];
 const VEH_HL = [2.2, 5.3 * 0.8, 3.6 * 0.88, 2.2, 5.3 * 0.84];
 const VEH_C = [0, 0x2f8a5a, 0xf2f2ee, 0x2fc4b2, 0xdff4f1];
 /** v86：車の形（vehM の番号。VEH_MODELS の並びのあとに 17 路線バス・18 大型トラック・19 観光バス）ごとの大きさと、長さの半分（m） */
-const VT_K = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.8, 0.88, 0.84];
-const VT_HL = [2.2, 1.8, 2.35, 2.0, 2.3, 2.3, 2.2, 1.8, 2.45, 2.3, 2.3, 2.5, 3.8, 3.2, 3.5, 0.9, 0.85, 5.3 * 0.8, 3.6 * 0.88, 5.3 * 0.84];
+const VT_K = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.8, 0.88, 0.84, ...WORK_HL.map(() => 1)];
+const VT_HL = [2.2, 1.8, 2.35, 2.0, 2.3, 2.3, 2.2, 1.8, 2.45, 2.3, 2.3, 2.5, 3.8, 3.2, 3.5, 0.9, 0.85, 5.3 * 0.8, 3.6 * 0.88, 5.3 * 0.84, ...WORK_HL];
+/** v88：働く車と二輪の形の番号（20 番から。vehgen.ts の WORK_MODELS の順） */
+const WV = (n: typeof WORK_MODELS[number]) => 20 + WORK_MODELS.indexOf(n);
 /** 古さの段階：0 新しい・1 古い（市の施設は老朽度 70 超、民間は築 40 年超）・2 とても古い（老朽度 90 超か停止中、築 60 年超） */
 function oldLevel(s: GameState, b: Building): number {
   if (b.status === 'construction') return 0;
@@ -2140,6 +2142,8 @@ export class View {
     // 路線バス・箱型トラック（7m）・観光バス：Blender の形（src/assets/vehicles.json）。白い所に車ごとの色が掛かる
     const PB = [0xffffff, 0x1a1a1a, 0x1c2228, 0xfff6d8, 0xd02020, 0xffb030, 0x9aa0a6], PT = [0xffffff, 0x1a1a1a, 0x1c2228, 0xfff6d8, 0xd02020, 0xf4f4f0, 0x2a2a2c], PC = [0xffffff, 0x1a1a1a, 0x1c2228, 0xfff6d8, 0xd02020, 0x2a2a2c, 0xd8a030];
     for (const [m, P] of [[VM.bus, PB], [VM.truck, PT], [VM2.coach, PC]] as const) this.vehM.push({ body: mk(part(m, () => true, t => P[t]), carMat), cab: null });
+    // v88：働く車と二輪（ダンプ・ミキサー・タンクローリー・クレーン・宅配・レッカー・キッチンカー・福祉・教習・はしご車・救助工作車・バイク・白バイ・ロードバイク・ママチャリ・キックボード・郵便バイク・キャリアカー）
+    const WK = makeWork(wn); for (const nm of WORK_MODELS) { const m = WK[nm], glass = m.F.some(f => f[3] === 5); this.vehM.push({ body: mk(part(m, t => t !== 5, t => t === 0 ? 0xffffff : CAR_PART[t]), carMat), cab: glass ? mk(skyGlass(part(m, t => t === 5, () => 0xffffff)), cabMat) : null }); }
     this.vehN = this.vehM.map(() => 0);
   }
   /** 毎コマの始めと終わり：形ごとの置いた数を 0 に戻し、終わりに数と色を描画に渡す */
@@ -2165,7 +2169,7 @@ export class View {
       if (r.length < 2) { const x = dest % W, y = (dest / W) | 0, nb = [dest - 1, dest + 1, dest - W, dest + W].find((t, j) => t >= 0 && t < W * H && s.road[t] && (j > 1 || ((t / W) | 0) === y) && (j < 2 || (t % W) === x)); if (nb === undefined) return; r = [nb, dest]; }
       const hosp = k === 1 ? nearestBase(s, HOSPITALS, bx, by) : null, ht = hosp ? roadNear(s.road, W, H, hosp.x, hosp.y, hosp.w, hosp.h) : -1;
       const em: Em = { k, r, i: 0, lit: true, stay: k === 2 ? 32 : k === 1 ? 9 : 16 + Math.random() * 8, at: false, legs: [ht >= 0 ? ht : from], wait, sx, sz, sir: Math.random() * 2, h: ht >= 0 };
-      const a: Agent = { cur: r[0], next: r[1], prev: -1, t: 0.05, speed: 12, lane: 0, yaw: 0, bob: 0, kind: 0, vm: EM_VM[k], vc: [0x1c1e22, 0xf6f6f2, 0xc0261c][k] };
+      const a: Agent = { cur: r[0], next: r[1], prev: -1, t: 0.05, speed: 12, lane: 0, yaw: 0, bob: 0, kind: 0, vm: k === 2 && q > 0 ? [12, WV("ladder"), WV("rescue")][q % 3] : EM_VM[k], vc: [0x1c1e22, 0xf6f6f2, 0xc0261c][k] }; // v88：2 台目からの消防車ははしご車・救助工作車
       (a as any).em = em; this.emRoute(a, em); { const d = this.lanePath(s, -1, a.cur, a.next, a.nn!, 0.05, 0); a.yaw = Math.atan2(d.dx, d.dz); }
       this.ems.push(a); if (this.cars.length >= 320) this.cars.splice(0, 1); this.cars.push(a); n++;
     });
@@ -2207,6 +2211,8 @@ export class View {
   /** 車の形・色・速さを決める（v86）：日本の街の分布。乗用車は白・黒・銀・灰が多く、まれにパトカー・救急車・消防車、タクシー、バイク、自転車。トラックは大型・2t・ごみ収集車 */
   private dressVeh(a: { kind?: number; vm?: number; vc?: number; speed: number; v?: number }): void {
     const k = a.kind ?? 0, R = Math.random, pk = <T,>(l: T[]) => l[(R() * l.length) | 0]; let vm = 0, vc = 0xf4f4f2;
+    if (k === 2 && R() < 0.4) { const r = R(), T: [number, number, number[]][] = [[0.2, WV('dump'), [0x2a64b8, 0x3a8a4a, 0xd8382c, 0xe8c030, 0x6a6e74]], [0.36, WV('mixer'), [0x2a64b8, 0x3a8a4a, 0xf4f4f2]], [0.5, WV('tanker'), [0xf4f4f2, 0x2a5fb0, 0xe8c030]], [0.78, WV('parcel'), [0x2a8a50, 0x2a64b8, 0xe8c030, 0xd8382c]], [0.86, WV('crane'), [0xf4f4f2, 0x2a64b8]], [0.93, WV('tow'), [0xf4f4f2, 0x2a5fb0]], [1, WV('carrier'), [0xf4f4f2, 0x2a64b8, 0x24262a]]];
+      const e = T.find(x => r < x[0]) ?? T[0]; a.vm = e[1]; a.vc = pk(e[2]); a.v = undefined; return; } // v88：働く車
     if (k === 1) { vm = 17; vc = VEH_C[1]; } else if (k === 4) { vm = 19; vc = pk([0xf2f2ee, 0x2a5fb0, 0xd8382c, 0x2aa060]); } else if (k === 3) { vm = 0; vc = VEH_C[3]; }
     else if (k === 2) { const r = R(); if (r < 0.4) { vm = 18; vc = pk([0x2a7fe0, 0x2aa060, 0xd8382c, 0xf2f2ee]); } else if (r < 0.8) { vm = 13; vc = pk([0xf4f4f2, 0xf4f4f2, 0xf4f4f2, 0xe8c030, 0x2a64b8, 0xd8382c, 0x2aa060]); } else { vm = 14; vc = pk([0xf4f4f2, 0xf4f4f2, 0x2a8a50, 0x2a64b8]); } }
     else { const r = R(), q = R();
@@ -2214,6 +2220,8 @@ export class View {
       else if (r < 0.05) { vm = 15; vc = pk([0x2a2c33, 0x3a5a8a, 0xc0392b, 0x6a8a4a, 0xd9a03a, 0xf2f2f2, 0x7a5a8a]); a.speed = 6 + R() * 3; }
       else if (r < 0.1) { vm = 16; vc = pk([0x2a2c33, 0x3a5a8a, 0xc0392b, 0x6a8a4a, 0xd9a03a, 0xf2f2f2, 0x7a5a8a, 0x8a6a4a]); a.speed = 5.5 + R() * 1.5; }
       else if (r < 0.14) { vm = 9; vc = pk([0x24262a, 0x24262a, 0xf4f4f2, 0xe8c840, 0x2f8a5a]); }
+      else if (r < 0.2) { const u = (r - 0.14) / 0.06, T: [number, number, number[], number][] = [[0.24, WV('moto'), [0x24262a, 0xc0392b, 0x2a5fb0, 0xd8d8d8], 1.0], [0.4, WV('roadbike'), [0xd8382c, 0x24262a, 0xf2f2f2, 0x2a8ac8], 0.75], [0.58, WV('mamachari'), [0xf2f2f2, 0x6a8a4a, 0x8a6a4a, 0x2a2c33], 0.45], [0.68, WV('kick'), [0x2aa060, 0x24262a, 0xe8c030], 0.55], [0.76, WV('postbike'), [0xc8261c], 0.6], [0.8, WV('kitchen'), [0xe8c030, 0x6ab0d8, 0xf2c8d4], 1], [0.88, WV('welfare'), [0xf4f4f2, 0xc4c8cc], 1], [0.95, WV('kyoshu'), [0xf4f4f2], 0.75], [1, WV('whitebike'), [0xf6f6f2], 1.1]];
+        const e = T.find(x => u < x[0]) ?? T[0]; vm = e[1]; vc = pk(e[2]); a.speed *= e[3]; }
       else { const kd = carKindOf(q); vm = VEH_MODELS.indexOf(kd); vc = carColor(R(), kd === 'kei' || kd === 'keitruck'); } }
     if (vm >= 10 && vm <= 12) a.speed *= 1.12;
     a.vm = vm; a.vc = vc; a.v = undefined;
