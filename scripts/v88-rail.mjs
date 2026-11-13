@@ -10,10 +10,10 @@ await page.waitForTimeout(3000);
 const info = await page.evaluate(() => { const S = window.__sumu, s = S.game.state, v = S.view, W = S.W; const cross = []; for (let i = 0; i < s.rail.length; i++) if (s.rail[i] && s.road[i] && !s.railGrade[i]) cross.push(i);
   const st = s.buildings.filter(b => b.kind === 'station' && b.status === 'operating'); return { W, cross, st: st.map(b => b.y * W + b.x), trains: v.trains?.length ?? 0, kinds: v.trains?.map(t => t.kind) }; });
 console.log(JSON.stringify({ ...info, cross: info.cross.length }));
-const shot = async (n, wait = 6000) => { await page.waitForTimeout(wait); await page.screenshot({ path: `${OUT}/${PFX}${n}.png` }); console.log('shot', n); };
+const shot = async (n, wait = 6000) => { await page.waitForTimeout(wait); console.log(n, new Date().toISOString(), JSON.stringify(await page.evaluate(() => window.__sumu.view.stats))); await page.screenshot({ path: `${OUT}/${PFX}${n}.png` }); console.log('shot', n); };
 // 列車を止めて、その横から（K 番の編成。駅に止めておく）
 const trainAt = async (k, dist, pitch, yaw, back = 0) => page.evaluate(([k, dist, pitch, yaw, back]) => { const S = window.__sumu, v = S.view, t = v.trains[Math.min(k, v.trains.length - 1)]; v.hour = 10; const P = v.railPaths[t.path]; let j = 0; const d = t.d - t.dir * back; while (j < P.d.length - 1 && P.d[j] < d) j++;
-  const x = P.p[j * 3], z = P.p[j * 3 + 2]; v.focus(Math.floor(z / 30) * S.W + Math.floor(x / 30), dist); v.pitch = pitch; v.yaw = yaw; v.trains.forEach(t => { t.wait = 1e9; }); return [t.path, t.d, t.kind]; }, [k, dist, pitch, yaw, back]);
+  const x = P.p[j * 3], z = P.p[j * 3 + 2]; v.focus(Math.floor(z / 30) * S.W + Math.floor(x / 30), dist); v.pitch = pitch; v.yaw = yaw; v.trains.forEach(t => { t.wait = 1e9; }); return [t.path, t.d, t.fam, v.trains.map(t => t.fam).join(",")]; }, [k, dist, pitch, yaw, back]);
 if (WHAT.includes('train') && info.trains > 0) { console.log(await trainAt(Number(process.env.K ?? 0), 34, 0.18, 0.9, 20)); await shot('train', 9000); }
 if (WHAT.includes('train2') && info.trains > 1) { console.log(await trainAt(Number(process.env.K2 ?? 2), 40, 0.25, 2.2, 0)); await shot('train2', 9000); }
 if (WHAT.includes('cross') && info.cross.length) { await page.evaluate(([i, W]) => { const v = window.__sumu.view; Object.assign(v.view?.want ?? {}, {}); v.focus(i, 60); v.pitch = 0.45; v.yaw = 0.6; }, [info.cross[0], info.W]); await shot('cross', 8000); }

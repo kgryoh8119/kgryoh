@@ -449,6 +449,12 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
         if (jc === -5) put(back - sd * 0.45, () => { g.box(0, 0, 0, 0.55, 0.95, 0.5, 0x8d9499); g.box(0.6, 0, 0, 0.55, 0.95, 0.5, 0x4d7fb0); });         // ごみ箱・リサイクル箱
         if (ad > 46.5 && ad < 50) { const e = dd > 0 ? 1 : 0; both(A(o0 - w2, ph, e) as any, A(o0 + w2, ph, e) as any, A(o0 + w2, ph + 1.2, e) as any, A(o0 - w2, ph + 1.2, e) as any, 0xdedcd5); both(A(o0 - w2, -2.2, e) as any, A(o0 + w2, -2.2, e) as any, A(o0 + w2, ph, e) as any, A(o0 - w2, ph, e) as any, 0xa9a49a); } // ホームの端の柵と、端の壁
         if (detail >= 1) up(A(o0 - w2 * sd, ph + 0.015, 0), A(o0 - w2 * sd, ph + 0.015, 1), A(o0 - w2 * sd + 0.3 * sd, ph + 0.015, 1), A(o0 - w2 * sd + 0.3 * sd, ph + 0.015, 0), 0xe4e0d4); // v86：ホームの縁石（線路側の白いふち）
+        // v88：発車標（屋根からつるす黒い箱に橙の表示）・時計・停止位置目標（4 両の先頭が止まる所）・大きな駅のホームドア（腰の高さの柵と、乗り口のすき間）
+        if (detail >= 1 && ad < 44 && (jc === 2 || jc === -2)) put(o0 - w2 * sd * 0.1, () => { g.box(0, 3.55, 0, 0.18, 0.5, 2.2, 0x1e2022); g.box(sd * 0.1, 3.62, 0, 0.02, 0.34, 2.0, 0xe89a32); for (const u of [-0.8, 0.8]) g.box(0, 4.05, u, 0.04, 0.55, 0.04, 0x70767c); });
+        if (detail >= 1 && ad < 44 && jc === 6) put(o0 + w2 * sd * 0.45, () => { g.box(0, 3.4, 0, 0.12, 0.5, 0.5, 0xf2f2ee); g.box(0, 3.45, 0, 0.14, 0.4, 0.4, 0x2a2a2a); g.box(0, 3.9, 0, 0.04, 0.6, 0.04, 0x70767c); });
+        if (detail >= 1 && (jc === 13 || jc === -13)) put(o0 - w2 * sd + 0.25 * sd, () => { g.box(0, 0, 0, 0.06, 1.3, 0.06, 0x70767c); g.box(0, 1.15, 0, 0.04, 0.42, 0.42, 0xf2f2ee); g.box(0.03, 1.2, 0, 0.02, 0.3, 0.3, 0xe0662a); });
+        if (detail >= 1 && b.w * b.h >= 9 && ad < 41) { const e = o0 - w2 * sd + 0.45 * sd, L = (t: number, dy: number) => { const p = A(e, dy, 0), q = A(e, dy, 1); return [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t]; };
+          both(L(0, ph), L(0.62, ph), L(0.62, ph + 1.25), L(0, ph + 1.25), 0xd4d9de); both(L(0, ph + 1.25), L(0.62, ph + 1.25), L(0.62, ph + 1.35), L(0, ph + 1.35), 0x2f6fb5); }
         // 乗客の立ち位置（ホームの中ほど）
         if (Math.abs(P.d[j] - dC) < 40) for (const u of [-0.9, 0.2, 1.1]) { const [px, py, pz] = A(o0 + u * sd * 0.9, ph, 0); pts.push(px + (Math.random() - 0.5) * 2, py, pz + (Math.random() - 0.5) * 2); }
       }
