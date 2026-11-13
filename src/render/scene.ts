@@ -488,7 +488,7 @@ export class View {
     this.setQuality(this.quality);
   }
   setQuality(q: Quality): void {
-    const f0 = this.fine(), h0 = this.quality === 'high'; this.quality = q; if (this.vehM.length && this.wheelN() !== this.vehWn) this.buildVeh(this.wheelN()); if (this.fine() !== f0 || (q === 'high') !== h0) { this.sigTown = ''; this.sigSites = ''; this.chunkSig.clear(); } // 細部の有無が変わったら建物を作り直す（v86：高品質だけの細部もある）
+    const f0 = this.fine(), h0 = this.quality === 'high'; this.quality = q; if (this.vehM.length && this.wheelN() !== this.vehWn) this.buildVeh(this.wheelN()); if (this.fine() !== f0 || (q === 'high') !== h0) { this.sigTown = ''; this.sigSites = ''; this.chunkSig.clear(); this.sigRoad = ''; } // 細部の有無が変わったら建物を作り直す（v86：高品質だけの細部もある）。v88：線路（道路と一緒の作り直し）も
     const dpr = Math.min(window.devicePixelRatio || 1, q === 'high' ? 2 : q === 'mid' ? 1.5 : 1, this.lite ? 1.25 : 9);
     this.renderer.setPixelRatio(dpr);
     const big = q === 'high' && !this.lite && !matchMedia('(pointer: coarse)').matches && this.renderer.capabilities.maxTextureSize >= 8192;
@@ -1900,7 +1900,8 @@ export class View {
         if (F.stop && Number.isNaN(tr.stopAt)) {
           const stAt = (o: number) => { const [x, , z] = railAt(P, tr.d + tr.dir * o), ti = Math.floor(z / TILE) * W + Math.floor(x / TILE); return ti >= 0 && ti < W * H ? nearStation(ti) : -1; };
           const look = tr.v * tr.v / (2 * DEC) + 6, st = stAt(look);
-          if (st >= 0 && st !== tr.stopped) { let e = look; while (e < look + 240 && stAt(e + 6) === st) e += 6; tr.stopAt = tr.d + tr.dir * Math.max(look, Math.min(e, (look + e) / 2 + lenT / 2 - 4)); tr.stopSt = st; }
+          if (st >= 0 && st !== tr.stopped) { const sp = this.stSpots.find(o => o.id === stations[st].id && o.path === tr.path), cen = sp ? (sp.d - tr.d) * tr.dir + lenT / 2 - 1.5 : -1; // ホームの中心に編成の中ほど
+            if (cen >= look - 2) tr.stopAt = tr.d + tr.dir * cen; else { let e = look; while (e < look + 240 && stAt(e + 6) === st) e += 6; tr.stopAt = tr.d + tr.dir * Math.max(look, Math.min(e, (look + e) / 2 + lenT / 2 - 4)); } tr.stopSt = st; }
         }
         let vt = vmax;
         if (!Number.isNaN(tr.stopAt)) { const rem = (tr.stopAt - tr.d) * tr.dir; vt = Math.min(vmax, Math.sqrt(2 * DEC * Math.max(0, rem)) + 0.4);
