@@ -22,7 +22,7 @@ function serve() {
 export async function open(w = 1440, h = 900, mapId = process.env.MAPID ?? 'sumino', before = null) {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl'] });
   const page = await browser.newPage(process.env.MOBILE ? { viewport: { width: w, height: h }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : { viewport: { width: w, height: h } });
-  const errors = [];
+  page.setDefaultTimeout(Number(process.env.TMO ?? 30000)); const errors = [];
   page.on('pageerror', e => errors.push('pageerror: ' + e.message + (process.env.STACK ? ' ' + (e.stack || '').split('\n').slice(0, 4).join(' | ') : '')));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   if (process.env.TERRAIN) await page.addInitScript(() => { try { localStorage.setItem('sumu-career', JSON.stringify({ lv: 99, cities: [], moves: 0 })); } catch {} });
