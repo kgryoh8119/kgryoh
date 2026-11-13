@@ -4,7 +4,8 @@ import type { Kind } from '../sim/types';
 import TREES from '../assets/trees.json';
 import { growTrees } from './treegen';
 import { makeCars, CAR_KINDS, type CarKind } from './cargen';
-export { CAR_KINDS };
+import { CAR_PART, carColor } from './vehgen';
+export { CAR_KINDS, CAR_PART };
 import CARS from '../assets/cars.json';
 
 export interface Ctx {
@@ -377,25 +378,23 @@ export function tree(c: Ctx, x: number, z: number, s = 1, kind = -1): void {
 }
 function bush(c: Ctx, x: number, z: number, s = 1, col?: number): void { c.g.blob(x, 0.5 * s, z, 0.8 * s, 0.6 * s, 0.8 * s, col ?? pick(c, GREENS), 5); }
 function hedge(c: Ctx, x: number, z: number, sx: number, sz: number, h = 1.0): void { c.g.box(x, 0, z, sx, h, sz, 0x4b7f3f, 0x5a914a); }
-const CAR_COLS = [0xf2f2f2, 0xb8bcc0, 0x25282c, 0x2c3e5c, 0xa8322d, 0x8fb3c9, 0xd8cdb8, 0xe0c040, 0xf2f2f2, 0x9aa0a6];
 export function car(c: Ctx, x: number, z: number, alongX: boolean, col?: number): void {
-  const k = col ?? pick(c, CAR_COLS), L = 4.1, Wd = 1.7, g = c.g;
+  const r0 = col === undefined ? c.rnd() : 0, L = 4.1, Wd = 1.7, g = c.g; let k = col ?? carColor(r0); // v86：色は日本の実際の分布（白・黒・銀・灰が 7 割強）
   if (!c.fine) {
     if (alongX) { g.box(x, 0.05, z, L * 0.94, 0.3, Wd * 1.02, 0x1c1d1f); g.box(x, 0.3, z, L, 0.65, Wd, k); g.box(x - 0.2, 0.95, z, L * 0.55, 0.55, Wd * 0.9, 0x2a3138); }
     else { g.box(x, 0.05, z, Wd * 1.02, 0.3, L * 0.94, 0x1c1d1f); g.box(x, 0.3, z, Wd, 0.65, L, k); g.box(x, 0.95, z - 0.2, Wd * 0.9, 0.55, L * 0.55, 0x2a3138); }
     return;
   }
   // 細かい車：Blender の車（セダン・ミニバン・軽自動車）
-  const q = dh(x + g.ox, z + g.oz, 11), m = CM[carKindOf(q)];
+  const q = dh(x + g.ox, z + g.oz, 11), kd = carKindOf(q), m = CM[kd]; if (col === undefined && (kd === 'kei' || kd === 'keitruck')) k = carColor(r0, true);
   carMesh(g, m, x, z, (alongX ? Math.PI / 2 : 0) + (dh(x + g.ox, z + g.oz, 12) < 0.5 ? Math.PI : 0), (t) => t === 0 ? k : CAR_PART[t]);
 }
 /** Blender の車（tools/blender_cars.py → src/assets/cars.json）。面の種類 0 車体 1 タイヤ 2 樹脂 3 前照灯 4 尾灯 5 窓 6 ホイール。前は +z */
 export type CarMesh = { V: number[][]; F: number[][] };
 // v80：車の形は cargen.ts で作る（cars.json の Blender の形は使わなくなった）
 export const CM: Record<CarKind, CarMesh> = makeCars();
-export const CAR_PART = [0xffffff, 0x151515, 0x3a3a3c, 0xfff6d8, 0xd02020, 0x26313a, 0x9aa0a6];
-/** 車の種類の割合（0〜1 の乱数から）：セダン 20%・軽 22%・ミニバン 16%・コンパクト 16%・SUV 12%・ワゴン 6%・スポーツ 3%・軽トラ 5% */
-export function carKindOf(q: number): CarKind { const W = [0.2, 0.22, 0.16, 0.16, 0.12, 0.06, 0.03, 0.05]; let a = 0; for (let i = 0; i < W.length; i++) { a += W[i]; if (q < a) return CAR_KINDS[i]; } return 'sedan'; }
+/** 車の種類の割合（0〜1 の乱数から）：セダン 19%・軽 20%・ミニバン 15%・コンパクト 15%・SUV 11%・ワゴン 6%・スポーツ 3%・軽トラ 5%・商用バン 6% */
+export function carKindOf(q: number): CarKind { const W = [0.19, 0.2, 0.15, 0.15, 0.11, 0.06, 0.03, 0.05, 0.06]; let a = 0; for (let i = 0; i < W.length; i++) { a += W[i]; if (q < a) return CAR_KINDS[i]; } return 'sedan'; }
 export function carMesh(g: Geo, m: CarMesh, x: number, z: number, rot: number, color: (t: number) => number, only?: (t: number) => boolean): void {
   const c = Math.cos(rot), s = Math.sin(rot), P = m.V.map(([bx, by, bz]) => { const gx = -bx, gz = by; return [x + gx * c + gz * s, bz, z - gx * s + gz * c] as [number, number, number]; });
   const N = cornerNormals(m, P, 0.75); // 車体の曲面はなめらかに、折れ目（約 40° 以上）は残す
