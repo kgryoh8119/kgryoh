@@ -594,7 +594,8 @@ export class View {
     const om = new THREE.Mesh(outer.build(), this.matTerrain); om.receiveShadow = true; this.scene.add(om);
     const wd = (H - RY + 0.2) * TILE + (sea ? far : 60), wg = new THREE.PlaneGeometry(far * 2 + MAPW, wd); wg.rotateX(-Math.PI / 2);
     const water = new THREE.Mesh(wg, this.matWater); water.position.set(MAPW / 2, -1.55, (RY - 0.2) * TILE + wd / 2); this.scene.add(water);
-    { const pg = new THREE.CircleGeometry(2.35 * TILE, 40); pg.rotateX(-Math.PI / 2); const pond = new THREE.Mesh(pg, this.matWater); pond.position.set(44.5 * TILE, -0.7, 50.5 * TILE); this.scene.add(pond); } // 南原のため池
+    { const pg = new THREE.CircleGeometry(2.35 * TILE, 40); pg.rotateX(-Math.PI / 2); const pond = new THREE.Mesh(pg, this.matWater); pond.position.set(44.5 * TILE, -0.7, 50.5 * TILE); this.scene.add(pond);
+      if (W > 76) { const p2 = new THREE.Mesh(new THREE.CircleGeometry(2.75 * TILE, 40).rotateX(-Math.PI / 2), this.matWater); p2.position.set(112.5 * TILE, -0.7, 72.5 * TILE); this.scene.add(p2); } } // 南原のため池（v87：新田のため池も）
   }
 
   // ---- v70：田んぼ（田園・山あい・盆地の空き地）。季節で水→緑→金→刈り跡と色が変わる ----
@@ -698,7 +699,7 @@ export class View {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = idx(x, y), dug = m.dug?.[i], wet = m.wet?.[i];
       if (!dug && !wet) { // 地形の水面（大河・湖・島の海）。南の川とため池は別に描く
-        if (!m.water[i] || REAL || tId === 'coast' || y >= H - 4 || Math.hypot(x + 0.5 - 44.5, y + 0.5 - 50.5) < 2.1 || (m.base && !m.base.water[i])) continue;
+        if (!m.water[i] || REAL || tId === 'coast' || y >= H - 4 || Math.hypot(x + 0.5 - 44.5, y + 0.5 - 50.5) < 2.1 || (W > 76 && Math.hypot(x + 0.5 - 112.5, y + 0.5 - 72.5) < 2.5) || (m.base && !m.base.water[i])) continue;
         { const Y = -1.44; wg.quad([x * TILE, Y, (y + 1) * TILE], [(x + 1) * TILE, Y, (y + 1) * TILE], [(x + 1) * TILE, Y, y * TILE], [x * TILE, Y, y * TILE], 0x3f7fa6); } continue; // 外の海（-1.55 / -1.62）と重なる所で面がちらつかないよう、高さを離す
       }
       const S = W + 1, hs = [m.heights[y * S + x], m.heights[y * S + x + 1], m.heights[(y + 1) * S + x], m.heights[(y + 1) * S + x + 1]];
@@ -2898,7 +2899,7 @@ export class View {
       w.x += (-Math.sin(w.yaw) * fwd + Math.cos(w.yaw) * right) * sp; w.z += (-Math.cos(w.yaw) * fwd - Math.sin(w.yaw) * right) * sp;
       w.yaw += turn * dt * 1.4; w.dist *= Math.exp(zoom * dt * 1.4);
       w.x = Math.max(-200, Math.min(MAPW + 200, w.x)); w.z = Math.max(-100, Math.min(MAPH + 100, w.z));
-      w.dist = Math.max(45, Math.min(REAL ? 5200 : 2600, w.dist)); w.pitch = Math.max(0.16, Math.min(1.5, w.pitch));
+      w.dist = Math.max(45, Math.min(REAL ? 5200 : Math.round(2600 * Math.max(1, W / 76)), w.dist)); /* v87：広げた住野市（128 列）は全体が入るまで引ける */ w.pitch = Math.max(0.16, Math.min(1.5, w.pitch));
       const a = 1 - Math.exp(-dt * 10);
       this.target.x += (w.x - this.target.x) * a; this.target.z += (w.z - this.target.z) * a; this.dist += (w.dist - this.dist) * a; this.yaw += (w.yaw - this.yaw) * a; this.pitch += (w.pitch - this.pitch) * a;
       this.target.y = heightAt(m, Math.max(0, Math.min(MAPW, this.target.x)), Math.max(0, Math.min(MAPH, this.target.z)));
@@ -3262,7 +3263,7 @@ export class View {
     { const bo = this.blackout(s), popK = 0.95 + 0.35 * Math.min(1, (s.stats?.pop ?? 0) / 40000); this.matWinA.emissiveIntensity *= (1 - 0.9 * bo) * popK * (0.97 + 0.03 * Math.sin(performance.now() / 700)); this.matLamp.opacity *= 1 - bo; this.matVend.opacity *= 1 - bo; this.fx.clock(this.hour % 24, this.calM); this.fx.update(dt, this.camera, this.night, bo); }
     this.camera.position.add(this.fx.shakeOffset());
     this.moveTsunami(s, dt);
-    { const fog = this.scene.fog as THREE.Fog, pr = Math.max(this.weather.rain, this.weather.snow * 1.1); if (!REAL) { fog.near = this.fogBase.near; fog.far = this.fogBase.far; } fog.near *= 1 - 0.6 * pr; fog.far *= 1 - 0.5 * pr; } // 雨や雪の日は遠くがかすむ
+    { const fog = this.scene.fog as THREE.Fog, pr = Math.max(this.weather.rain, this.weather.snow * 1.1); if (!REAL) { const ex = this.mode === 'orbit' ? Math.max(0, this.dist - 1500) : 0; fog.near = this.fogBase.near + ex; fog.far = this.fogBase.far + ex * 2; } /* v87：広い地図を引いて見るときは、霞を遠ざける */ fog.near *= 1 - 0.6 * pr; fog.far *= 1 - 0.5 * pr; } // 雨や雪の日は遠くがかすむ
     if (this.fogDay) { const fog = this.scene.fog as THREE.Fog, k = this.hour >= 4 && this.hour < 10 ? 1 - Math.max(0, (this.hour - 8) / 2) : 0; if (k > 0) { fog.near *= 1 - 0.85 * k; fog.far *= 1 - 0.78 * k; } } // 朝霧
     PEOPLE_TIME.value = (PEOPLE_TIME.value + Math.min(dt, 0.1)) % 3600; // 立っている人の身ぶり
     this.updatePaddy(s, dt);

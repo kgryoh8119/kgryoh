@@ -158,7 +158,10 @@ export function baseMap(seed: number): MapDef {
     const d4 = Math.hypot(x - 66, y - 29) / 6.5;        // 東の森（東台の奥）
     const d5 = Math.hypot(x - 57, y - 52) / 10;         // 南原のゆるい台地
     const d6 = Math.hypot(x - 44.5, y - 50.5) / 2.6;    // ため池
-    let h = 15 * smooth(1 - d1) + 20 * smooth(1 - d2) + 8 * smooth(1 - d3) + 22 * smooth(1 - d4) + 9 * smooth(1 - d5) - 2.6 * smooth(1 - d6);
+    const d7 = Math.hypot(x - 103, y - 30) / 9;          // v87：広げた東の丘（東野の保全林）
+    const d8 = Math.hypot(x - 90, y - 88) / 7.5;         // v87：広げた南の丘（新田の雑木林）
+    const d9 = Math.hypot(x - 112.5, y - 72.5) / 3.2;    // v87：新田のため池
+    let h = 15 * smooth(1 - d1) + 20 * smooth(1 - d2) + 8 * smooth(1 - d3) + 22 * smooth(1 - d4) + 9 * smooth(1 - d5) - 2.6 * smooth(1 - d6) + 18 * smooth(1 - d7) + 11 * smooth(1 - d8) - 2.6 * smooth(1 - d9);
     if (T === 'rural') h *= 0.35;
     if (T === 'inland') h += 26 * smooth((x - 63) / 9) + (V2 ? 34 * smooth((x - 68) / 5) + 22 * smooth((3 - x) / 2.5) * smooth((y - 18) / 4) : 0); // v70：盆地を囲む東と西の山
     if (T === 'mountain') h += (V2 ? 56 : 38) * smooth((x - 50) / 12) * (0.7 + 0.3 * Math.sin(y / 5)) + (V2 ? 40 : 30) * smooth((y - 40) / 14) * smooth((x - 10) / 30)
@@ -187,16 +190,18 @@ export function baseMap(seed: number): MapDef {
     if (T === 'river' && y >= 3 && Math.abs(x + 0.5 - riverX(y + 0.5)) < RW) water[i] = 1;
     if (T === 'lake' && lakeD(x + 0.5, y + 0.5) < (V2 ? 0.93 : 1) && !(V2 && Math.hypot(x + 0.5 - 67, y + 0.5 - 41) < 1.6)) water[i] = 1;
     if (T === 'island' && ((x >= W - 5 && (y < 14 || y > 16)) || (x <= 2 && y >= 25))) water[i] = 1;
-    if (Math.hypot(x + 0.5 - 44.5, y + 0.5 - 50.5) < 2.1) water[i] = 1; // ため池
+    if (Math.hypot(x + 0.5 - 44.5, y + 0.5 - 50.5) < 2.1 || Math.hypot(x + 0.5 - 112.5, y + 0.5 - 72.5) < 2.5) water[i] = 1; // ため池（v87：新田にもう 1 つ）
     // 線路は GameState の rail（市が敷き直せる）。地形としての鉄道用地は持たない
     if (hi - lo > 3.5) steep[i] = 1;
     const d2 = Math.hypot(x + 0.5 - 39.5, y + 0.5 - 9) / 5;
     const d3 = Math.hypot(x + 0.5 - 6, y + 0.5 - 34) / 5.5;
     const d4 = Math.hypot(x + 0.5 - 66, y + 0.5 - 29) / 6.5;
-    if ((d2 < 0.9 && y > 1) || d3 < 0.75 || d4 < 0.8 || y === (noSea ? H - 5 : H - 6) || y === (noSea ? H - 4 : H - 5)) forest[i] = 1;
+    const d7 = Math.hypot(x + 0.5 - 103, y + 0.5 - 30) / 9, d8 = Math.hypot(x + 0.5 - 90, y + 0.5 - 88) / 7.5;
+    if ((d2 < 0.9 && y > 1) || d3 < 0.75 || d4 < 0.8 || d7 < 0.62 || d8 < 0.7 || y === (noSea ? H - 5 : H - 6) || y === (noSea ? H - 4 : H - 5)) forest[i] = 1;
     if ((T === 'mountain' || T === 'inland') && lo > 12 && !water[i]) forest[i] = 1;
     if (water[i]) forest[i] = 0;
-    district[i] = y < 15 ? (x < 13 ? 3 : x < 44 ? 0 : 4) : y >= 40 ? 5 : x < 22 ? 1 : x < 44 ? 2 : 4;
+    // v87：広げた東（76 列目から）は東野、南（66 行目から）は新田。v86 までの区画の地区は変えない
+    district[i] = y >= 66 ? 7 : x >= 76 ? 6 : y < 15 ? (x < 13 ? 3 : x < 44 ? 0 : 4) : y >= 40 ? 5 : x < 22 ? 1 : x < 44 ? 2 : 4;
   }
   // v70：見た目だけの印（砂浜・田んぼ・岩肌・河原・雪の頂）。古いセーブでも計算は変わらない
   const deco = new Uint8Array(W * H), hv = (x: number, y: number) => heights[y * (W + 1) + x];

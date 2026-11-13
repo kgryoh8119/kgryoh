@@ -1,6 +1,6 @@
 // 初期シナリオ「駅前開発で子育て世帯が増える郊外都市」
 import { onMapChange } from './real';
-import { W, H, P, DEFS, POLICIES, NEIGHBOR_SEED, isRes } from './config';
+import { W, H, P, DEFS, POLICIES, NEIGHBOR_SEED, isRes, FIC_PREV_W } from './config';
 import { getMap, idx, buildable, hash, inMap, NEIGH, syncTerrain, terrainOf, terrainIx } from './map';
 import { recompute, emptyStats } from './core';
 import { addBuilding, removeBuilding } from './events';
@@ -78,7 +78,7 @@ export function newGame(opts: { seed?: number; short?: boolean } = {}): GameStat
     m0: [0.22, 0.38, 0.25, 0.1, 0.05], a0: [0.42, 0.28, 0.15, 0.05, 0.1], h0: [0, 0.18, 0.14, 0.3, 0.38],
     h1: [0.05, 0.15, 0.1, 0.2, 0.5], a1: [0.35, 0.2, 0.15, 0.1, 0.2], h2: [0, 0.17, 0.17, 0.38, 0.28], a2: [0.32, 0.28, 0.2, 0.1, 0.1],
   };
-  for (let y = 2; y < 38; y++) for (let x = 1; x < W - 1; x++) {
+  for (let y = 2; y < 38; y++) for (let x = 1; x < Math.min(W, FIC_PREV_W) - 1; x++) {
     const i = idx(x, y);
     if (s.road[i] || s.occ[i] || s.zone[i] || !buildable(m, i)) continue;
     if (!NEIGH.some(([dx, dy]) => inMap(x + dx, y + dy) && s.road[idx(x + dx, y + dy)])) continue;
@@ -127,7 +127,7 @@ function buildNewArea(s: GameState, seed: number, road: (x0: number, y0: number,
   road(20, 40, 20, 46, 1); road(66, 46, 66, 56, 1);
   const stn = put('station', 55, 2, 0); stn.name = '東台駅';
   // 農家の集落と、国道沿いの古い家並み
-  for (let y = 14; y <= 56; y++) for (let x = 45; x < W - 1; x++) addHouse(x, y);
+  for (let y = 14; y <= 56; y++) for (let x = 45; x < Math.min(W, FIC_PREV_W) - 1; x++) addHouse(x, y); // v87：はじめの家並みは v86 までの範囲（76 列）だけ。広げた土地は空けておく
   for (let y = 40; y <= 56; y++) for (let x = 2; x < 45; x++) addHouse(x, y);
   function addHouse(x: number, y: number): void {
     const i = idx(x, y);

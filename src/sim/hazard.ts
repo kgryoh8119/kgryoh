@@ -18,7 +18,7 @@ function build(m: MapDef): Haz {
       const i = comp[k], x = i % W, y = (i / W) | 0; if (x === 0 || y === 0 || x === W - 1 || y === H - 1) edge = true;
       for (const [dx, dy] of NEIGH) { const xx = x + dx, yy = y + dy; if (!inMap(xx, yy)) continue; const j = idx(xx, yy); if (m.water[j] && !seen[j] && !(m.dug && m.dug[j])) { seen[j] = 1; comp.push(j); } }
     }
-    if (edge && comp.length >= 250) for (const i of comp) sea[i] = 1;
+    if (edge && comp.length >= (REAL ? 250 : Math.max(250, W * 3.5))) for (const i of comp) sea[i] = 1; // v87：架空の街は幅が広がったので、南の細い川（3 行）を海と数えないよう幅に比例させる
   }
   // 海からの距離（区画）
   const dist = new Int16Array(N).fill(-1), q: number[] = [];
