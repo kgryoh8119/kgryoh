@@ -1,6 +1,6 @@
 // v86：車・電車の形（render/vehgen.ts）の検査。頂点の番号、面の種類、面数、寸法、車体色の分布
 import { describe, it, expect } from 'vitest';
-import { makeVeh, makeTrain, VEH_MODELS, carColor, CAR_PART, TRAIN_PART } from '../src/render/vehgen';
+import { makeVeh, makeTrain, makeWork, VEH_MODELS, WORK_MODELS, WORK_HL, carColor, CAR_PART, TRAIN_PART } from '../src/render/vehgen';
 import { makeTrains, FAMS, PANTO_Z } from '../src/render/trainkit';
 
 const bounds = (m: { V: number[][] }) => [0, 1, 2].map(k => { const v = m.V.map(p => p[k]); return [Math.min(...v), Math.max(...v)]; });
@@ -9,7 +9,7 @@ describe('車の形', () => {
   const V = makeVeh(14);
   it('17 種類の形があり、どれも面の番号と種類が正しい', () => {
     expect(VEH_MODELS.length).toBe(17);
-    for (const n of VEH_MODELS) { const m = V[n]; expect(m.F.length).toBeGreaterThan(300); expect(m.F.length).toBeLessThan(700);
+    for (const n of VEH_MODELS) { const m = V[n]; expect(m.F.length).toBeGreaterThan(300); expect(m.F.length).toBeLessThan(800); // v88：細部（ドアの線・ワイパー・車内など）で 700 → 800
       for (const f of m.F) { expect(f.slice(0, 3).every(i => i >= 0 && i < m.V.length)).toBe(true); expect(f[3]).toBeGreaterThanOrEqual(0); expect(f[3]).toBeLessThan(CAR_PART.length); }
       const [x, y, z] = bounds(m); expect(x[1] - x[0]).toBeLessThan(2.8); expect(y[1] - y[0]).toBeGreaterThan(1.5); expect(y[1] - y[0]).toBeLessThan(7.6); expect(z[0]).toBeGreaterThanOrEqual(-0.01); expect(z[1]).toBeLessThan(3.2); }
   });
@@ -21,6 +21,15 @@ describe('車の形', () => {
     const has = (n: typeof VEH_MODELS[number], t: number) => V[n].F.some(f => f[3] === t);
     expect(has('police', 7)).toBe(true); expect(has('police', 0)).toBe(true); expect(has('police', 8)).toBe(true); expect(has('police', 9)).toBe(true);
     expect(has('ambulance', 8)).toBe(true); expect(has('taxi', 10)).toBe(true); expect(has('kei', 14)).toBe(true); expect(has('sedan', 13)).toBe(true);
+  });
+});
+
+describe('v88：働く車と二輪', () => {
+  it('18 種類あり、面の番号・種類・寸法が正しく、前照灯の位置が車の長さの中にある', () => {
+    const V = makeWork(14), lo = makeWork(8); expect(WORK_MODELS.length).toBe(18); expect(WORK_HL.length).toBe(WORK_MODELS.length);
+    WORK_MODELS.forEach((n, k) => { const m = V[n]; expect(m.F.length).toBeGreaterThan(40); expect(m.F.length).toBeLessThan(1600); expect(lo[n].F.length).toBeLessThanOrEqual(m.F.length);
+      for (const f of m.F) { expect(f.slice(0, 3).every(i => i >= 0 && i < m.V.length)).toBe(true); expect(f[3]).toBeGreaterThanOrEqual(0); expect(f[3]).toBeLessThan(CAR_PART.length); }
+      const [x, y, z] = bounds(m); expect(x[1] - x[0]).toBeLessThan(3.3); expect(y[1] - y[0]).toBeLessThan(11); expect(z[0]).toBeGreaterThanOrEqual(-0.01); expect(z[1]).toBeLessThan(4); expect(WORK_HL[k]).toBeLessThan(y[1] + 0.6); });
   });
 });
 

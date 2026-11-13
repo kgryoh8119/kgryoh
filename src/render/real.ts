@@ -52,7 +52,7 @@ export function realTerrain(m: MapDef, mat: THREE.Material): THREE.Mesh[] {
 
 // ---------------------------------------------------------------- 線（道路・鉄道・川）
 /** 折れ線を地形に沿う帯にする。split は 1 区切りの最大長（m） */
-function ribbon(g: Geo, m: MapDef, pts: Float32Array, width: number, lift: number, color: number, bridge: boolean, keep?: (x: number, z: number) => boolean, split = 10): void {
+function ribbon(g: Geo, m: MapDef, pts: Float32Array, width: number, lift: number, color: number | ((x: number, z: number) => number), bridge: boolean, keep?: (x: number, z: number) => boolean, split = 10, off = 0, dash = 0): void {
   const n = pts.length / 2;
   if (n < 2) return;
   const h0 = heightAt(m, pts[0], pts[1]), h1 = heightAt(m, pts[n * 2 - 2], pts[n * 2 - 1]);
@@ -62,13 +62,14 @@ function ribbon(g: Geo, m: MapDef, pts: Float32Array, width: number, lift: numbe
   for (let i = 1; i < n; i++) {
     const ax = pts[i * 2 - 2], az = pts[i * 2 - 1], bx = pts[i * 2], bz = pts[i * 2 + 1], L = Math.hypot(bx - ax, bz - az);
     if (L < 0.01) continue;
-    const k = Math.max(1, Math.ceil(L / split)), nx = -(bz - az) / L * width / 2, nz = (bx - ax) / L * width / 2;
+    const k = Math.max(1, Math.ceil(L / split)), nx = -(bz - az) / L * width / 2, nz = (bx - ax) / L * width / 2, ox = -(bz - az) / L * off, oz = (bx - ax) / L * off; // v88：off 横へずらす（白線・歩道）、dash 破線の長さ
     for (let s = 0; s < k; s++) {
       const t0 = s / k, t1 = (s + 1) / k;
-      const x0 = ax + (bx - ax) * t0, z0 = az + (bz - az) * t0, x1 = ax + (bx - ax) * t1, z1 = az + (bz - az) * t1;
+      const x0 = ax + (bx - ax) * t0 + ox, z0 = az + (bz - az) * t0 + oz, x1 = ax + (bx - ax) * t1 + ox, z1 = az + (bz - az) * t1 + oz;
+      if (dash && Math.floor((run + L * t0) / dash) % 2) continue;
       if (keep && !keep((x0 + x1) / 2, (z0 + z1) / 2)) continue;
       const y0 = yAt(x0, z0, run + L * t0), y1 = yAt(x1, z1, run + L * t1);
-      g.quad([x0 - nx, y0, z0 - nz], [x1 - nx, y1, z1 - nz], [x1 + nx, y1, z1 + nz], [x0 + nx, y0, z0 + nz], color);
+      g.quad([x0 - nx, y0, z0 - nz], [x1 - nx, y1, z1 - nz], [x1 + nx, y1, z1 + nz], [x0 + nx, y0, z0 + nz], typeof color === 'number' ? color : color((x0 + x1) / 2, (z0 + z1) / 2));
     }
     run += L;
   }
@@ -86,18 +87,34 @@ export function realStatic(m: MapDef): { geo: Geo; water: Geo } {
 
 const ROAD_W = [3.5, 5.5, 7.5, 9.5, 11.5, 13];
 const ROAD_C = [0x6a6a66, 0x45474b, 0x404246, 0x3c3e42, 0x393b3f, 0x45484d];
+const mixC = (a: number, b: number, t: number) => { const f = (k: number) => Math.round(((a >> k) & 255) * (1 - t) + ((b >> k) & 255) * t); return (f(16) << 16) | (f(8) << 8) | f(0); };
 /** 道路：計算上の道路がなくなった区画の部分は描かない。新しく引いた道路は区画の形で別に描く */
-export function realRoads(s: GameState, m: MapDef): { geo: Geo; lamps: number[] } {
+export function realRoads(s: GameState, m: MapDef, fine = true): { geo: Geo; lamps: number[] } {
   const R = REAL!, g = new Geo(), lamps: number[] = [];
   const tileAt = (x: number, z: number) => idx(Math.max(0, Math.min(W - 1, Math.floor(x / TILE))), Math.max(0, Math.min(H - 1, Math.floor(z / TILE))));
   // 計算上の道路を撤去した区画と、細い道（計算外）が市の施設の敷地を横切る所は描かない
   const facility = new Uint8Array(W * H);
   for (const b of s.buildings) if (!b.osm && b.kind !== 'station') for (let dy = 0; dy < b.h; dy++) for (let dx = 0; dx < b.w; dx++) facility[idx(b.x + dx, b.y + dy)] = 1;
   const keep = (x: number, z: number) => { const t = tileAt(x, z); return m.fixedRoad![t] ? s.road[t] > 0 : !facility[t]; };
+  // v88：交差点（2 本以上の道路の路面が重なる 4m 角）を調べ、白線・縁石・歩道はそこで切る
+  const CS = 4, cw = Math.ceil(W * TILE / CS) + 1, ch = Math.ceil(H * TILE / CS) + 1, own = fine ? new Int32Array(cw * ch).fill(-1) : null, junc = fine ? new Uint8Array(cw * ch) : null;
+  if (own && junc) R.roads.forEach((l, li) => { if (l.cls === 5) return; const r = ROAD_W[l.cls] / 2 + 2.5;
+    for (let i = 1; i < l.pts.length / 2; i++) { const ax = l.pts[i * 2 - 2], az = l.pts[i * 2 - 1], bx = l.pts[i * 2], bz = l.pts[i * 2 + 1], L = Math.hypot(bx - ax, bz - az); if (L < 0.01) continue; const nx = -(bz - az) / L, nz = (bx - ax) / L;
+      for (let d = 0; d <= L; d += 2) for (let q = -r; q <= r; q += 2) { const x = ax + (bx - ax) * d / L + nx * q, z = az + (bz - az) * d / L + nz * q, c = Math.floor(x / CS), e = Math.floor(z / CS); if (c < 0 || e < 0 || c >= cw || e >= ch) continue; const k = e * cw + c; if (own[k] < 0) own[k] = li; else if (own[k] !== li) junc[k] = 1; } } });
+  const keepL = (x: number, z: number) => keep(x, z) && !(junc && junc[Math.max(0, Math.floor(z / CS)) * cw + Math.max(0, Math.floor(x / CS))]);
   for (const l of R.roads) {
     if (l.cls === 5) continue;
-    ribbon(g, m, l.pts, ROAD_W[l.cls], 0.22 + l.cls * 0.01, ROAD_C[l.cls], l.bridge, keep);
-    if (l.cls >= 3) ribbon(g, m, l.pts, 0.25, 0.3 + l.cls * 0.01, 0xd8d6cf, l.bridge, keep, 4); // 中央線
+    // v88：アスファルトの色は区画の老朽度で（新しい道は黒く、古い道は白っぽく）。標準の地図の道路と同じ考え方
+    const base = ROAD_C[l.cls], hw = ROAD_W[l.cls] / 2, lift = 0.22 + l.cls * 0.01;
+    ribbon(g, m, l.pts, ROAD_W[l.cls], lift, l.cls === 0 ? base : (x, z) => { const t = tileAt(x, z), ak = Math.min(1, (s.roadAge[t] ?? 0) / 85); return mixC(base, 0x56544f, ak * 0.8); }, l.bridge, keep);
+    const fade = (c: number, x: number, z: number) => mixC(c, 0x8a877f, Math.min(1, (s.roadAge[tileAt(x, z)] ?? 0) / 85) * 0.4); // 古い道は白線がかすれる
+    // 中央線：幹線は白の実線 2 本、2 車線の県道は黄色（はみ出し禁止）、市道は白の破線
+    if (l.cls >= 4) for (const sg of [-1, 1]) ribbon(g, m, l.pts, 0.15, lift + 0.06, (x, z) => fade(0xeeeeea, x, z), l.bridge, keepL, 6, sg * 0.18);
+    else if (l.cls === 3) ribbon(g, m, l.pts, 0.15, lift + 0.06, (x, z) => fade(0xf0bc2c, x, z), l.bridge, keepL, 6);
+    else if (l.cls === 2 && fine) ribbon(g, m, l.pts, 0.12, lift + 0.06, (x, z) => fade(0xeeeeea, x, z), l.bridge, keepL, 3, 0, 5);
+    // 外側線（白）と、幹線の縁石・歩道（段差の天端と灰色の平板。ほかの道の路面より下に置き、交差点では切る）。low では省く
+    if (fine && l.cls >= 2) for (const sg of [-1, 1]) { ribbon(g, m, l.pts, 0.15, lift + 0.06, (x, z) => fade(0xeeeeea, x, z), l.bridge, keepL, 10, sg * (hw - 0.45));
+      if (l.cls >= 3) { ribbon(g, m, l.pts, 0.22, 0.2, 0xcac6bc, l.bridge, keepL, 10, sg * (hw + 0.11)); ribbon(g, m, l.pts, 2.2, 0.19, 0xb4b0a6, l.bridge, keepL, 10, sg * (hw + 1.32)); } }
     // 街灯：生活道路以上に 40m おき
     if (l.cls >= 1) {
       let acc = hash(l.pts.length, l.cls, 9) * 40;

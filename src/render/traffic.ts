@@ -87,9 +87,12 @@ export function jamLook(v: number): { per: number; gap: number; crawl: number } 
 
 /** 駅の混雑率（%、sim の stationStats の crowd。140 で定員ちょうど）→ 見え方。
  *  load：定員に対する比。fill：ホームの埋まり方の倍率。spill：駅前へあふれる人の割合（0〜1）。left：発車後に乗り残す割合。pax：1 両の窓に見える人の数（片側） */
-export function stationLook(crowd: number): { load: number; fill: number; spill: number; left: number; pax: number } {
-  const load = Math.max(0, (crowd - 40) / 100);
-  return { load, fill: Math.min(2.2, 0.5 + load * 0.7), spill: Math.max(0, Math.min(1, (load - 1.2) / 1.0)), left: Math.max(0.15, Math.min(0.65, (load - 1.3) / 1.4)), pax: Math.round(Math.min(12, 1 + load * 5)) };
+export function stationLook(crowd: number): { load: number; fill: number; spill: number; left: number; pax: number; c: number; plat: number; dense: number; queue: number; street: number } {
+  const load = Math.max(0, (crowd - 40) / 100), c = crowd / 100, cl = (v: number) => Math.max(0, Math.min(1, v));
+  // v88：表示の混雑率 c（1.0 で「混んでいる」、1.5 で「あふれている」）で段階をつける。plat：ホームの埋まり方（0〜1）、dense：ホームの詰まり（すき間を埋める人）、
+  // spill：改札前から駅前広場へ広がる割合、queue：入場規制で入口の外に伸びる列、street：まわりの歩道にあふれる人
+  return { load, fill: Math.min(2.2, 0.5 + load * 0.7), spill: cl((c - 0.85) / 0.65), left: Math.max(0.15, Math.min(0.65, (load - 1.3) / 1.4)), pax: Math.round(Math.min(12, 1 + load * 5)),
+    c, plat: cl(0.15 + 0.6 * c), dense: cl((c - 0.95) / 0.5), queue: cl((c - 1.2) / 0.3), street: cl((c - 1.1) / 0.4) };
 }
 
 /** 右折か（左側通行。区画の並び cur → next → nn で、進む向きが右へ 90 度変わる） */
