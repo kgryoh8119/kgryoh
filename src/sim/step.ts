@@ -1,6 +1,6 @@
 // 月次処理。1 回の呼び出しで 1 か月進む。描画やフレームレートには依存しない。
 import { onMapChange, REAL } from './real';
-import { W, H, P, DEFS, POLICIES, AIR_ROUTES, GOALS, VISIONS, isRes, isShop, isCity, isBiz, RES_TYPE, LV_UPKEEP, LV_CAP, lvK, lvOf, stageName, diffOf, hasOp, countOp, SPORTS, SCALE } from './config';
+import { W, H, P, DEFS, POLICIES, policyCost, AIR_ROUTES, GOALS, VISIONS, isRes, isShop, isCity, isBiz, RES_TYPE, LV_UPKEEP, LV_CAP, lvK, lvOf, stageName, diffOf, hasOp, countOp, SPORTS, SCALE } from './config';
 import { getMap, idx, buildable, syncTerrain, terrainOf } from './map';
 import { mayorMonthly } from './mayor';
 import { challengeMonthly } from './challenge';
@@ -42,6 +42,17 @@ function macroNotes(s: GameState, run: () => void): void {
   if (M.warLeft === 0 && M0.warLeft > 0) s.notes.push('🕊 海外の戦争が停戦しました。原油の値段が少しずつ落ち着きます');
   const lv = (v: number) => Math.floor(v / 5000); if (lv(M.nikkei) !== lv(M0.nikkei) && M0.nikkei > 0) s.notes.push(`💹 日経平均が ${(lv(M.nikkei) * 5000).toLocaleString()} 円を${M.nikkei > M0.nikkei ? '上回りました' : '割り込みました'}（${M.nikkei.toLocaleString()} 円）`);
 }
+/** v86：移転収入の内訳（難易度・できごとの倍率を掛ける前）。L は税を集計済みの台帳（ふるさと納税で住民税を減らす前）。
+ *  標準的な税収 = 税率を標準（100%）に戻した税収。超過課税・減税の分は交付税の計算に入れない（実際の制度と同じ）ので、増税した分は市の手元に残る */
+export function transferParts(s: GameState, L: Pick<Ledger, 'taxResident' | 'taxProperty' | 'taxBusiness'>): { need: number; stdTax: number; kofu: number; grants: number } {
+  const tax = s.tax ?? { res: 1, prop: 1, biz: 1, stay: 0 }, pop = s.stats.pop;
+  const stdTax = L.taxResident / Math.max(0.5, tax.res) + L.taxProperty / Math.max(0.5, tax.prop) + L.taxBusiness / Math.max(0.5, tax.biz);
+  const need = P.transferBase + P.needPerCapita * pop + P.needPerElder * elderPersons(s);
+  return { need, stdTax, kofu: Math.max(0, need - P.kofuOffset * stdTax), grants: P.transferPerCapita * pop };
+}
+/** 高齢世帯の人数（高齢化の負担の計算に使う） */
+export const elderPersons = (s: GameState) => (s.stats.hhByType?.[4] ?? 0) * P.persons[4];
+function transferOf(s: GameState, L: Ledger): number { const t = transferParts(s, L); return t.kofu + t.grants; }
 /** 今の状態が 1 か月続いたときの毎月の収支の内訳（表示・予測・月次処理で共用） */
 export function monthlyBudget(s: GameState): Ledger {
   const L = emptyLedger(s.month);
@@ -70,8 +81,8 @@ export function monthlyBudget(s: GameState): Ledger {
     }
   }
   if (tax.stay && hotel) L.taxStay! += s.stats.visitors * P.stayShare * P.stayTax;
-  L.transfer = (P.transferBase + s.stats.pop * P.transferPerCapita) * modMul(s, 'transfer') * diffOf(s).transfer * ((s.stats.yudoShare ?? 0) >= 0.6 ? 1.03 : 1); // 立地適正化計画で居住誘導区域に 6 割が住むと、国の補助（コンパクトシティ）
-  L.admin = (P.adminBase + s.stats.pop * P.adminPerCapita) * modMul(s, 'prices') * (hasOp(s, 'cityHall') ? 0.93 : 1) * (hasOp(s, 'cityOS') ? 0.9 : 1) * (1 - 0.01 * Math.min(4, countOp(s, 'branchOffice')));
+  L.transfer = transferOf(s, L) * modMul(s, 'transfer') * diffOf(s).transfer * ((s.stats.yudoShare ?? 0) >= 0.6 ? 1.03 : 1); // 立地適正化計画で居住誘導区域に 6 割が住むと、国の補助（コンパクトシティ）
+  L.admin = (P.adminBase + s.stats.pop * P.adminPerCapita + elderPersons(s) * P.elderCost) * modMul(s, 'prices') * (hasOp(s, 'cityHall') ? 0.93 : 1) * (hasOp(s, 'cityOS') ? 0.9 : 1) * (1 - 0.01 * Math.min(4, countOp(s, 'branchOffice')));
   // 市内の斎場で受け入れられない火葬は、隣の市に頼む（1 件 8 万円の上乗せ）
   L.admin += Math.max(0, (s.stats?.deaths ?? 0) - (s.stats?.cremCap ?? 0)) * P.cremOut;
   // 道の駅：市内の農地が多いほど売上が伸び、市の収入が増える
@@ -87,7 +98,7 @@ export function monthlyBudget(s: GameState): Ledger {
   // 路線バスの赤字補助（バス停の数に比例。自動運転バスの車庫があると半分）と、航空路線の誘致の補助
   const nStop = s.busStops?.length ?? 0; if (nStop) L.policy += nStop * P.busStopSubsidy * (hasOp(s, 'autoBusDepot') ? 0.5 : 1);
   for (const r of s.airRoutes ?? []) { const d = AIR_ROUTES.find(o => o.id === r.id); if (d) L.policy += d.subsidy; }
-  for (const p of POLICIES) if (s.policies[p.id]?.on) L.policy += p.cost;
+  for (const p of POLICIES) if (s.policies[p.id]?.on) L.policy += policyCost(s, p); // v86：人口に比例
   for (const t of s.teams ?? []) { L.policy += SPORTS[t.sport].support; L.taxBusiness += SPORTS[t.sport].bizTax * tax.biz * econ; } // チームへの支援と、球団・クラブの会社からの税
   for (const m of s.modifiers) L.policy += m.cost;
   L.policy += execCost(s); { const d = routeDeficit(s); if (d > 0) L.policy += d; else L.fees! += -d; } // 幹部の給与と、バス路線の赤字（黒字なら収入）
@@ -287,7 +298,7 @@ export function stepMonth(s: GameState, opts: { forecast?: boolean } = {}): void
     // 高齢世帯以外の、病気や事故で亡くなる人（少し）
     for (let t = 0; t < 4; t++) deaths += hh[t] * P.persons[t] * 0.00003 * mort;
     for (let t = 0; t < NHH; t++) {
-      let rate = P.baseOutRate * (1 + 3 * Math.max(0, 0.55 - r.sat[t])) * outMul * (1 + 1.5 * Math.max(0, tax.res - 1));
+      let rate = P.baseOutRate * (P.outByType?.[t] ?? 1) * (1 + 3 * Math.max(0, 0.55 - r.sat[t])) * outMul * (1 + 1.5 * Math.max(0, tax.res - 1));
       rate *= 1 + 2 * (1 - waterLv);
       if (!r.connected) rate = 0.3;
       hh[t] = Math.max(0, hh[t] * (1 - Math.min(1, rate)));

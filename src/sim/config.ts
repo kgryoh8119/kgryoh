@@ -33,11 +33,14 @@ export const P = {
   turnout: [0.35, 0.5, 0.5, 0.55, 0.7],
   /** 月あたりの類型遷移率 [from, to, rate]。to=-1 は市外・施設等へ */
   transitions: [
-    [0, 1, 0.004], [1, 2, 0.006], [2, 3, 1 / 66], [3, 1, 1 / 110], [1, 4, 0.002], [4, -1, 0.004],
-  ] as [number, number, number][],
+    [0, 1, 0.004], [1, 2, 0.006], [2, 3, 1 / 66], [3, 1, 1 / 110], [1, 4, 0.0035], [4, -1, 0.004],
+  ] as [number, number, number][], // v86：夫婦のみ → 高齢を 0.002 → 0.0035（平均 24 年）。v85 では子育てを終えた夫婦が 40 年以上かけて高齢になり、20 年で高齢化率が 15% → 6% に下がり続けていた
   /** 転入希望（世帯/月）。駅前開発で子育て世帯が多いシナリオ */
   baseInflow: [7, 7, 12, 4, 3],
   baseOutRate: 0.006,                 // 月あたりの基礎転出率
+  /** v86：類型ごとの転出のしやすさ（baseOutRate に掛ける）。単身は転勤・進学でよく動き、子育て・高齢の世帯は動きにくい。
+   *  はじめの街の平均はほぼ 1（v85 と同じ総量）。v85 は全類型が年 7% で入れ替わり、住民が高齢になる前に出ていって高齢化が進まなかった */
+  outByType: [2.0, 1.0, 0.8, 0.6, 0.3],
   /** 住宅の好み [類型][house, apartment, mansion] */
   housingPref: [
     [0.2, 1, 0.8], [0.6, 0.8, 1], [0.9, 0.6, 1], [1, 0.4, 0.6], [1, 0.6, 0.3],
@@ -129,10 +132,16 @@ export const P = {
   residentTaxRate: 0.055,     // 住民税相当：世帯収入に対する率
   propertyTaxPerUnit: 1.05,   // 固定資産税相当：住戸あたり
   businessTaxRate: 0.03,      // 事業課税相当：店舗売上に対する率
-  transferBase: 1950, transferPerCapita: 0.46,   // 基礎的移転収入（中学校の維持費の分を含む）
-  adminBase: 3600, adminPerCapita: 0.6,          // 基礎行政費（施設以外の全て）
+  // 移転収入（中学校の維持費の分を含む）。v86：地方交付税の「財源保障・調整」の仕組みを入れた。
+  // 交付税 = 基準財政需要額（transferBase + needPerCapita × 人口）− 標準的な税収 × kofuOffset（0 未満は 0＝不交付団体）。
+  // 国県支出金 = transferPerCapita × 人口。v85 までは「1950 + 0.46 × 人口」で、税収が増えても移転収入が減らず、街が育つほど黒字が膨らんでいた。
+  // はじめの街（住野市・稲穂町）で v85 と同じ額になるよう合わせてある（ゲーム用の仮定）
+  transferBase: 1609, needPerCapita: 1.25, transferPerCapita: 0.25, kofuOffset: 0.75,
+  needPerElder: 0.3,         // v86：基準財政需要額の高齢者の分（高齢者 1 人あたり。福祉の費用 elderCost の半分を交付税で見る）
+  adminBase: 3600, adminPerCapita: 0.51,          // 基礎行政費（施設以外の全て）。v86：0.6 → 0.51（高齢者の福祉の分を elderCost に分けた）
+  elderCost: 0.6,             // v86：高齢者 1 人あたりの福祉・介護・医療の市の負担（扶助費・介護保険と後期高齢者医療への繰出金に相当、万円/人/月）。高齢化が進むほど歳出が増える
   privNurserySubsidy: 2.2,    // 私立保育園への運営費補助（万円/利用児/月）
-  bondRate: 0.015, bondMonths: 120, bondLimit: 60000, bondUnit: 5000,
+  bondRate: 0.015, bondMonths: 240, bondLimit: 120000, bondUnit: 5000, // v86：上限 6 億 → 12 億（返済期間を 2 倍にしたので、上限まで借りたときの毎年の元金返済は v85 と同じ）。返済 120 → 240 か月（施設の地方債は 20〜30 年の償還が多い）。交付税の調整で黒字が細ったので、10 年返済だと元金返済が黒字を上回り、借りて育てる手が打てなかった
   tempRate: 0.04, tempMonths: 24,
   tempLimit: 20000,           // 一時借入の残高がこれを超えると財政危機（新しい建設・道路・政策の開始ができない）
   demolishRate: 0.1,          // 撤去費＝建設費×この率
@@ -994,6 +1003,11 @@ export interface PolicyDef {
   effects: { key: string; op: 'mul' | 'add'; v: number }[];
 }
 
+/** v86：政策の毎月の費用は、人口に比例させる（cost は人口 6,000 人の街での額）。子どもの医療費・給食費・手当は対象の人数で費用が決まるため。
+ *  v85 は定額で、人口 3 万人の街では同じ政策が 5 分の 1 の負担になり、終盤は政策をすべて入れても痛まなかった。小さな町でも 6 割は下回らない */
+export const POLICY_POP = 6000;
+export const policyScale = (s: { stats: { pop: number } }) => Math.max(0.6, (s.stats?.pop ?? 0) / (POLICY_POP * SCALE));
+export const policyCost = (s: { stats: { pop: number } }, p: { cost: number }) => Math.round(p.cost * policyScale(s));
 /** 政策。効果は開始から ramp か月かけて満額になる（時間差）。 */
 export const POLICIES: PolicyDef[] = [
   {
@@ -1185,10 +1199,11 @@ export const SV_NAMES = ['保育の利用', '学校', '公園', '消防・防災
 /** 任期の目標（公約）の候補。target(s) は選んだときの状態から決める目標値、value(s) はいまの値、ok は達成か */
 export interface GoalDef { id: string; name: string; diff: number; desc: (t: number) => string; target: (s: any) => number; value: (s: any) => number; lower?: boolean; unit: string }
 const r10 = (v: number) => Math.round(v / 10) * 10;
+// v86：人口の公約を 1.08 → 1.15 倍、大きく増やすを 1.18 → 1.3 倍に。v85 では何もしなくても住野市は 4 年で 1.16 倍になり、公約の意味がなかった
 export const GOALS: GoalDef[] = [
   { id: 'wait', name: '待機児童をなくす', diff: 2, unit: '人', lower: true, desc: t => `保育の待機を ${t} 人以下に`, target: () => P.pledgeWait, value: s => s.stats.waitlist },
-  { id: 'pop', name: '人口を増やす', diff: 2, unit: '人', desc: t => `人口を ${t.toLocaleString()} 人以上に（いまの 1.08 倍）`, target: s => r10(s.stats.pop * 1.08), value: s => s.stats.pop },
-  { id: 'popBig', name: '人口を大きく増やす', diff: 3, unit: '人', desc: t => `人口を ${t.toLocaleString()} 人以上に（いまの 1.18 倍）`, target: s => r10(s.stats.pop * 1.18), value: s => s.stats.pop },
+  { id: 'pop', name: '人口を増やす', diff: 2, unit: '人', desc: t => `人口を ${t.toLocaleString()} 人以上に（いまの 1.15 倍）`, target: s => r10(s.stats.pop * 1.15), value: s => s.stats.pop },
+  { id: 'popBig', name: '人口を大きく増やす', diff: 3, unit: '人', desc: t => `人口を ${t.toLocaleString()} 人以上に（いまの 1.3 倍）`, target: s => r10(s.stats.pop * 1.3), value: s => s.stats.pop },
   { id: 'traffic', name: '渋滞を減らす', diff: 2, unit: '%', lower: true, desc: t => `朝の最大混雑率を ${t}% 以下に`, target: () => Math.round(P.pledgeVc * 100), value: s => Math.round(s.stats.maxVc * 100) },
   { id: 'fiscal', name: '財政を立て直す', diff: 1, unit: '万円/月', desc: () => '直近 12 か月の収支の平均が 0 以上（赤字の月があっても平均が 0 以上ならよい）で、一時借入の残高がない', target: () => 0, value: s => { const L = s.ledger.slice(-12); const op = L.length ? L.reduce((a: number, l: any) => a + l.operating, 0) / L.length : -1; return s.loans.some((l: any) => l.kind === 'temp' && l.remaining > 0) ? Math.min(op, -1) : op; } }, // 記録が 1 か月もないうちは「評価待ち」（達成にしない。step.ts の fiscalWatch）
   { id: 'water', name: '水道をよみがえらせる', diff: 1, unit: '', lower: true, desc: () => 'すべての浄水場の老朽度を 40 以下に', target: () => 40, value: s => { const w = s.buildings.filter((b: any) => DEFS[b.kind as Kind].fam === 'water' && b.status !== 'construction'); return w.length ? Math.max(...w.map((b: any) => b.age)) : 100; } },
@@ -1265,7 +1280,7 @@ onMapChange(() => {
     // まちづくり版：架空の街と同じ遊び方（空き地を開発して育てる）。予算と規模だけ街の大きさに合わせる
     P.startCash = Math.round(P.startCash * k * 1.5 / 100) * 100;
     P.baseInflow = P.baseInflow.map(v => v * k);
-    P.transferBase *= k * 2.3; P.adminBase *= k; // 既存の施設が多い街なので、交付金をやや多めに（ゲーム用の調整）
+    P.transferBase = P.transferBase * k + 1950 * 1.3 * k; P.adminBase *= k; // 既存の施設が多い街なので、交付金をやや多めに（ゲーム用の調整。v85 の「基礎分 × 2.3」と同じ上乗せ額）
     P.bondLimit = Math.round(P.bondLimit * k / 1000) * 1000; P.bondUnit = Math.round(P.bondUnit * k / 1000) * 1000; P.tempLimit = Math.round(P.tempLimit * k / 1000) * 1000;
     for (const d of Object.values(DEFS)) if (d.hire) d.hire = Math.round(d.hire * Math.max(1, k * 0.7) * 10) / 10;
     P.throughTraffic = Math.round(P.throughTraffic * k);
@@ -1290,7 +1305,7 @@ onMapChange(() => {
   // 首都圏の住宅地は鉄道・バス通勤が多く、駅へは歩きかバスが中心（ゲーム用の仮定。地図ごとに registry の tune で変える）
   P.carShare = 0.2; P.railCarShare = 0.15; P.shopTrip = 0.03;
   P.roadCap = [0, 400, 1100, 1800];
-  P.adminPerCapita = 1.1;
+  P.adminPerCapita = 1.01; // v86：1.1 から高齢者の福祉の分（elderCost）を分けた
   // OSM に載っていない園があるため、私立園 1 か所の定員を大きめにとる
   DEFS.privNursery.capacity = 110;
   P.careRange = 40;               // 保育園の送迎圏を 1.2km に（坂の多い住宅地で自転車・車の送迎を見込む）
