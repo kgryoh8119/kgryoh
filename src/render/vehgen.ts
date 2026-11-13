@@ -2,6 +2,7 @@
 // 乗用車の形は cargen.ts の断面から作る仕組み。ここはその仕組みに合わない角ばった車や、乗る人つきの二輪車、電車の車体。
 // 面の種類は車と同じ番号に、7 白・8 赤・9 青・10 黄・11 乗る人の服・12 肌・13 ナンバー（白）・14 ナンバー（軽の黄）・15 暗い鉄ホイール・16 灰色ホイールを足した（CAR_PART）。
 import { build, makeCars, CAR_KINDS, SEDAN, VAN, type CarMesh } from './cargen';
+import { makeTrains } from './trainkit';
 
 type V3 = number[];
 const sub = (a: V3, b: V3) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], crs = (a: V3, b: V3) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]], nrm = (a: V3) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
@@ -109,36 +110,7 @@ export function carColor(r: number, kei = false): number {
   for (const [p, c] of T) if (r < p) return c; return 0xf4f4f2;
 }
 
-// ---- 電車の車体（通勤形）。前は Blender の 1 形（718 面・全車同じ）。ここでは帯の色だけ編成ごとに変え、窓・ドア・屋根の機器・台車・先頭車の前面窓・パンタグラフ車を作る
-/** 面の種類：0 帯の色（編成ごと）1 窓 2 銀（屋根・ドア）3 床下の暗い面 4 台車の灰 5 黒 6 暗い灰 7 車体（ステンレス・白） */
-export const TRAIN_PART = [0xffffff, 0x26313a, 0xc9cdd2, 0x2a2a2c, 0x9aa0a6, 0x16181c, 0x3a3a3c, 0xe8ebee];
-/** 中間車・パンタグラフ車・先頭車（前が +y）。長さ 19.04m・幅 2.9m・高さ 4.1m（Blender 版と同じ寸法） */
-export function makeTrain(N = 10): { mid: CarMesh; pan: CarMesh; end: CarMesh } {
-  const one = (kind: 0 | 1 | 2): CarMesh => {
-    const M = mesh(), HW = 1.45, y1 = kind === 2 ? 8.4 : 9.52, ye = 9.52;
-    box(M, -HW, HW, -9.52, y1, 1.0, 3.7, 7); // 側面の壁
-    frus(M, [-HW, HW, -9.52, y1], 3.7, [-1.05, 1.05, -9.52, y1], 4.08, 2); // 屋根
-    if (kind === 2) { // 先頭の前面：下が広く上が少し引っ込む。窓 2 枚（真ん中に柱）、帯、暗い下部、連結器
-      frus(M, [-HW, HW, 8.4, ye], 1.0, [-1.3, 1.3, 8.4, ye - 0.3], 3.7, 7); frus(M, [-1.3, 1.3, 8.4, ye - 0.3], 3.7, [-1.05, 1.05, 8.4, ye - 0.35], 4.08, 2);
-      const yAt = (z: number) => ye - 0.3 * (z - 1.0) / 2.7 + 0.012, xAt = (z: number) => HW - 0.15 * (z - 1.0) / 2.7;
-      for (const [a, b] of [[-0.92, -0.05], [0.05, 0.92]]) quadV(M, [[a * xAt(2.9), yAt(2.3), 2.3], [b * xAt(2.9), yAt(2.3), 2.3], [b * xAt(3.5), yAt(3.55), 3.55], [a * xAt(3.5), yAt(3.55), 3.55]], 1, [0, 1, 0.3]);
-      quadV(M, [[-xAt(1.9), yAt(1.5), 1.5], [xAt(1.9), yAt(1.5), 1.5], [xAt(1.9), yAt(1.9), 1.9], [-xAt(1.9), yAt(1.9), 1.9]], 0, [0, 1, 0.3]); quadV(M, [[-xAt(1.4), yAt(1.02), 1.02], [xAt(1.4), yAt(1.02), 1.02], [xAt(1.4), yAt(1.4), 1.4], [-xAt(1.4), yAt(1.4), 1.4]], 3, [0, 1, 0.3]);
-      box(M, -0.22, 0.22, ye - 0.05, ye + 0.3, 0.7, 1.0, 5);
-    }
-    for (const sx of [-1, 1]) {
-      const xw = HW + 0.012; side(M, sx, -9.52, y1, 1.55, 1.8, 0, xw); side(M, sx, -9.52, y1, 3.45, 3.58, 0, xw); // 帯 2 本
-      for (const yc of [-6.9, -2.3, 2.3, 6.9]) { side(M, sx, yc - 0.75, yc + 0.75, 1.05, 3.6, 2, HW + 0.024); for (const o of [-0.38, 0.38]) side(M, sx, yc + o - 0.27, yc + o + 0.27, 2.2, 3.3, 1, HW + 0.034); } // ドア（窓つき）
-      for (const [a, b] of [[-9.2, -7.8], [-6.1, -3.1], [-1.5, 1.5], [3.1, 6.1], [7.8, kind === 2 ? 8.2 : 9.2]]) { const n = Math.max(1, Math.round((b - a) / 1.5)), w = (b - a - 0.15 * (n - 1)) / n; for (let k = 0; k < n; k++) side(M, sx, a + k * (w + 0.15), a + k * (w + 0.15) + w, 2.15, 3.3, 1, xw + 0.004); } // 窓
-      box(M, sx * 0.5 - 0.5, sx * 0.5 + 0.5, -4.5, 4.5, 0.62, 1.0, 3); // 床下の機器
-    }
-    box(M, -1.3, 1.3, -9.52, y1, 0.95, 1.0, 3);
-    for (const yb of [-6.6, 6.6]) { box(M, -1.0, 1.0, yb - 1.35, yb + 1.35, 0.4, 0.78, 4); for (const yw of [yb - 0.95, yb + 0.95]) for (const sx of [-1, 1]) wheel(M, sx * 0.57, yw, 0.43, 0.14, N, sx, 4); } // 台車と車輪（v87：軌間 1,067mm のレールに載る位置。車輪径 860mm）
-    if (kind === 1) { // パンタグラフ（碍子・2 本の腕・すり板）とクーラー
-      for (const sx of [-1, 1]) box(M, sx * 0.55 - 0.08, sx * 0.55 + 0.08, -2.35, -1.65, 4.08, 4.28, 4);
-      limb(M, [-0.5, -2.0, 4.28], [-0.1, -1.5, 4.95], 0.05, 5); limb(M, [0.5, -2.0, 4.28], [0.1, -1.5, 4.95], 0.05, 5); limb(M, [-0.1, -1.5, 4.95], [-0.1, -2.0, 5.3], 0.04, 5); limb(M, [0.1, -1.5, 4.95], [0.1, -2.0, 5.3], 0.04, 5);
-      box(M, -0.95, 0.95, -2.12, -1.88, 5.28, 5.34, 5); for (const y of [-6.0, 4.8]) box(M, -0.7, 0.7, y - 1.2, y + 1.2, 4.08, 4.46, 2);
-    } else for (const y of [-5.2, 5.0]) box(M, -0.7, 0.7, y - 1.3, y + 1.3, 4.08, 4.5, 2); // 屋根のクーラー
-    return M;
-  };
-  return { mid: one(0), pan: one(1), end: one(2) };
-}
+// ---- 電車の車体。v88 から trainkit.ts（通勤形・近郊形・特急形・気動車・貨物・モノレール・新交通・旧型客車）。ここは通勤形の 3 種を前の名前で返す
+export { TRAIN_PART } from './trainkit';
+/** 中間車・パンタグラフ車・先頭車（前が +y）。長さ 19.5m・幅 2.9m */
+export function makeTrain(N = 10, q = 2): { mid: CarMesh; pan: CarMesh; end: CarMesh } { const T = makeTrains(N, q); return { mid: T.cm, pan: T.cp, end: T.ce }; }

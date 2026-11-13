@@ -1,6 +1,7 @@
 // v86：車・電車の形（render/vehgen.ts）の検査。頂点の番号、面の種類、面数、寸法、車体色の分布
 import { describe, it, expect } from 'vitest';
 import { makeVeh, makeTrain, VEH_MODELS, carColor, CAR_PART, TRAIN_PART } from '../src/render/vehgen';
+import { makeTrains, FAMS, PANTO_Z } from '../src/render/trainkit';
 
 const bounds = (m: { V: number[][] }) => [0, 1, 2].map(k => { const v = m.V.map(p => p[k]); return [Math.min(...v), Math.max(...v)]; });
 
@@ -33,13 +34,20 @@ describe('車体色', () => {
 
 describe('電車の形', () => {
   const T = makeTrain(10);
-  it('中間車・パンタグラフ車・先頭車があり、寸法が従来の車体（幅 2.9・長さ 19）と合う', () => {
-    for (const k of ['mid', 'pan', 'end'] as const) { const m = T[k]; expect(m.F.length).toBeGreaterThan(400); expect(m.F.length).toBeLessThan(900);
+  it('中間車・パンタグラフ車・先頭車があり、寸法が車体（幅 2.9・長さ 19.5、幌と連結器で 20.3 まで）と合う', () => {
+    for (const k of ['mid', 'pan', 'end'] as const) { const m = T[k]; expect(m.F.length).toBeGreaterThan(800); expect(m.F.length).toBeLessThan(1800);
       for (const f of m.F) { expect(f.slice(0, 3).every(i => i >= 0 && i < m.V.length)).toBe(true); expect(f[3]).toBeLessThan(TRAIN_PART.length); }
-      const [x, y, z] = bounds(m); expect(x[1]).toBeLessThan(1.5); expect(x[0]).toBeGreaterThan(-1.5); expect(y[1] - y[0]).toBeGreaterThan(18.9); expect(y[1] - y[0]).toBeLessThan(19.6); expect(z[0]).toBeGreaterThanOrEqual(0); }
+      const [x, y, z] = bounds(m); expect(x[1]).toBeLessThan(1.55); expect(x[0]).toBeGreaterThan(-1.55); expect(y[1] - y[0]).toBeGreaterThan(19.4); expect(y[1] - y[0]).toBeLessThan(20.6); expect(z[0]).toBeGreaterThanOrEqual(0); }
     const top = (k: 'mid' | 'pan' | 'end') => Math.max(...T[k].V.map(p => p[2]));
     expect(top('pan')).toBeGreaterThan(top('mid') + 0.5); // パンタグラフの分だけ高い
     expect(T.end.F.some(f => f[3] === 1 && T.end.V[f[0]][1] > 9)).toBe(true); // 先頭車の前面に窓がある
     expect(T.mid.F.some(f => f[3] === 0)).toBe(true); // 帯
+    expect(Math.max(...T.pan.V.map(p => p[2]))).toBeLessThanOrEqual(PANTO_Z + 0.001); // パンタグラフは架線（レール面から 5.15m）に届いて、突き抜けない
+  });
+  it('v88：車種がそろい、品質を下げると面が減る。編成の車種はすべて作られる', () => {
+    const H = makeTrains(10, 2), L = makeTrains(8, 0);
+    for (const [k, m] of Object.entries(H)) { expect(m.F.length).toBeGreaterThan(0); for (const f of m.F) expect(f[3]).toBeLessThan(TRAIN_PART.length); if (k[0] !== 'o') expect(L[k as keyof typeof L].F.length).toBeLessThan(m.F.length); }
+    for (const F of Object.values(FAMS)) for (const c of F.cars) if (c !== 'sl') expect(H[c]).toBeTruthy();
+    expect(Math.max(...H.de.V.map(p => p[2]))).toBeLessThan(4.7); // 気動車にパンタグラフは無い
   });
 });
