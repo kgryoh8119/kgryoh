@@ -17,7 +17,6 @@ if (WHAT.includes('jam') && info.wi >= 0) {
     for (let i = 0; i < s.road.length; i++) if (s.road[i]) { const d = Math.abs(i % W - x0) + Math.abs(((i / W) | 0) - y0); s.vc[i] = d < 9 ? 1.7 : 0.35; }
     v.focus(wi, 150); v.pitch = 0.5; v.yaw = 0.7; v.spawnAgents(); return v.cars.length; }, info.wi);
   console.log('cars', c); await shot('jam', 20000);
-  await page.evaluate(() => { const v = window.__sumu.view; v.dist = 420; v.want.dist = 420; v.pitch = 0.75; }); await shot('jam-far', 8000);
 }
 if (WHAT.includes('station') && info.st0 >= 0) {
   // 駅勢圏の世帯を 8 倍にして混雑率を上げる（stationStats の作り直しは bVersion で）
