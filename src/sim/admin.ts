@@ -105,7 +105,7 @@ function landMonthly(s: GameState): void {
   const r = landSummary(s); L.avg = Math.round(r.avg * 10) / 10; L.hist.push({ y: Math.floor(s.month / 12), avg: L.avg }); if (L.hist.length > 30) L.hist.shift();
   if (s.month - L.at >= 36) {
     const old = L.dk.reduce((a, b) => a + b, 0) / L.dk.length;
-    L.dk = r.dist.map((v, k) => Math.round(clamp(v / L.base, Math.max(0.6, L.dk[k] * 0.85), L.dk[k] * 1.15) * 1000) / 1000);
+    L.dk = r.dist.map((v, k) => Math.round(clamp(v / L.base, Math.max(0.6, (L.dk[k] ?? 1) * 0.85), (L.dk[k] ?? 1) * 1.15) * 1000) / 1000);
     L.at = s.month; const now = L.dk.reduce((a, b) => a + b, 0) / L.dk.length;
     s.notes.push(`🏠 固定資産税の評価替え（3 年に 1 回）：地価に合わせて課税標準を見直しました（平均 ${now >= old ? '+' : ''}${Math.round((now / old - 1) * 100)}%）。住宅地の地価は平均 ${L.avg} 万円/㎡`);
   }

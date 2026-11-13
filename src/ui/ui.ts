@@ -743,7 +743,7 @@ export class UI {
       this.labelKey = key;
       el.innerHTML = jams.map(i => `<div class="fl jam" data-x="${(i % W + 0.5) * 30}" data-z="${(((i / W) | 0) + 0.5) * 30}">渋滞<i class="bad">${pct(s.vc[i])}</i></div>`).join('') + DISTRICTS.map((n, d) => `<div class="dl" data-d="${d}">${n}<i>${n0(s.stats.popDistrict[d])} 人${s.plan && this.game.auto ? `・${ROLES[s.plan.roles[d]]?.short ?? ''}` : ''}</i></div>`).join('') + list.map(b => `<button class="fl ${isCity(b.kind) ? 'city' : ''} ${b.kind === 'station' ? 'st' : ''}" data-act="selb" data-arg="${b.id}" data-x="${(b.x + b.w / 2) * 30}" data-z="${(b.y + b.h / 2) * 30}">${txt(b)}</button>`).join('');
     }
-    const DC = REAL ? REAL.districts.map(d => [d.x, d.y]) : [[21, 8], [13, 21], [33, 24], [7, 8], [57, 22], [36, 51]], far = v.dist > 520, vfar = REAL && v.dist > 1100;
+    const DC = REAL ? REAL.districts.map(d => [d.x, d.y]) : [[21, 8], [13, 21], [33, 24], [7, 8], [57, 22], [36, 51], [100, 34], [64, 88]], far = v.dist > 520, vfar = REAL && v.dist > 1100;
     const shown: { c: HTMLElement; x: number; y: number; pri: number }[] = [];
     for (const c of el.children as any as HTMLElement[]) {
       const isD = c.classList.contains('dl');

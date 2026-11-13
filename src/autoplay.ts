@@ -169,7 +169,7 @@ export function autoTurn(s: GameState): string[] {
   const ord = s.autoOrder ?? 1; // 作戦（AUTO_ORDERS）
   const reserve = Math.max(3000, P.bondUnit * 0.6) * [0.5, 1, 2.5][ord], BL = bondCap(s) * [1.25, 1, 0.6][ord]; // BL：オートが使う市債の上限（作戦で広げたり絞ったりする。本当の上限を超える分は発行のときに断られる）
   let builds = 0, acts = 0, needLand = false, saving = false, saveFor = 0, saveKind = ''; // saveFor：ためている金額（これを残せるなら、ほかの安い施設は建ててよい）
-  const big = W * H > 6000, maxActs = Math.max(1, (big ? 2 : 6) + [big ? 1 : 2, 0, big ? 0 : -2][ord]), maxBuilds = Math.max(1, (big ? 1 : 3) + [1, 0, big ? 0 : -1][ord]); // 大きな地図は 1 手ごとの再計算が重いので、月の手数を絞る
+  const big = !!REAL && W * H > 6000, maxActs = Math.max(1, (big ? 2 : 6) + [big ? 1 : 2, 0, big ? 0 : -2][ord]), maxBuilds = Math.max(1, (big ? 1 : 3) + [1, 0, big ? 0 : -1][ord]); // 大きな地図（実在都市）は 1 手ごとの再計算が重いので、月の手数を絞る（v87：架空の街は広げても建物の数は同じなので絞らない）
   const can = (cost: number) => s.cash - cost >= reserve;
   const act = (a: Action, text: string): boolean => { if (acts >= maxActs) return false; const r = dispatch(s, a); if (r.ok) { out.push(text); acts++; } return r.ok; };
   // 国際交流：知名度が届いた都市と姉妹都市になり、半年ごとに交流する
