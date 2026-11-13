@@ -2041,8 +2041,8 @@ export class View {
     // 駅のまわり（3 区画以内）の歩道：道路の両側に 0.9m おき。駅に近い順
     const sw: [number, number, number, number][] = [];
     for (let y = b.y - 3; y < b.y + b.h + 3; y++) for (let x = b.x - 3; x < b.x + b.w + 3; x++) { if (!inMap(x, y)) continue; const i = idx(x, y), t = s.road[i]; if (!t || t === 3) continue;
-      const hw = HW[t] + (t === 1 ? -0.4 : 1.1), cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE, ew = (x > 0 && s.road[i - 1]) || (x < W - 1 && s.road[i + 1]), ns = (y > 0 && s.road[i - W]) || (y < H - 1 && s.road[i + W]);
-      for (let k = -15; k < 15; k += 0.9) for (const sg of [-1, 1]) { const j = (rr() - 0.5) * 0.5, dd = Math.hypot(cx - lx, cz - lz) + rr() * 8;
+      const hw = (t === 2 && this.wideSet?.has(i) ? HW[3] : HW[t]) + (t === 1 ? -0.4 : SW * 0.5), cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE, ew = (x > 0 && s.road[i - 1]) || (x < W - 1 && s.road[i + 1]), ns = (y > 0 && s.road[i - W]) || (y < H - 1 && s.road[i + W]);
+      for (let k = -15; k < 15; k += 0.9) for (const sg of [-1, 1]) { if (ew && ns && Math.abs(k) < hw + 1) continue; const j = (rr() - 0.5) * 0.5, dd = Math.hypot(cx - lx, cz - lz) + rr() * 8;
         if (ew || !ns) sw.push([cx + k, cz + sg * (hw + j), dd + Math.abs(k) * 0.2, cx > lx ? -Math.PI / 2 : Math.PI / 2]);
         if (ns) sw.push([cx + sg * (hw + j), cz + k, dd + Math.abs(k) * 0.2, cz > lz ? Math.PI : 0]); } }
     sw.sort((p, q) => p[2] - q[2]);
