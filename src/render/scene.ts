@@ -140,6 +140,8 @@ const sid = (s: object) => { let i = stateIds.get(s); if (!i) { i = nextStateId+
 interface Walk { L?: Look; ph?: number; mv?: number; lead?: number; side?: number; wait?: boolean; enter?: number; exit?: number }
 interface Agent extends Walk { vm?: number; vc?: number; v?: number; cur: number; next: number; prev: number; t: number; speed: number; lane: number; yaw: number; bob: number; kind?: number; /** 次の次の区画（曲がる向きを前もって決めて、交差点をなめらかに曲がる） */ nn?: number }
 /** v86：車体の色（インスタンスの色）を、頂点が真っ白（面の種類 0）のところだけに掛ける。前照灯・ホイール・白い部品に車体色が移らない */
+/** v88：車のガラスの頂点色：横向きの窓は青灰、上を向く（傾いた）窓ほど空の明るい水色 */
+const skyGlass = (g: THREE.BufferGeometry) => { const n = g.getAttribute('normal'), c = new Float32Array(n.count * 3); for (let i = 0; i < n.count; i++) { const u = Math.max(0, n.getY(i)), k = u * u; c[i * 3] = 0.3 + 0.36 * k; c[i * 3 + 1] = 0.39 + 0.37 * k; c[i * 3 + 2] = 0.47 + 0.35 * k; } g.setAttribute('color', new THREE.BufferAttribute(c, 3)); return g; };
 const tint0 = (m: THREE.MeshStandardMaterial) => { m.onBeforeCompile = sh => { sh.vertexShader = sh.vertexShader.replace('vColor.rgb *= instanceColor.rgb;', 'vColor.rgb *= (min(color.r, min(color.g, color.b)) > 0.999 ? instanceColor.rgb : vec3(1.0));'); }; m.customProgramCacheKey = () => 'veh-tint0'; return m; };
 /** 実在都市版の車・人：実際の道路の折れ線の上を行き来する */
 /** v87：出動中の緊急車両。r は道路の区画の経路（i 番目にいる）、legs はこの後の行き先（現場→病院・拠点）。lit は赤色灯とサイレン */
@@ -983,6 +985,7 @@ export class View {
     return s.road[idx(nx, ny)];
   }
   private rebuildRoads(s: GameState): void {
+    this.plaza.clear(); // v88：駅のまわりの歩道の立ち位置を作り直す
     const junction0 = (n: number) => n >= 3;
     this.clearGroup('roads');
     const m = this.map, g = new Geo();
@@ -1988,18 +1991,26 @@ export class View {
       // v87：駅の混雑率（sim の stationStats）で、ホームの人数・乗り残し・駅前にあふれる人が変わる
       const lk = stationLook(crowd.get(sp.id) ?? 100); this.stLeft.set(sp.id, lk.left);
       const f = Math.min(1, (this.stFill.get(sp.id) ?? 1) + dt / 40); this.stFill.set(sp.id, f);
-      const want = Math.round(Math.min(sp.pts.length / 3 * Math.min(3, Math.max(1, lk.fill * 1.4)), (6 + (b.used ?? 0) / 18) * rk * lk.fill) * f);
+      // v88：ホームは混雑率で端まで埋まり、1.0 を超えるとすき間に人が詰まる（同じ立ち位置の隣に、ずらしてもう 1 人）。朝夕に多く、昼は半分ほど
+      const P = this.plazaPts(s, sp, b), pz = P.pz, np = sp.pts.length / 3 | 0, rkc = night ? 0.08 : 0.45 + 0.55 * r;
+      // 人数を先に決め、品質の上限（cap）に収まらなければ全部を同じ割合で減らす（ホームだけ・広場だけにならないように）
+      const W0 = [np * lk.plat * rkc * f, 0, pz.length / 4 * lk.spill * 0.6 * rkc * (0.5 + 0.5 * f), P.q.length / 4 * lk.queue * rkc, Math.min(P.st.length / 4, 320) * lk.street * rkc]; W0[1] = W0[0] * lk.dense * 1.4;
+      const tot = W0.reduce((a, v) => a + v, 0), sc = tot > 0 ? Math.min(1, (cap - n) / tot) : 1, [want, dup, spill, nq, ns] = W0.map(v => Math.round(v * sc));
       for (let k = 0; k < want && n < cap; k++) put(sp.pts[k * 3], sp.pts[k * 3 + 1], sp.pts[k * 3 + 2], (k * 2.39) % (Math.PI * 2), 0, 0);
-      const pz = this.plazaPts(s, sp, b); if (!pz.length) continue;
+      for (let k = 0; k < dup && n < cap; k++) { const q = (k * 7) % Math.max(1, want), a = k * 2.39 + 0.7, d = 0.55 + (k % 3) * 0.12; put(sp.pts[q * 3] + Math.cos(a) * d, sp.pts[q * 3 + 1], sp.pts[q * 3 + 2] + Math.sin(a) * d, a, 0, 0); }
+      if (!pz.length) continue;
       // 列車が着いた直後：降りた人がホームから改札・駅前へ歩いていく（混むほど多い）
       const ta = this.lifeT - (this.stArr.get(sp.id) ?? -99);
-      if (ta < 10 && !night) { const m = Math.round(Math.min(60, 6 + lk.load * 14) * (0.4 + 0.6 * rk));
-        for (let k = 0; k < m && n < cap; k++) { const u = ta / 10 * 1.7 - (k % 20) * 0.035; if (u <= 0 || u >= 1) continue; const a0 = ((k * 7) % (sp.pts.length / 3 | 0)) * 3, g = (k % 12) * 4;
+      if (ta < 10 && !night && np) { const m = Math.round(Math.min(90, 6 + lk.load * 18) * (0.4 + 0.6 * rk));
+        for (let k = 0; k < m && n < cap; k++) { const u = ta / 10 * 1.7 - (k % 20) * 0.035; if (u <= 0 || u >= 1) continue; const a0 = ((k * 7) % np) * 3, g = (k % 12) * 4;
           const x0 = sp.pts[a0], y0 = sp.pts[a0 + 1], z0 = sp.pts[a0 + 2], x1 = pz[g], y1 = pz[g + 1], z1 = pz[g + 2];
           put(x0 + (x1 - x0) * u, y0 + (y1 - y0) * u, z0 + (z1 - z0) * u, Math.atan2(x1 - x0, z1 - z0), this.lifeT * 6 + k, 1); } }
-      // 改札前の行列と駅前広場：ホームに収まらない人（混雑率が高い朝夕ほど多い）
-      const spill = Math.round(Math.min(pz.length / 4, lk.spill * rk * (30 + (b.used ?? 0) / 8)) * (0.5 + 0.5 * f));
+      // 改札前の人だかりと駅前広場：混雑率 0.85 から改札の前に固まり、1.5 で広場いっぱいに広がる（改札に近い順）
       for (let k = 0; k < spill && n < cap; k++) put(pz[k * 4], pz[k * 4 + 1], pz[k * 4 + 2], pz[k * 4 + 3], 0, 0);
+      // 入場規制：広場の外側に、折り返しの列（混雑率 1.2 から。列の先頭から順に詰まる）
+      for (let k = 0; k < nq && n < cap; k++) put(P.q[k * 4], P.q[k * 4 + 1], P.q[k * 4 + 2], P.q[k * 4 + 3], (k % 9) * 0.3, 0.15);
+      // まわりの歩道：駅へ向かう人で埋まる（混雑率 1.1 から。駅に近い歩道から）
+      for (let k = 0; k < ns && n < cap; k++) put(P.st[k * 4], P.st[k * 4 + 1], P.st[k * 4 + 2], P.st[k * 4 + 3], this.lifeT * 5 + k, k % 3 === 0 ? 1 : 0.1);
     }
     if (n !== this.crowdP.mesh.count || n) { this.crowdP.mesh.count = n; this.crowdP.commitPose(); }
     this.stats.peds = this.peds.length + n;
@@ -2011,16 +2022,29 @@ export class View {
     const k = `${s.month}:${s.bVersion}`; if (this.stSK !== k) { this.stSK = k; try { this.stSC = stationStats({ ...s, pol: {} } as GameState); } catch { this.stSC = []; } } return this.stSC; }
   private stSK = ''; private stSC: { b: Building; crowd: number }[] = [];
   /** v87：駅前広場の立ち位置（x, y, z, 向き）。改札（駅舎の正面）に近い順で、線路と直角の向きに伸びる行列から広場いっぱいへ */
-  private plaza = new Map<number, number[]>(); private stLeft = new Map<number, number>(); private stArr = new Map<number, number>();
-  private plazaPts(s: GameState, sp: StationSpot, b: Building): number[] {
+  private plaza = new Map<number, { pz: number[]; q: number[]; st: number[] }>(); private stLeft = new Map<number, number>(); private stArr = new Map<number, number>();
+  /** 駅前の立ち位置（それぞれ x, y, z, 向き の並び）。pz：改札（駅舎の正面）に近い順の広場（v88 で 1.6 倍の広さ）、q：入場規制の折り返しの列、st：駅のまわりの歩道 */
+  private plazaPts(s: GameState, sp: StationSpot, b: Building): { pz: number[]; q: number[]; st: number[] } {
     const c = this.plaza.get(sp.id); if (c) return c;
-    const P = this.railPaths[sp.path], out: number[] = []; if (!P) { this.plaza.set(sp.id, out); return out; }
+    const P = this.railPaths[sp.path], out = { pz: [] as number[], q: [] as number[], st: [] as number[] }; if (!P) { this.plaza.set(sp.id, out); return out; }
     const [tx0, , tz0, yaw] = railAt(P, sp.d), tx = Math.sin(yaw), tz = Math.cos(yaw), nx = -tz, nz = tx, lx = (b.x + b.w / 2) * TILE, lz = (b.y + b.h / 2) * TILE;
     const dot = (lx - tx0) * nx + (lz - tz0) * nz, side = dot >= 0 ? 1 : -1, along = Math.max(-30, Math.min(30, (lx - tx0) * tx + (lz - tz0) * tz)), across = Math.max(14, Math.min(35, dot * side));
     const sx = tx0 + tx * along + nx * side * across, sz = tz0 + tz * along + nz * side * across, rr = seeded(sp.id * 31 + 7), pts: [number, number, number][] = [];
-    for (let u = -21; u <= 21; u += 1.05) for (let v = 6.5; v <= 16; v += 1.05) { const ju = u + (rr() - 0.5) * 0.5, jv = v + (rr() - 0.5) * 0.5; pts.push([ju, jv, Math.abs(ju) * 1.7 + (jv - 6.5) * 0.9 + rr() * 1.5]); }
+    const at = (u: number, v: number) => [sx + tx * u + nx * side * v, sz + tz * u + nz * side * v], face = Math.atan2(-nx * side, -nz * side);
+    for (let u = -26; u <= 26; u += 0.95) for (let v = 6.5; v <= 21; v += 0.95) { const ju = u + (rr() - 0.5) * 0.5, jv = v + (rr() - 0.5) * 0.5; pts.push([ju, jv, Math.abs(ju) * 1.7 + (jv - 6.5) * 0.9 + rr() * 1.5]); }
     pts.sort((p, q) => p[2] - q[2]);
-    for (const [u, v] of pts) { const x = sx + tx * u + nx * side * v, z = sz + tz * u + nz * side * v; out.push(x, this.surfY(x, z) + 0.15, z, Math.atan2(-nx * side, -nz * side) + (rr() - 0.5) * 0.8); } // 駅舎の方を向く
+    for (const [u, v] of pts) { const [x, z] = at(u, v); out.pz.push(x, this.surfY(x, z) + 0.15, z, face + (rr() - 0.5) * 0.8); } // 駅舎の方を向く
+    // 入場規制の列：広場の外で 4 回折り返す（0.7m おきに、進む向きを向いて並ぶ）
+    for (let row = 0; row < 5; row++) { const v = 22.5 + row * 1.3, dir = row % 2 ? -1 : 1; for (let k = 0; k <= 50; k++) { const u = dir * (-17.5 + k * 0.7); const [x, z] = at(u + (rr() - 0.5) * 0.15, v); out.q.push(x, this.surfY(x, z) + 0.15, z, Math.atan2(tx * dir, tz * dir) + (rr() - 0.5) * 0.4); } }
+    // 駅のまわり（3 区画以内）の歩道：道路の両側に 0.9m おき。駅に近い順
+    const sw: [number, number, number, number][] = [];
+    for (let y = b.y - 3; y < b.y + b.h + 3; y++) for (let x = b.x - 3; x < b.x + b.w + 3; x++) { if (!inMap(x, y)) continue; const i = idx(x, y), t = s.road[i]; if (!t || t === 3) continue;
+      const hw = HW[t] + (t === 1 ? -0.4 : 1.1), cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE, ew = (x > 0 && s.road[i - 1]) || (x < W - 1 && s.road[i + 1]), ns = (y > 0 && s.road[i - W]) || (y < H - 1 && s.road[i + W]);
+      for (let k = -15; k < 15; k += 0.9) for (const sg of [-1, 1]) { const j = (rr() - 0.5) * 0.5, dd = Math.hypot(cx - lx, cz - lz) + rr() * 8;
+        if (ew || !ns) sw.push([cx + k, cz + sg * (hw + j), dd + Math.abs(k) * 0.2, cx > lx ? -Math.PI / 2 : Math.PI / 2]);
+        if (ns) sw.push([cx + sg * (hw + j), cz + k, dd + Math.abs(k) * 0.2, cz > lz ? Math.PI : 0]); } }
+    sw.sort((p, q) => p[2] - q[2]);
+    for (const [x, z, , yw] of sw.slice(0, 700)) out.st.push(x, this.surfY(x, z) + 0.15, z, yw + (rr() - 0.5) * 0.6);
     this.plaza.set(sp.id, out); return out;
   }
   // ------------------------------------------------------------ 交通の流れ（混雑レイヤーで、道路の上を流れる矢印。混むほど遅く赤く）
@@ -2108,11 +2132,11 @@ export class View {
     for (const m of this.vehM) for (const im of [m.body, m.cab]) if (im) { this.scene.remove(im); im.geometry.dispose(); }
     this.vehWn = wn; this.vehM = []; this.vehN = [];
     // 車体の色（インスタンスの色）は、頂点が真っ白（面の種類 0）のところだけに掛ける。前照灯・ホイール・白い部品に車体色が移らない
-    const carMat = tint0(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.25 })), cabMat = new THREE.MeshStandardMaterial({ color: 0x1c2228, roughness: 0.15, metalness: 0.4 });
+    const carMat = tint0(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.25 })), cabMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.2, metalness: 0.15, transparent: true, opacity: 0.78, depthWrite: false }); // v88：ガラスは空を映す色（上を向く面ほど明るい水色。前は暗い紺で、上から見ると窓と屋根が真っ黒だった）。少し透けて運転者と座席が見える
     const mk = (geo: THREE.BufferGeometry, mat: THREE.Material) => { const im = new THREE.InstancedMesh(geo, mat, 320); im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.frustumCulled = false; im.castShadow = !this.lite; im.count = 0; im.setColorAt(0, new THREE.Color(1, 1, 1)); this.scene.add(im); return im; };
     const part = (m: CarMesh, only: (t: number) => boolean, col: (t: number) => number) => { const g = new Geo(); carMesh(g, m, 0, 0, 0, col, only); return g.build(); };
     const V = makeVeh(wn);
-    for (const nm of VEH_MODELS) { const m = V[nm], glass = m.F.some(f => f[3] === 5); this.vehM.push({ body: mk(part(m, t => t !== 5, t => t === 0 ? 0xffffff : CAR_PART[t]), carMat), cab: glass ? mk(part(m, t => t === 5, () => 0xffffff), cabMat) : null }); }
+    for (const nm of VEH_MODELS) { const m = V[nm], glass = m.F.some(f => f[3] === 5); this.vehM.push({ body: mk(part(m, t => t !== 5, t => t === 0 ? 0xffffff : CAR_PART[t]), carMat), cab: glass ? mk(skyGlass(part(m, t => t === 5, () => 0xffffff)), cabMat) : null }); }
     // 路線バス・箱型トラック（7m）・観光バス：Blender の形（src/assets/vehicles.json）。白い所に車ごとの色が掛かる
     const PB = [0xffffff, 0x1a1a1a, 0x1c2228, 0xfff6d8, 0xd02020, 0xffb030, 0x9aa0a6], PT = [0xffffff, 0x1a1a1a, 0x1c2228, 0xfff6d8, 0xd02020, 0xf4f4f0, 0x2a2a2c], PC = [0xffffff, 0x1a1a1a, 0x1c2228, 0xfff6d8, 0xd02020, 0x2a2a2c, 0xd8a030];
     for (const [m, P] of [[VM.bus, PB], [VM.truck, PT], [VM2.coach, PC]] as const) this.vehM.push({ body: mk(part(m, () => true, t => P[t]), carMat), cab: null });
@@ -2122,6 +2146,8 @@ export class View {
   private vehBegin(): void { this.vehN.fill(0); }
   private vehEnd(): void { this.vehM.forEach((m, t) => { const n = this.vehN[t]; m.body.count = n; m.body.instanceMatrix.needsUpdate = true; if (m.body.instanceColor) m.body.instanceColor.needsUpdate = true; if (m.cab) { m.cab.count = n; m.cab.instanceMatrix.needsUpdate = true; } }); }
   // ------------------------------------------------------------ v87：緊急出動（パトカー・救急車・消防車）
+  /** v88：区画の並び a → b → c で曲がるか（ウインカーを出す） */
+  private turnAt(a: number, b: number, c: number): boolean { const ax = b % W - a % W, az = ((b / W) | 0) - ((a / W) | 0), bx = c % W - b % W, bz = ((c / W) | 0) - ((b / W) | 0); return Math.abs(-az * bx + ax * bz) > 0.5; }
   /** 道路の区画 i につながる道路の数（3 以上が交差点） */
   private roadDeg(s: GameState, i: number): number { const x = i % W, y = (i / W) | 0; return (x > 0 && s.road[i - 1] ? 1 : 0) + (x < W - 1 && s.road[i + 1] ? 1 : 0) + (y > 0 && s.road[i - W] ? 1 : 0) + (y < H - 1 && s.road[i + W] ? 1 : 0); }
   /** 経路の i 番目から、いま・次・次の次の区画を決める */
@@ -2791,7 +2817,8 @@ export class View {
       this.placeVeh(a); { const hl = VT_HL[a.vm ?? 0]; head.setXYZ(i, px + Math.sin(a.yaw) * hl, py + 0.7, pz + Math.cos(a.yaw) * hl);
         const b = (a as any).brk ?? 0, nk = this.night; tail.setXYZ(i, px - Math.sin(a.yaw) * hl, py + 0.75, pz - Math.cos(a.yaw) * hl); tailC.setXYZ(i, (0.3 * nk + b) * 1.0, (0.3 * nk + b) * 0.06, (0.3 * nk + b) * 0.04);
         if (em?.lit) { const f = ((this.lifeT * 5 + i) | 0) & 1; tailC.setXYZ(i, f ? 1.8 : 0.25, f ? 0.08 : 0.02, f ? 0.05 : 0.01); tail.setXYZ(i, px, py + 2.3, pz); } // v87：出動中の赤色灯（屋根の上で点滅。巡回中・帰りは消す）
-        else if ((a as any).rw > 0 && a.t > 0.8) { const f = ((this.lifeT * 3) | 0) & 1; if (f) tailC.setXYZ(i, 1.4, 0.55, 0.02); } } // 右折待ちのウインカー
+        else if ((a as any).rw > 0 && a.t > 0.8) { const f = ((this.lifeT * 3) | 0) & 1; if (f) tailC.setXYZ(i, 1.4, 0.55, 0.02); } // 右折待ちのウインカー
+        else if (!ped && ((a as any).yl || (a.t > 0.6 && a.nn !== undefined && a.nn >= 0 && a.nn !== a.cur && this.turnAt(a.cur, a.next, a.nn)))) { const f = ((this.lifeT * 3 + (i & 1) * 0.5) | 0) & 1; if (f) tailC.setXYZ(i, 1.4, 0.55, 0.02); } } // v88：曲がる手前のウインカー、緊急車両に道を空けるときのハザード
       return true;
     };
     this.emTick(s, dt);
@@ -3244,7 +3271,7 @@ export class View {
     const stK = s.buildings.filter(b => b.kind === 'station').map(b => `${b.id}.${b.status === 'construction' ? 0 : 1}.${b.lv ?? 1}.${b.shin === undefined ? '-' : s.month >= b.shin ? 'o' : 'p'}`).join(','); // 駅ビル・新幹線は線路と一緒に描く
     { const mm = getMap(s.seed), ck = s.rail ? (s.railGrade ?? []).map((g, i) => (g === 3 && s.rail![i] ? i : -1)).filter(i => i >= 0).join(',') : ''; if (mm !== this.map || (!REAL && ck !== this.cutKey)) { this.map = mm; if (!REAL) this.buildLand(); this.chunkSig.clear(); this.sigRoad = ''; this.sigTown = ''; this.sigOverlay = ''; this.sigSites = ''; } } // 地形の造作
     if (this.infraV !== s.bVersion) { this.infraV = s.bVersion; this.infraK = infraKey(s); } // v87：鉄塔・発電所・変電所・共同溝が変わったら道路（送電線・無電柱化）を描き直す
-    const sr = `${id}:${s.roadVersion}:${old}:${fac}:${stK}:${this.infraK}`;
+    const sr = `${id}:${s.roadVersion}:${old}:${fac}:${stK}:${this.infraK}:${this.quality}:${this.lite ? 1 : 0}`; // v88：品質を切り替えたら道路も作り直す（low では細部を省く）
     if (sr !== this.sigRoad) { this.sigRoad = sr; this.rebuildRoads(s); this.sigOverlay = ''; }
     const st = `${id}:${s.bVersion}:${s.roadVersion}:${s.buildings.filter(b => isCity(b.kind) && b.age > 70).length}`;
     if (st !== this.sigTown) { this.sigTown = st; this.rebuildTown(s); this.buildLightProfile(s); this.sigOverlay = ''; }

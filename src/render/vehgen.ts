@@ -1,6 +1,6 @@
 // v86：走る車（タクシー・パトカー・救急車・消防車・箱車・ごみ収集車・スクーター・自転車）と電車の車体を、箱や棒を組み合わせて作る。
 // 乗用車の形は cargen.ts の断面から作る仕組み。ここはその仕組みに合わない角ばった車や、乗る人つきの二輪車、電車の車体。
-// 面の種類は車と同じ番号に、7 白・8 赤・9 青・10 黄・11 乗る人の服・12 肌・13 ナンバー（白）・14 ナンバー（軽の黄）・15 暗い鉄ホイール・16 灰色ホイールを足した（CAR_PART）。
+// 面の種類は車と同じ番号に、7 白・8 赤・9 青・10 黄・11 乗る人の服・12 肌・13 ナンバー（白）・14 ナンバー（軽の黄）・15 暗い鉄ホイール・16 灰色ホイール・17 ナンバー（事業用の緑）を足した（CAR_PART）。
 import { build, makeCars, CAR_KINDS, SEDAN, VAN, type CarMesh } from './cargen';
 
 type V3 = number[];
@@ -58,7 +58,7 @@ export const VEH_MODELS = [...CAR_KINDS, 'taxi', 'police', 'ambulance', 'fire', 
 export type VehModel = typeof VEH_MODELS[number];
 /** N：タイヤの角数（品質で 8 / 10 / 14）。二輪は N - 2、N - 4 角 */
 export function makeVeh(N = 14): Record<VehModel, CarMesh> {
-  const B = (sp: Parameters<typeof build>[0]) => build(sp, N), K = makeCars(N);
+  const B = (sp: Parameters<typeof build>[0], inside = true) => build(sp, N, inside), K = makeCars(N, true);
   // タクシー：セダンに屋根の行灯（黄）
   const taxi = B(SEDAN); box(taxi, -0.2, 0.2, -0.12, 0.2, 1.41, 1.5, [2, 2, 2, 10, 2]); box(taxi, -0.18, 0.18, -0.1, 0.18, 1.5, 1.57, 10);
   // パトカー：セダンの屋根・ボンネット・トランクを白に（車体は黒）。屋根に赤と青の回転灯、側面に白い帯
@@ -97,11 +97,12 @@ export function makeVeh(N = 14): Record<VehModel, CarMesh> {
   box(bi, -0.22, 0.22, 0.34, 0.4, 1.0, 1.04, 2); box(bi, -0.12, 0.12, -0.28, -0.1, 0.84, 0.88, 2); box(bi, -0.14, 0.14, 0.52, 0.76, 0.84, 1.02, 6); end(bi, -0.05, 0.05, 0.775, 0.9, 0.96, 3, 1); end(bi, -0.04, 0.04, -0.58, 0.45, 0.52, 4, -1);
   for (const sx of [-1, 1]) { limb(bi, [sx * 0.11, -0.2, 0.9], [sx * 0.12, 0.05, 0.38], 0.045, 11); limb(bi, [sx * 0.15, 0.3, 1.38], [sx * 0.2, 0.4, 1.04], 0.03, 0); }
   limb(bi, [0, -0.18, 0.98], [0, 0.18, 1.4], 0.1, 0); box(bi, -0.09, 0.09, 0.14, 0.34, 1.4, 1.54, 12); box(bi, -0.1, 0.1, 0.12, 0.34, 1.52, 1.62, 11);
+  for (const M of [taxi, box2, gar]) for (const f of M.F) if (f[3] === 13) f[3] = 17; // v88：事業用（緑ナンバー）
   return { ...K, taxi, police, ambulance: amb, fire, box2t: box2, garbage: gar, scooter: sc, bicycle: bi };
 }
 
 /** 車の部位の色（面の種類 0〜16）。0 は車ごとの色 */
-export const CAR_PART = [0xffffff, 0x151515, 0x3a3a3c, 0xfff6d8, 0xd02020, 0x26313a, 0x9aa0a6, 0xf4f4f2, 0xd8261c, 0x2a52c8, 0xffc21a, 0x2c2f38, 0xe0b090, 0xeeeeea, 0xf2d030, 0x4a4e54, 0x6c7076];
+export const CAR_PART = [0xffffff, 0x151515, 0x3a3a3c, 0xfff6d8, 0xd02020, 0x26313a, 0x9aa0a6, 0xf4f4f2, 0xd8261c, 0x2a52c8, 0xffc21a, 0x2c2f38, 0xe0b090, 0xeeeeea, 0xf2d030, 0x4a4e54, 0x6c7076, 0x2f7a4a];
 /** 日本の街の車の色（白・黒・銀・灰で 7 割強）。r は 0〜1。軽は明るい色が少し多い */
 export function carColor(r: number, kei = false): number {
   const T: [number, number][] = kei ? [[0.2, 0xf4f4f2], [0.3, 0x2a2c30], [0.38, 0xc4c8cc], [0.45, 0x8a9096], [0.54, 0xa8d4e6], [0.62, 0xf2c8d4], [0.7, 0xd8e8b8], [0.76, 0x2c3e5c], [0.82, 0xd8d0b8], [0.88, 0xc0302a], [0.94, 0xe8b830], [1, 0x3a7a5a]]
