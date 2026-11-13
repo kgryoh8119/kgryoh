@@ -2150,6 +2150,9 @@ export class View {
   private vehBegin(): void { this.vehN.fill(0); }
   private vehEnd(): void { this.vehM.forEach((m, t) => { const n = this.vehN[t]; m.body.count = n; m.body.instanceMatrix.needsUpdate = true; if (m.body.instanceColor) m.body.instanceColor.needsUpdate = true; if (m.cab) { m.cab.count = n; m.cab.instanceMatrix.needsUpdate = true; } }); }
   // ------------------------------------------------------------ v87：緊急出動（パトカー・救急車・消防車）
+  /** v88：バス停の区画（道路の版が変わったら作り直す） */
+  private busSet(s: GameState): Set<number> { const k = `${s.roadVersion}:${(s.busStops ?? []).length}`; if (this.bsK !== k) { this.bsK = k; this.bsS = new Set(s.busStops ?? []); } return this.bsS; }
+  private bsK = ''; private bsS = new Set<number>();
   /** v88：区画の並び a → b → c で曲がるか（ウインカーを出す） */
   private turnAt(a: number, b: number, c: number): boolean { const ax = b % W - a % W, az = ((b / W) | 0) - ((a / W) | 0), bx = c % W - b % W, bz = ((c / W) | 0) - ((b / W) | 0); return Math.abs(-az * bx + ax * bz) > 0.5; }
   /** 道路の区画 i につながる道路の数（3 以上が交差点） */
@@ -2795,6 +2798,9 @@ export class View {
         const key = a.cur * 100000 + a.next; if ((a as any).rk !== key) { (a as any).rk = key; (a as any).rw = Math.random() < Math.min(0.9, vc * 0.7) ? 1 + Math.random() * 3 * vc : 0; }
         if ((a as any).rw > 0) { lim = Math.min(lim, 0.9); if (a.t > 0.85) (a as any).rw -= dt; }
       }
+      if (!em && a.vm === 17 && this.busSet(s).has(a.cur)) { // v88：路線バスはバス停で左に寄せて止まり、客の乗り降りを待つ（区画ごとに 1 回）
+        if ((a as any).bs !== a.cur && a.t < 0.5) { (a as any).bs = a.cur; (a as any).bw = 5 + Math.random() * 6; }
+        if ((a as any).bw > 0) { lim = Math.min(lim, 0.5); if (a.t > 0.45) (a as any).bw -= dt; } }
       if (a.cur !== a.next && !em?.lit) {
         if (closed.size && closed.has(a.next) && a.t < 0.6) lim = Math.min(lim, 0.55); // 踏切：遮断機が下りていたら手前で待つ
         if (sigG[a.next]) { // 信号：幹線の交差点の手前（横断歩道の前）で、赤なら止まる。黄で止まれない位置なら通り抜ける
@@ -2813,7 +2819,7 @@ export class View {
       // 左側通行：車線の線に沿って走る（曲がり角・折り返しも車線から車線へ）
       const lp = this.lanePath(s, a.prev, a.cur, a.next, a.nn!, a.t, a.lane), dx = lp.dx, dz = lp.dz;
       // v87：緊急車両が来たら左へ寄せる。緊急車両は少し右（中央寄り）を走る
-      let sh = (a as any).sh ?? 0; const shT = em?.lit ? -1.1 : (a as any).yl ? 1.5 : 0; if (sh !== shT) { sh += Math.max(-dt * 1.6, Math.min(dt * 1.6, shT - sh)); (a as any).sh = sh; }
+      let sh = (a as any).sh ?? 0; const shT = em?.lit ? -1.1 : (a as any).yl ? 1.5 : (a as any).bw > 0 && a.cur === (a as any).bs ? 1.3 : 0; if (sh !== shT) { sh += Math.max(-dt * 1.6, Math.min(dt * 1.6, shT - sh)); (a as any).sh = sh; }
       const px = lp.x + dz * sh, pz = lp.z - dx * sh; (a as any).px = px; (a as any).pz = pz;
       if (this.dbgVeh) this.dbgVeh.push(px, pz, dx, dz, (a.kind ?? 0) * 2);
       const yaw = Math.atan2(dx, dz);
@@ -2826,7 +2832,7 @@ export class View {
         const b = (a as any).brk ?? 0, nk = this.night; tail.setXYZ(i, px - Math.sin(a.yaw) * hl, py + 0.75, pz - Math.cos(a.yaw) * hl); tailC.setXYZ(i, (0.3 * nk + b) * 1.0, (0.3 * nk + b) * 0.06, (0.3 * nk + b) * 0.04);
         if (em?.lit) { const f = ((this.lifeT * 5 + i) | 0) & 1; tailC.setXYZ(i, f ? 1.8 : 0.25, f ? 0.08 : 0.02, f ? 0.05 : 0.01); tail.setXYZ(i, px, py + 2.3, pz); } // v87：出動中の赤色灯（屋根の上で点滅。巡回中・帰りは消す）
         else if ((a as any).rw > 0 && a.t > 0.8) { const f = ((this.lifeT * 3) | 0) & 1; if (f) tailC.setXYZ(i, 1.4, 0.55, 0.02); } // 右折待ちのウインカー
-        else if (!ped && ((a as any).yl || (a.t > 0.6 && a.nn !== undefined && a.nn >= 0 && a.nn !== a.cur && this.turnAt(a.cur, a.next, a.nn)))) { const f = ((this.lifeT * 3 + (i & 1) * 0.5) | 0) & 1; if (f) tailC.setXYZ(i, 1.4, 0.55, 0.02); } } // v88：曲がる手前のウインカー、緊急車両に道を空けるときのハザード
+        else if (!ped && ((a as any).yl || ((a as any).bw > 0 && a.cur === (a as any).bs) || (a.t > 0.6 && a.nn !== undefined && a.nn >= 0 && a.nn !== a.cur && this.turnAt(a.cur, a.next, a.nn)))) { const f = ((this.lifeT * 3 + (i & 1) * 0.5) | 0) & 1; if (f) tailC.setXYZ(i, 1.4, 0.55, 0.02); } } // v88：曲がる手前のウインカー、緊急車両に道を空けるときのハザード
       return true;
     };
     this.emTick(s, dt);
