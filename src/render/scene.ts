@@ -2142,6 +2142,7 @@ export class View {
     const pos = this.emPos; pos.length = 0;
     for (let j = this.ems.length - 1; j >= 0; j--) {
       const a = this.ems[j], em: Em = (a as any).em;
+      if (em.r.some(t => !s.road[t])) { this.ems.splice(j, 1); const ci = this.cars.indexOf(a); if (ci >= 0) this.cars.splice(ci, 1); continue; } // 道路が壊された・付け替えられた
       if (em.wait > 0) { em.wait -= dt; continue; }
       const px: number = (a as any).px ?? 0, pz: number = (a as any).pz ?? 0;
       if (em.lit) { pos.push(px, pz, Math.sin(a.yaw), Math.cos(a.yaw)); em.sir -= dt; if (em.sir <= 0) { em.sir = 3; this.sfx('siren' + em.k, px, 0, pz); } }
