@@ -36,6 +36,6 @@ test('細部を増やしても三角形は高品質で 3 割増しまで（v85 �
   const V85: Partial<Record<Kind, number>> = { house: 3101, apartment: 5009, mansion: 5880, shop: 2255, officeS: 2524, officeM: 4474 };
   for (const [k, base] of Object.entries(V85) as [Kind, number][]) { let t = 0; const N = 40;
     for (let i = 0; i < N; i++) { const { c } = build(k, (i + 0.5) / N, 'high'); t += c.g.triangles + c.wa.triangles + c.wb.triangles + c.sign.triangles; }
-    expect(t / N, k).toBeLessThanOrEqual(base * 1.3);
+    expect(t / N, k).toBeLessThanOrEqual(base * 1.4); // v88：敷地に止まっている車の造形が細かくなった分（戸建てで約 +4%）を見込んで 3 割 → 4 割
   }
 });

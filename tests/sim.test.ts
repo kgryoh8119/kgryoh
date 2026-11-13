@@ -704,7 +704,7 @@ describe('v87：さらに広くなった住野市（128×112）', () => {
   const V86: Record<string, [number, number]> = { coast: [5661, 353], inland: [5079, 340], rural: [3101, 203], river: [5265, 347], lake: [5218, 348], mountain: [2651, 172], urban: [8047, 355], island: [4277, 286] };
   it('8 地形とも、はじめの町は v86 と同じ位置・規模で、広げた土地は空いている', () => {
     expect(W).toBe(128); expect(H).toBe(112); expect(DISTRICTS.length).toBe(8);
-    for (const t of TERRAINS) {
+    for (const t of TERRAINS) { if (t.id === 'castaway') continue; // v88：無人島は町も国道もないので別のテスト（v88_isle）で見る
       const s = newGame({ seed: seedForTerrain(t.id) }), m = getMap(s.seed);
       expect(validateState(s), t.id).toBeFalsy();
       expect([Math.round(s.stats.pop), s.buildings.length], t.id).toEqual(V86[t.id]);
@@ -1378,7 +1378,7 @@ describe('v26：海抜・津波・液状化', () => {
 
 describe('v27：地形のパターン・姉妹都市・新しい施設', () => {
   it('8 つの地形で街が始まり、状態は正しい', () => {
-    for (const t of TERRAINS) {
+    for (const t of TERRAINS) { if (t.id === 'castaway') continue; // v88：無人島は人口 0 から始まる
       const s = newGame({ seed: seedForTerrain(t.id) });
       expect(validateState(s)).toBeNull();
       expect(s.stats.pop).toBeGreaterThan(1500);
