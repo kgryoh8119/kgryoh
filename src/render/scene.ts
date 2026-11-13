@@ -1873,7 +1873,7 @@ export class View {
     }
     const nearStation = (i: number) => { const x = i % W, y = (i / W) | 0; return stations.findIndex(b => x >= b.x - 1 && x <= b.x + b.w && y >= b.y - 1 && y <= b.y + b.h); };
     // v87：車内の混み具合：駅の混雑率（sim の stationStats）のいちばん高い駅を基準に、朝夕に多く夜は少ない
-    const ssx = stationStats(s), worst = ssx.reduce((m, x) => Math.max(m, x.crowd), 0), hr0 = this.hour, rsh = Math.min(1, this.rush()), dayK = hr0 < 5 || hr0 >= 23 ? 0.12 : 0.25 + 0.75 * rsh;
+    const ssx = this.stStats(s), worst = ssx.reduce((m, x) => Math.max(m, x.crowd), 0), hr0 = this.hour, rsh = Math.min(1, this.rush()), dayK = hr0 < 5 || hr0 >= 23 ? 0.12 : 0.25 + 0.75 * rsh;
     const paxLook = stationLook(worst ? worst : 60), PC = [0xf4f4f2, 0x2a3442, 0x4a5a78, 0xd8d2c4, 0x7a8a9a, 0xa83a3a, 0x3a5a3a, 0xe8e0d0];
     let np = 0; const paxCap = this.quality === 'low' || this.lite ? 6 : 12;
     this.trains.forEach((tr, k) => {
@@ -1968,7 +1968,7 @@ export class View {
       for (let i = 0; i < CROWD_N; i++) { let t = pickType(h, rr); if (t === 'dog' || t === 'jogger' || t === 'parent') t = 'worker'; const L = makeLook(t, rr, calMonth(s.month), false); this.crowdLooks[i] = L; this.crowdP.setLook(i, L); this.crowdP.setPose(i, 0, 0); }
       this.crowdP.commitLooks();
     }
-    const byId = new Map(s.buildings.map(b => [b.id, b] as const)), crowd = new Map(stationStats(s).map(x => [x.b.id, x.crowd] as const));
+    const byId = new Map(s.buildings.map(b => [b.id, b] as const)), crowd = new Map(this.stStats(s).map(x => [x.b.id, x.crowd] as const));
     const cap = Math.round(CROWD_N * (this.quality === 'low' || this.lite ? 0.4 : this.quality === 'mid' ? 0.7 : 1)), rk = night ? 0.08 : 0.3 + 0.7 * r;
     let n = 0;
     const put = (x: number, y: number, z: number, yaw: number, ph: number, amp: number) => {
@@ -1995,6 +1995,8 @@ export class View {
     if (n !== this.crowdP.mesh.count || n) { this.crowdP.mesh.count = n; this.crowdP.commitPose(); }
     this.stats.peds = this.peds.length + n;
   }
+  /** v87：駅ごとの混雑率（sim の stationStats を読むだけ。政策の記録がまだ無い街では空） */
+  private stStats(s: GameState): { b: Building; crowd: number }[] { if (!s.pol) return []; try { return stationStats(s); } catch { return []; } }
   /** v87：駅前広場の立ち位置（x, y, z, 向き）。改札（駅舎の正面）に近い順で、線路と直角の向きに伸びる行列から広場いっぱいへ */
   private plaza = new Map<number, number[]>(); private stLeft = new Map<number, number>(); private stArr = new Map<number, number>();
   private plazaPts(s: GameState, sp: StationSpot, b: Building): number[] {
