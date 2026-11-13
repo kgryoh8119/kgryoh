@@ -1996,7 +1996,11 @@ export class View {
     this.stats.peds = this.peds.length + n;
   }
   /** v87：駅ごとの混雑率（sim の stationStats を読むだけ。政策の記録がまだ無い街では空） */
-  private stStats(s: GameState): { b: Building; crowd: number }[] { if (!s.pol) return []; try { return stationStats(s); } catch { return []; } }
+  private stStats(s: GameState): { b: Building; crowd: number }[] {
+    if (s.pol) { try { return stationStats(s); } catch { return []; } }
+    // 政策の記録がまだ無い街：同じ計算を、空の政策で（月と建物が変わったときだけ）
+    const k = `${s.month}:${s.bVersion}`; if (this.stSK !== k) { this.stSK = k; try { this.stSC = stationStats({ ...s, pol: {} } as GameState); } catch { this.stSC = []; } } return this.stSC; }
+  private stSK = ''; private stSC: { b: Building; crowd: number }[] = [];
   /** v87：駅前広場の立ち位置（x, y, z, 向き）。改札（駅舎の正面）に近い順で、線路と直角の向きに伸びる行列から広場いっぱいへ */
   private plaza = new Map<number, number[]>(); private stLeft = new Map<number, number>(); private stArr = new Map<number, number>();
   private plazaPts(s: GameState, sp: StationSpot, b: Building): number[] {
@@ -2150,7 +2154,7 @@ export class View {
       if (em.lit) { pos.push(px, pz, Math.sin(a.yaw), Math.cos(a.yaw)); em.sir -= dt; if (em.sir <= 0) { em.sir = 3; this.sfx('siren' + em.k, px, 0, pz); } }
       if (!em.at && (a.v ?? 0) < 0.4 && ((em.i >= em.r.length - 2 && a.t >= 0.45) || (em.legs.length && em.lit && Math.hypot(px - em.sx, pz - em.sz) < 75))) em.at = true; // 着いた（先に着いた車の後ろに並んでも）
       if (!em.at) continue;
-      if (em.k === 2 && em.legs.length && em.stay > 2 && Math.random() < dt * (this.lite ? 8 : 18)) { const dx = em.sx - px, dz = em.sz - pz, L = Math.hypot(dx, dz) || 1; this.fx.burst(px, this.surfY(px, pz) + 3.6, pz, 'water', 1, 0, [dx / L * 0.75, 0.62, dz / L * 0.75]); } // 放水
+      if (em.k === 2 && em.legs.length && em.stay > 2 && Math.random() < dt * (this.lite ? 12 : 30)) { const dx = em.sx - px, dz = em.sz - pz, L = Math.hypot(dx, dz) || 1; this.fx.burst(px, this.surfY(px, pz) + 3.6, pz, 'water', this.lite ? 2 : 3, 0, [dx / L * 0.75, 0.62, dz / L * 0.75]); } // 放水
       em.stay -= dt; if (em.stay > 0) continue;
       const to = em.legs.shift();
       const r2 = to !== undefined ? roadRoute(s.road, W, H, a.next, to) : null;
