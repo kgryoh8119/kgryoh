@@ -131,7 +131,7 @@ export const TERRAINS = [
   { id: 'mountain', name: '山あいの村', desc: '東と南に険しい山。平地が少なく、過疎と土砂災害に向き合う。', lv: 4, city: '山里村' },
   { id: 'urban', name: '都会の街', desc: '最初から人口が多く、資金もあるが、地価と渋滞が手ごわい。', lv: 5, city: '新都市' },
   { id: 'island', name: '島の町', desc: '三方を海に囲まれ、橋で本土とつながる。港と観光、そして津波。', lv: 6, city: '汐見町' },
-  { id: 'castaway', name: '無人島（特別シナリオ）', desc: '四方を海に囲まれた、道も人もない島。桟橋をつくって開拓者を呼び、水・電気・食べ物・住まいをゼロから整える。', lv: 7, city: '開拓島' }, // v88
+  { id: 'castaway', name: '無人島（特別シナリオ）', desc: '四方を海に囲まれた、道も人もない島。桟橋をつくって開拓者を呼び、水・電気・食べ物・住まいをゼロから整える。', lv: 0, city: '開拓島' }, // v88
 ] as const;
 export type TerrainId = typeof TERRAINS[number]['id'];
 export const terrainIx = (seed: number) => (seed >= 1e9 ? Math.max(0, Math.min(TERRAINS.length - 1, Math.floor(((seed >= 2e9 ? seed - 2e9 : seed - 1e9)) / 1e6))) : 0);
