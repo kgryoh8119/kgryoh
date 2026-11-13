@@ -1,7 +1,7 @@
 // 指示書 12 章の因果テスト。sim 層だけを Node 上で動かす。
 import { describe, it, expect } from 'vitest';
 import {
-  newGame, stationStats, VISIONS, candidates, landPrices, roadPath, routeStats, CIT_N, pyramid, projection, TERRAINS, seedForTerrain, altitude, hasSea, seaDist, tsunamiDepth, modAdd, stepMonth, initLocks, isLocked, annexable, levelOf, N_CITIES, RANK_CATS, newMayor, LEVELS, furusatoCalc, roadCapacity, modMul, ledgerGap, checkPlace, dispatch, recompute, forecast, serialize, deserialize, eventDef, idx, W, H, P, DEFS, isRes, isShop, sumHH, getMap, GameState, Building, Kind, Action, electionOutlook, monthlyBudget, designCap, buildCost, validateState,
+  newGame, FIC_W, FIC_H, FIC_PREV_W, FIC_PREV_H, DISTRICTS, buildable, saveMapId, SAVE_VERSION, stationStats, VISIONS, candidates, landPrices, roadPath, routeStats, CIT_N, pyramid, projection, TERRAINS, seedForTerrain, altitude, hasSea, seaDist, tsunamiDepth, modAdd, stepMonth, initLocks, isLocked, annexable, levelOf, N_CITIES, RANK_CATS, newMayor, LEVELS, furusatoCalc, roadCapacity, modMul, ledgerGap, checkPlace, dispatch, recompute, forecast, serialize, deserialize, eventDef, idx, W, H, P, DEFS, isRes, isShop, sumHH, getMap, GameState, Building, Kind, Action, electionOutlook, monthlyBudget, designCap, buildCost, validateState,
 } from '../src/sim/index';
 import { Game } from '../src/game';
 import { damage } from '../src/sim/events';
@@ -668,7 +668,7 @@ describe('v8：新しい技術と業務・工業の用途', () => {
 describe('v9：広くなった住野市', () => {
   it('東台・南原が加わり、新しい駅と県道がつながっている', () => {
     const s = newGame({ seed: 1 });
-    expect(W).toBe(76); expect(H).toBe(68);
+    expect(W).toBe(FIC_W); expect(H).toBe(FIC_H);
     const st = s.buildings.filter(b => b.kind === 'station');
     expect(st.length).toBe(2);
     expect(st.every(b => b.connected)).toBe(true);
@@ -682,6 +682,7 @@ describe('v9：広くなった住野市', () => {
     const O = 44, old: any = structuredClone(s);
     const crop = (a: number[]) => { const o = new Array(O * O).fill(0); for (let y = 0; y < O; y++) for (let x = 0; x < O; x++) o[y * O + x] = y < 38 ? a[y * W + x] : 0; return o; };
     for (const k of ['road', 'roadAge', 'zone', 'occ', 'vc']) old[k] = crop(old[k]);
+    for (const k of ['rail', 'railGrade', 'railKind', 'railCity', 'terraH', 'terraT', 'area']) delete old[k]; // v8 の保存データには無い
     old.buildings = old.buildings.filter((b: any) => b.x + DEFS[b.kind as keyof typeof DEFS].w <= O && b.y + DEFS[b.kind as keyof typeof DEFS].h <= 38);
     for (let i = 0; i < old.occ.length; i++) if (old.occ[i] && !old.buildings.some((b: any) => b.id === old.occ[i])) old.occ[i] = 0;
     const text = JSON.stringify({ format: 'sumucity-save', version: 1, savedAt: old.month, mapId: 'sumino', state: old });
@@ -695,6 +696,56 @@ describe('v9：広くなった住野市', () => {
     expect(r.state.buildings.find(b => b.id === before.id)?.x).toBe(before.x);
     stepMonth(r.state);
     expect(validateState(r.state)).toBeFalsy();
+  });
+});
+
+describe('v87：さらに広くなった住野市（128×112）', () => {
+  // v86 までの、はじめの町の人口・建物の数（地形ごと）。広げても変わらないこと
+  const V86: Record<string, [number, number]> = { coast: [5661, 353], inland: [5079, 340], rural: [3101, 203], river: [5265, 347], lake: [5218, 348], mountain: [2651, 172], urban: [8047, 355], island: [4277, 286] };
+  it('8 地形とも、はじめの町は v86 と同じ位置・規模で、広げた土地は空いている', () => {
+    expect(W).toBe(128); expect(H).toBe(112); expect(DISTRICTS.length).toBe(8);
+    for (const t of TERRAINS) {
+      const s = newGame({ seed: seedForTerrain(t.id) }), m = getMap(s.seed);
+      expect(validateState(s), t.id).toBeFalsy();
+      expect([Math.round(s.stats.pop), s.buildings.length], t.id).toEqual(V86[t.id]);
+      expect(s.buildings.every(b => b.x + b.w <= FIC_PREV_W && b.y + b.h <= FIC_PREV_H), t.id).toBe(true);
+      expect(s.road[idx(W - 1, 15)], t.id).toBe(3); // 国道は東の端まで（市外へ）
+      expect(s.rail![idx(W - 1, 1)], t.id).toBe(2);  // 線路も東の端まで
+      expect(s.buildings.filter(b => b.kind === 'station').filter(b => b.connected).length, t.id).toBe(t.id === 'mountain' ? 1 : 2); // 山あいの東台駅は v86 から山の中で道がない（変えていない）
+      let land = 0, d6 = 0, d7 = 0; for (let i = 0; i < W * H; i++) { const x = i % W, y = (i / W) | 0; if ((x >= FIC_PREV_W || y >= FIC_PREV_H) && buildable(m, i)) land++; if (m.district[i] === 6) d6++; if (m.district[i] === 7) d7++; }
+      expect(d6 > 0 && d7 > 0, t.id).toBe(true);
+      if (t.id !== 'mountain') expect(land, t.id).toBeGreaterThan(2500); // 広げた土地に開発できる土地がある（山あいは大半が山）
+    }
+  });
+  it('v86 の 76×68 の保存データ（版 1）を読むと、町はそのままで地図が広がる', () => {
+    const s = newGame({ seed: seedForTerrain('river') });
+    for (let m = 0; m < 4; m++) stepMonth(s);
+    const OW = FIC_PREV_W, OH = FIC_PREV_H, old: any = structuredClone(s);
+    const crop = (a: number[], w = W, ow = OW, oh = OH) => { const o = new Array(ow * oh).fill(0); for (let y = 0; y < oh; y++) for (let x = 0; x < ow; x++) o[y * ow + x] = a[y * w + x]; return o; };
+    for (const k of ['road', 'roadAge', 'zone', 'occ', 'vc', 'rail', 'railGrade']) old[k] = crop(old[k]);
+    old.terraH = crop(new Array((W + 1) * (H + 1)).fill(0).map((_, i) => (i === 5 * (W + 1) + 7 ? 1.5 : 0)), W + 1, OW + 1, OH + 1);
+    old.terraT = new Array(OW * OH).fill(0); old.area = new Array(OW * OH).fill(0);
+    const busTile = old.road.findIndex((r: number, i: number) => r === 1 && i % OW > 20 && i % OW < 40);
+    old.busStops = [busTile]; old.roadBoost = { [String(busTile)]: 1.5 };
+    const text = JSON.stringify({ format: 'sumucity-save', version: 1, savedAt: old.month, mapId: 'sumino', state: old });
+    expect(saveMapId(text)).toBe('sumino');
+    const r = deserialize(text);
+    expect(r.ok ? '' : (r as any).error).toBe('');
+    if (!r.ok) return;
+    const n = r.state;
+    expect(n.road.length).toBe(W * H); expect(n.rail!.length).toBe(W * H); expect(n.terraH!.length).toBe((W + 1) * (H + 1));
+    expect(n.terraH![5 * (W + 1) + 7]).toBe(1.5);
+    const nb = (busTile / OW | 0) * W + busTile % OW;
+    expect(n.busStops).toEqual([nb]); expect(n.roadBoost[String(nb)]).toBe(1.5); expect(n.road[nb]).toBe(1);
+    expect(n.buildings.length).toBe(old.buildings.length);
+    for (const b of old.buildings) { const q = n.buildings.find(x => x.id === b.id)!; expect([q.x, q.y]).toEqual([b.x, b.y]); }
+    expect(n.road[idx(W - 1, 15)]).toBe(3);
+    stepMonth(n);
+    expect(validateState(n)).toBeFalsy();
+    // 版 2 で保存し直して読める
+    const again = deserialize(serialize(n));
+    expect(again.ok).toBe(true);
+    expect(JSON.parse(serialize(n)).version).toBe(SAVE_VERSION);
   });
 });
 
@@ -931,7 +982,7 @@ describe('v15：ゲームオーバー・迷惑施設・葬祭・都市計画', (
     const r = s.buildings.find(b => isRes(b.kind) && b.status === 'operating')!;
     const before = r.sv[9];
     s.buildings.push({ ...s.buildings.find(b => b.kind === 'water')!, id: 99999, kind: 'wasteL', x: r.x + 2, y: r.y, w: 1, h: 1, status: 'operating' } as any);
-    const f = nimbyField(s); expect(f[r.y * 76 + r.x]).toBeGreaterThan(0.3);
+    const f = nimbyField(s); expect(f[r.y * W + r.x]).toBeGreaterThan(0.3);
     s.buildings.pop();
     expect(before).toBeGreaterThanOrEqual(0);
   });
@@ -1316,11 +1367,11 @@ describe('v26：海抜・津波・液状化', () => {
   it('巨大地震と津波のできごとで、海辺の住宅が被害を受け、状態は正しいまま', () => {
     const s = newGame(); s.month = 40; s.cash = 1e9;
     const hh0 = s.stats.households;
-    const r = damage(s, 'tsunami', 12);
+    const r = damage(s, 'tsunami', 24); // v87：海が南へ 1.3km 離れたので、はじめの町まで届く大きな津波で確かめる
     expect(r).toContain('津波');
     recompute(s);
     expect(s.stats.households).toBeLessThan(hh0);
-    expect(s.lastTsunami?.h).toBe(12);
+    expect(s.lastTsunami?.h).toBe(24);
     expect(validateState(s)).toBeNull();
   });
 });
