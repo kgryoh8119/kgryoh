@@ -71,6 +71,7 @@ export function checkPlace(s: GameState, kind: Kind, x: number, y: number, free 
     { const need: Partial<Record<Kind, [number, number]>> = { megaPark: [45, 30000], casino: [40, 40000], giantRobot: [25, 0], skyscraper: [30, 20000], usBase: [0, 15000], megaBank: [0, 30000], globalIT: [35, 25000], maglevStation: [50, 60000], hyperloop: [40, 40000], consulate: [40, 0], department: [0, 20000], futureTower: [45, 40000], spaceElevator: [80, 100000], nightDistrict: [0, 20000], fuzokuDistrict: [0, 30000], carPlant: [0, 25000], heavyInd: [0, 20000], tradingCo: [20, 30000], stockExch: [50, 80000], spaceport: [30, 0], luxuryHotel: [40, 30000], humanoidLab: [30, 0] }, nd = need[kind];
       if (nd && ((s.fame ?? 0) < nd[0] || s.stats.pop < nd[1])) { reasons.push(`知名度 ${nd[0]} 以上${nd[1] ? `・人口 ${nd[1].toLocaleString()} 人以上` : ''}が要ります（いま 知名度 ${Math.round(s.fame ?? 0)}・人口 ${Math.round(s.stats.pop).toLocaleString()} 人）`); level = 'error'; } }
     if (kind === 'fuzokuDistrict' && !s.buildings.some(b => b.kind === 'nightDistrict')) { reasons.push('繁華街（ネオン街）が先に要ります'); level = 'error'; }
+    if (kind === 'fbo' && !s.buildings.some(b => b.kind === 'airport')) { reasons.push('市内に空港が要ります（空港の一角に置く施設です）'); level = 'error'; } // v87
     if (kind === 'ryokan' && !s.buildings.some(b => b.kind === 'hotSpring' || b.kind === 'onsen')) { reasons.push('温泉の源泉か温浴施設が市内に要ります'); level = 'error'; }
     if (kind === 'consulate' && !(s.sisters?.length)) { reasons.push('姉妹都市が 1 つ以上要ります'); level = 'error'; }
     if (kind === 'expoSite' && !['won', 'held'].includes((s.pol as any)?.bids?.expo?.stage ?? '')) { reasons.push('万博の誘致に勝った街だけが建てられます（市政の画面の「国際大会・万博の誘致」）'); level = 'error'; }
@@ -83,6 +84,7 @@ export function checkPlace(s: GameState, kind: Kind, x: number, y: number, free 
     if (d.req === 'nature' && !near(3, i => !!(m.forest[i] || m.water[i]))) { reasons.push('林か水辺の近く（90m 以内）に置いてください'); level = 'error'; }
     if (d.req === 'forest' && !near(6, i => !!m.forest[i])) { reasons.push('保全林から 180m 以内に置いてください（燃料の木を運ぶため）'); level = 'error'; }
     if (d.req === 'geo' && !near(4, i => !!m.steep[i] || s.buildings.some(b => b.kind === 'hotSpring' && b.x === i % W && b.y === ((i / W) | 0)))) { reasons.push('温泉の源泉か山（急斜面）の近く（120m 以内）に置いてください'); level = 'error'; }
+    if (kind === 'solarSlope' && !near(3, i => !!m.steep[i])) { reasons.push('山の斜面（急斜面）から 90m 以内に置いてください'); level = 'error'; } // v87
     if (d.req === 'dam' && (!near(3, i => !!m.water[i]) || !near(5, i => !!(m.steep[i] || m.forest[i])))) { reasons.push('川と山が近い所に置いてください（水辺から 90m、急斜面か保全林から 150m 以内）'); level = 'error'; }
     if (kind === 'clubhouse' && !(s.teams ?? []).length) { reasons.push('市にプロチームがありません'); level = 'error'; }
     if (isCanal(s, x + y * W) || (s.levee ?? []).some(i => i % W >= x && i % W < x + d.w && ((i / W) | 0) >= y && ((i / W) | 0) < y + d.h)) { reasons.push('水路か堤防と重なっています'); level = 'error'; }

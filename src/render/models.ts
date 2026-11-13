@@ -1278,17 +1278,7 @@ export function modelWasteL(c: Ctx): void {
   for (let i = 0; i < 3; i++) { const x = 4 + i * 8; g.box(x, 0.3, 22, 2.3, 2.6, 5.2, 0x3f8fb5); g.box(x, 0.3, 25.8, 2.2, 2.0, 2.2, 0xf2f2ee); }
   fenceRect(c, 87.6, 57.6, 1.9, 0x8ea596, 10); for (const x of [-42, 42]) tree(c, x, 27, 1.0, 1);
 }
-export function modelSolar(c: Ctx): void {
-  pad(c, 88.4, 88.4, 0x9ab07a);
-  const g = c.g;
-  for (let r = 0; r < 9; r++) for (let k = 0; k < 4; k++) {
-    const x = -32 + k * 20, z = -38 + r * 8.6;
-    g.box(x, 0, z + 1.4, 0.2, 1.6, 0.2, 0x8b8f93); g.box(x, 0, z - 1.4, 0.2, 0.7, 0.2, 0x8b8f93);
-    g.quad([x - 8.8, 0.8, z + 1.6], [x + 8.8, 0.8, z + 1.6], [x + 8.8, 2.0, z - 1.8], [x - 8.8, 2.0, z - 1.8], c.old ? 0x3a4a5a : 0x24365a);
-  }
-  g.box(36, 0, 36, 8, 3.2, 6, 0xe6e0d0); sign(c, '発電', 0, 36, 1.4, 39.02, 2.6);
-  fenceRect(c, 87.6, 87.6, 1.8, 0x8ea596, 12);
-}
+export function modelSolar(c: Ctx): void { modelSolar2(c); } // v87：精細にした（下の v87 の節）
 export function modelSubstation(c: Ctx): void {
   pad(c, 58.4, 58.4, 0x9a9a8e);
   const g = c.g;
@@ -2475,15 +2465,7 @@ export function modelShipyard(c: Ctx): void {
   for (const x of [50, 62]) { g.box(x, 0, -30, 2.4, 26, 2.4, 0xc3312b); zbar(c, x, 26, x - 22, 30, -30, 1.4, 1.4, 0xc3312b); }
   block(c, 52, 20, 36, 22, 3, dull(c, 0xd0d6da, 0xb6bcc0), { fh: 5, label: '造船', lit: 0.3, band: 0x2b5ea8 });
 }
-export function modelPrison(c: Ctx): void {
-  pad(c, 148.4, 148.4, 0xb8b6ae);
-  const g = c.g, wall = dull(c, 0xd8d6cf, 0xbfbdb6);
-  for (const [x, z, w, d] of [[0, -70, 142, 1.6], [0, 70, 142, 1.6], [-70, 0, 1.6, 142], [70, 0, 1.6, 142]] as const) g.box(x, 0, z, w, 6, d, 0xc4c2ba);
-  for (const [x, z] of [[-70, -70], [70, -70], [-70, 70], [70, 70]]) { g.box(x, 0, z, 4, 12, 4, 0xb0aea6); g.box(x, 12, z, 6, 3, 6, 0x8a8880); g.pyramid(x, 15, z, 7, 7, 1.5, 0x5a5a58); }
-  for (let k = 0; k < 4; k++) block(c, -40 + k * 27, -26, 20, 50, 3, wall, { fh: 3.4, lit: 0.15, band: 0x9a9890 });
-  block(c, 30, 44, 50, 18, 2, wall, { fh: 4, label: '刑務所', lit: 0.4, band: 0x1d3557 });
-  slab(c, -10, 40, 50, 30, 0xa89a7a, 0.08);
-}
+export function modelPrison(c: Ctx): void { modelPrison2(c); } // v87：精細にした（下の v87 の節）
 
 export function modelDam(c: Ctx): void {
   pad(c, 118.4, 88.4, 0x8a8f86);
@@ -2543,6 +2525,7 @@ export const MODEL: Record<Kind, (c: Ctx) => void> = {
   musicArena: modelMusicArena, brewery: modelBrewery, steelMill: modelSteelMill, partsPlant: modelPartsPlant, defensePlant: modelDefensePlant, kindergarten: modelKindergarten, salon: modelSalon, maternity: modelMaternity, perinatal: modelPerinatal, clubhouse: modelClubhouse, postOffice: modelPostOffice, paddy: modelPaddy, field: modelField, heliport: modelHeliport, multicultural: modelMulticultural,
   kodomoMirai: modelKodomoMirai, ecoCenter: modelEcoCenter, kankoDmo: modelKankoDmo, incubator: modelIncubator, bosaiCenter: modelBosaiCenter, dxCenter: modelDxCenter,
   weddingHall: modelWeddingHall, jidokan: modelJidokan, kidsPark: modelKidsPark, amusementPark: modelAmusementPark, megaPark: modelMegaPark, pool: modelPool, athletics: modelAthletics, rugby: modelRugby, pachinko: modelPachinko, boatRace: modelBoatRace, keirin: modelKeirin, japaneseGarden: modelJapaneseGarden, giantRobot: modelGiantRobot, robotFactory: modelRobotFactory, casino: modelCasino, outletMall: modelOutletMall, skiResort: modelSkiResort, esportsArena: modelEsportsArena, skyscraper: modelSkyscraper,
+  ugParking: modelUgParking, fbo: modelFbo, kanbetsu: modelKanbetsu, hogoKansatsu: modelHogoKansatsu, solarSlope: modelSolarSlope, solarFloat: modelSolarFloat, // v87
 };
 /** v86：よく建つ公共施設の外壁の素材（保育園・幼稚園は塗り壁、消防署はタイル、交番・診療所は窯業サイディング）。形は変えない */
 for (const [k, mat] of [['nursery', 8], ['nurseryS', 8], ['nurseryL', 8], ['kindergarten', 8], ['fire', 6], ['fireS', 6], ['fireL', 6], ['koban', 4], ['clinic', 4]] as [Kind, number][]) {
@@ -2580,6 +2563,7 @@ export const MODEL_H: Record<Kind, number> = {
   musicArena: 24, brewery: 19, steelMill: 48, partsPlant: 16, defensePlant: 20, kindergarten: 6, salon: 7, maternity: 12, perinatal: 34, clubhouse: 8, postOffice: 7, paddy: 2, field: 3, heliport: 9, multicultural: 9,
   kodomoMirai: 13, ecoCenter: 22, kankoDmo: 10, incubator: 16, bosaiCenter: 20, dxCenter: 12,
   weddingHall: 26, jidokan: 9, kidsPark: 13, amusementPark: 40, megaPark: 56, pool: 12, athletics: 22, rugby: 12, pachinko: 18, boatRace: 14, keirin: 12, japaneseGarden: 8, giantRobot: 18, robotFactory: 15, casino: 98, outletMall: 9, skiResort: 10, esportsArena: 15, skyscraper: 300,
+  ugParking: 9, fbo: 14, kanbetsu: 11, hogoKansatsu: 11, solarSlope: 14, solarFloat: 4, // v87
 };
 
 // ---- v17 の施設 ----
@@ -4292,10 +4276,10 @@ export function modelHellowork(c: Ctx): void { pad(c, 58.4, 28.4, 0xb8b4ac); gov
 export function modelNenkin(c: Ctx): void { pad(c, 28.4, 28.4, 0xb8b4ac); govBlock(c, 0, -2, 22, 14, 3, '年金事務所', 0x2a6a8a); }
 export function modelMenkyo(c: Ctx): void { const g = c.g; pad(c, 118.4, 88.4, 0x9aa088); govBlock(c, -24, -24, 56, 24, 3, '免許センター', 0x2a5aa0); g.box(20, 0.06, 18, 60, 0.05, 40, 0x5a5e62); g.box(20, 0.08, 18, 50, 0.05, 30, 0x9aa088); for (let k = 0; k < 4; k++) g.box(-6 + k * 16, 0.3, 37, 2, 1.4, 4, 0xf2f2f2); slab(c, -30, 24, 50, 30, 0x5a5e62, 0.06); parkedCars(c, 50, 24); }
 export function modelNyukan(c: Ctx): void { pad(c, 58.4, 58.4, 0xb8b4ac); govBlock(c, 0, -8, 46, 28, 5, '出入国在留管理局', 0x1f3f8a); }
-export function modelKensatsu(c: Ctx): void { pad(c, 58.4, 28.4, 0xb8b4ac); govBlock(c, -4, -2, 40, 16, 5, '検察庁', 0x3a3e44, 0xd8d4cc); }
+export function modelKensatsu(c: Ctx): void { modelKensatsu2(c); } // v87：精細にした（下の v87 の節）
 export function modelKasai(c: Ctx): void { pad(c, 58.4, 28.4, 0xb8b4ac); govBlock(c, -4, -2, 40, 16, 3, '家庭裁判所', 0x5a4a6a); }
-export function modelKochisho(c: Ctx): void { const g = c.g; pad(c, 88.4, 88.4, 0xa8a49c); fenceRect(c, 84, 84, 5, 0xb8b4ac, 8); block(c, 0, -6, 50, 40, 5, 0xd0ccc2, { fh: 3.4, lit: 0.3, glass: 0x6a7a8a, band: 0x5a5f66 }); for (const p of [[-38, -38], [38, -38], [-38, 38], [38, 38]]) { g.box(p[0], 0, p[1], 4, 9, 4, 0xc0bcb2); c.wa.box(p[0], 9.2, p[1], 0.6, 0.6, 0.6, 0xfff2c0); } }
-export function modelShonenin(c: Ctx): void { const g = c.g; pad(c, 88.4, 88.4, 0x9aa088); fenceRect(c, 84, 84, 3, 0xb8b4ac, 8); block(c, -14, -18, 44, 20, 3, 0xe6e2d8, { fh: 3.4, lit: 0.5, glass: 0x8fb0c8, band: 0x2a6a5a }); slab(c, 10, 18, 50, 30, 0xc9a77a, 0.06); for (let k = 0; k < 4; k++) g.box(-34, 0, 4 + k * 8, 10, 0.3, 6, 0x6a9a4a); } // 寮・グラウンド・実習の畑
+export function modelKochisho(c: Ctx): void { modelKochisho2(c); } // v87：精細にした（下の v87 の節）
+export function modelShonenin(c: Ctx): void { modelShonenin2(c); } // v87：精細にした（下の v87 の節）
 export function modelPoliceAcademy(c: Ctx): void { const g = c.g; pad(c, 118.4, 88.4, 0xa8a49c); govBlock(c, -24, -24, 56, 22, 4, '警察学校', 0x1f3f8a); slab(c, 20, 18, 64, 40, 0xc9a77a, 0.06); for (let r = 0; r < 4; r++) for (let k = 0; k < 10; k++) { g.box(4 + k * 3, 0, 8 + r * 4, 0.6, 1.7, 0.4, 0x1f2f4a); g.blob(4 + k * 3, 1.9, 8 + r * 4, 0.25, 0.25, 0.25, 0x1f2f4a, 4); } } // 整列する訓練
 export function modelKidotai(c: Ctx): void { const g = c.g; pad(c, 88.4, 58.4, 0xa8a49c); govBlock(c, -18, -12, 40, 20, 3, '機動隊', 0x1f3f8a); for (let k = 0; k < 6; k++) { g.box(14 + (k % 3) * 9, 0.4, 6 + Math.floor(k / 3) * 12, 2.6, 3, 8, 0x2a4a8a); g.box(14 + (k % 3) * 9, 3.4, 6 + Math.floor(k / 3) * 12, 2.6, 0.3, 8, 0xf6f6f6); } }
 export function modelCoastGuard(c: Ctx): void { const g = c.g; pad(c, 88.4, 58.4, 0xc0bcb2); slip(c, 88.4, 4, 29.2); govBlock(c, -18, -18, 40, 14, 3, '海上保安部', 0x1f4f8a); g.blob(0, 0.2, 16, 18, 2, 4, 0xf6f6f6, 10); g.box(0, 2, 16, 26, 0.3, 7, 0x1f4f8a); g.box(-4, 2.2, 16, 10, 4, 5, 0xf6f6f6); g.box(-4, 6.2, 16, 3, 3, 3, 0xf6f6f6); obox(c, 10, 1.6, 16, [1, 0, 0], [0, 1, 0], [0, 0, 1], 6, 0.2, 3.6, 0x1f4f8a); }
@@ -4344,7 +4328,7 @@ export function modelSolarThermal(c: Ctx): void { const g = c.g; pad(c, 118.4, 1
 export function modelTidalPower(c: Ctx): void { const g = c.g; pad(c, 88.4, 58.4, 0xbab4a8); slip(c, 88.4, -6, 29.2); g.box(0, 0, 10, 84, 6, 6, 0xc8c4bc); for (let k = 0; k < 8; k++) g.box(-36 + k * 10, 6, 10, 4, 3, 4, 0x6a737c); for (let k = 0; k < 4; k++) { g.cyl(-24 + k * 16, -0.3, 22, 1.4, 1.2, 0xe8b23a, 10); g.cyl(-24 + k * 16, 0.9, 22, 0.15, 3, 0x9aa0a6, 4); } block(c, 0, -18, 30, 12, 2, 0xe6e2d8, { fh: 3.6, lit: 0.5, glass: 0x8fb0c8, band: 0x1f6fb2 }); } // 潮受け堤と波力ブイ
 export function modelBiogas(c: Ctx): void { const g = c.g; pad(c, 58.4, 58.4, 0xa8a49c); for (let k = 0; k < 2; k++) { g.cyl(-14 + k * 18, 0, -10, 7, 6, 0x6a7a80, 16); g.blob(-14 + k * 18, 6, -10, 7, 4.4, 7, 0x4a5a64, 14); } g.box(14, 0, 14, 16, 5, 10, 0xd8d4cc); g.cyl(22, 0, -18, 0.6, 12, 0x9aa0a6, 8); c.wa.box(22, 12.2, -18, 0.6, 1, 0.6, 0xff8a2a); }
 export function modelRdf(c: Ctx): void { const g = c.g; pad(c, 58.4, 58.4, 0xa8a49c); g.box(-6, 0, -6, 36, 12, 26, 0xc8ccd2); stack(c, 18, -16, 30, 1.2); for (let k = 0; k < 5; k++) g.cyl(-20 + k * 4, 0, 18, 0.9, 1.8, 0x8a7a5a, 8); }
-export function modelPylon(c: Ctx): void { const g = c.g; pad(c, 28.4, 88.4, 0x8aa868, 0.02); for (const z of [-30, 30]) { for (const a of [-1, 1]) for (const b of [-1, 1]) obox(c, a * 1.6, 18, z + b * 1.6, [-a * 0.06, 1, -b * 0.06], [1, a * 0.06, 0], [0, b * 0.06, 1], 18, 0.2, 0.2, 0x9aa0a6); for (const y of [24, 30, 36]) g.box(0, y, z, 14 - (y - 24) * 0.3, 0.4, 0.4, 0x9aa0a6); g.box(0, 36, z, 0.6, 4, 0.6, 0x9aa0a6); c.wa.box(0, 40.5, z, 0.4, 0.4, 0.4, 0xff3a3a); } for (const x of [-6, 0, 6]) for (const y of [23.4, 29.4]) g.box(x, y, 0, 0.06, 0.06, 88, 0x3a3e44); } // 鉄塔と電線
+export function modelPylon(c: Ctx): void { modelPylon2(c); } // v87：精細にした（下の v87 の節）
 export function modelDistrictHeat(c: Ctx): void { const g = c.g; pad(c, 58.4, 58.4, 0xb4b0a6); block(c, -6, -6, 36, 26, 3, 0xd8dce0, { fh: 4, lit: 0.4, glass: 0x8fb0c8, band: 0xd8342a }); for (let k = 0; k < 3; k++) g.cyl(20, 0, -18 + k * 9, 3, 12, 0xe6e6e2, 12); stack(c, -20, 18, 26, 1.2, false); sign(c, '地域冷暖房', 0, -6, 12.4, 7.05, 8); }
 export function modelKyodoko(c: Ctx): void { const g = c.g; pad(c, 28.4, 28.4, 0xa8a49c); g.box(0, 0, 0, 8, 3, 6, 0xd8d4cc); g.box(0, 3, 0, 8.4, 0.3, 6.4, 0x5a6168); g.box(0, -0.5, 10, 26, 0.6, 6, 0x6a6e72); for (let k = 0; k < 3; k++) g.cyl(-8 + k * 8, 0, 10, 0.8, 0.1, 0x3a3e44, 10); sign(c, '共同溝', 0, 0, 1.2, 3.05, 4); }
 export function modelGasHolder(c: Ctx): void { const g = c.g; pad(c, 58.4, 58.4, 0xa8a49c); for (let k = 0; k < 2; k++) { const x = -12 + k * 24; g.blob(x, 14, 0, 11, 11, 11, 0xeeeeea, 16); for (let j = 0; j < 8; j++) { const a = j / 8 * Math.PI * 2; g.box(x + Math.cos(a) * 9, 0, Math.sin(a) * 9, 0.5, 10, 0.5, 0x8a8f96); } } fenceRect(c, 56, 56, 2.2, 0x8a8f96, 8); }
@@ -4420,3 +4404,278 @@ export function modelMoonBase(c: Ctx): void { const g = c.g; pad(c, 88.4, 58.4, 
 export function modelAiDataCity(c: Ctx): void { const g = c.g; pad(c, 118.4, 118.4, 0x9aa3ac); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { const x = -42 + i * 28, z = -42 + j * 28; g.box(x, 0, z, 22, 10 + ((i + j) % 3) * 6, 22, 0x2a2e34); c.wa.box(x, 1, z + 11.05, 18, 6, 0.05, 0x3ac8ff); } for (let k = 0; k < 8; k++) g.cyl(-50 + k * 14, 0, 56, 2, 8, 0xd8dce0, 10); }
 export function modelRobotDistrict(c: Ctx): void { const g = c.g; pad(c, 88.4, 88.4, 0xb0b4b8); for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) block(c, -28 + i * 28, -28 + j * 28, 18, 18, 2 + ((i * 3 + j) % 4), 0xe8ecf0, { fh: 3.6, lit: 0.8, glass: 0x9fd8f0, band: 0x3ac8a0 }); for (let k = 0; k < 14; k++) { const x = -40 + c.rnd() * 80, z = -40 + c.rnd() * 80; g.box(x, 0, z, 0.6, 1.2, 0.4, 0xf6f6f6); g.blob(x, 1.5, z, 0.3, 0.3, 0.3, 0x3ac8ff, 5); } }
 export function modelMetaverseHall(c: Ctx): void { const g = c.g; pad(c, 58.4, 58.4, 0xb0b4b8); g.blob(0, 0, -4, 22, 14, 18, 0x1e1e2a, 16); for (let k = 0; k < 18; k++) { const a = k / 18 * Math.PI * 2; c.wa.box(Math.cos(a) * 20, 4 + (k % 3) * 3, -4 + Math.sin(a) * 16, 1.2, 0.4, 1.2, [0xff3ad8, 0x3ad8ff, 0x8aff3a][k % 3]); } sign(c, 'メタバース', 0, 0, 1, 14.5, 8); }
+
+// ---- v87 インフラと国の施設：送電鉄塔・メガソーラー（平地・斜面・水上）・刑務所と法務省の施設・地下駐車場・ビジネスジェット ----
+/** 2 点を結ぶ細い角材（鉄塔の部材・架台）。t は半分の太さ */
+function beam(c: Ctx, a: V, b: V, t: number, col: number): void {
+  const d: V = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], L = Math.hypot(d[0], d[1], d[2]); if (L < 1e-4) return;
+  const u: V = [d[0] / L, d[1] / L, d[2] / L], r: V = Math.abs(u[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+  let v: V = [u[1] * r[2] - u[2] * r[1], u[2] * r[0] - u[0] * r[2], u[0] * r[1] - u[1] * r[0]]; const vl = Math.hypot(v[0], v[1], v[2]); v = [v[0] / vl, v[1] / vl, v[2] / vl];
+  const w: V = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+  obox(c, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2, u, v, w, L / 2, t, t, col);
+}
+/** たるんだ電線（両面の細い帯。放物線で n 分割） */
+export function sagWire(g: Geo, a: V, b: V, sag: number, th: number, col: number, n = 6): void {
+  let p = a;
+  for (let k = 1; k <= n; k++) {
+    const t = k / n, q: V = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t - 4 * sag * t * (1 - t), a[2] + (b[2] - a[2]) * t];
+    g.quad(p, q, [q[0], q[1] + th, q[2]], [p[0], p[1] + th, p[2]], col); g.quad(q, p, [p[0], p[1] + th, p[2]], [q[0], q[1] + th, q[2]], col); p = q;
+  }
+}
+/** 送電鉄塔の電線の取り付け位置（鉄塔の中心から：[腕の長さ, がいしの下端の高さ]。2 回線 × 3 相）と架空地線 */
+export const PYLON_PH: [number, number][] = [[6.4, 31.2], [7.2, 37.2], [6.4, 43.2]];
+export const PYLON_GW: [number, number] = [3.2, 52.6];
+/** 送電鉄塔（2 回線の四角鉄塔）。脚・腹材・腕金・がいし連・架空地線の頂部・航空障害灯 */
+function pylonTower(c: Ctx, z0: number): void {
+  const g = c.g, col = 0x9aa0a6, fine = c.fine !== false, H = 47;
+  const hw = (y: number) => (y < H ? 3.4 - (3.4 - 1.0) * (y / H) : 1.0);
+  for (const a of [-1, 1]) for (const b of [-1, 1]) beam(c, [a * hw(0), 0, z0 + b * hw(0)], [a * hw(H), H, z0 + b * hw(H)], 0.22, col);
+  g.box(0, 0, z0, 8, 0.6, 8, 0xb8b4aa); // 基礎
+  const lv = [0, 6, 12, 18, 24, 30, 36, 42, H];
+  for (let k = 0; k + 1 < lv.length; k++) { const y0 = lv[k], y1 = lv[k + 1], r0 = hw(y0), r1 = hw(y1);
+    for (const f of [0, 1]) for (const sgn of [-1, 1]) { // 4 面の X の腹材と水平材
+      const P = (r: number, y: number, s: number): V => (f === 0 ? [s * r, y, z0 + sgn * r] : [sgn * r, y, z0 + s * r]);
+      if (fine || k % 2 === 0) { beam(c, P(r0, y0, -1), P(r1, y1, 1), 0.09, col); beam(c, P(r0, y0, 1), P(r1, y1, -1), 0.09, col); }
+      beam(c, P(r1, y1, -1), P(r1, y1, 1), 0.1, col);
+    } }
+  // 腕金（左右に 3 段）と、がいし連（V 字でなく吊り下げ）
+  for (const [L, yb] of PYLON_PH) { const y = yb + 2.8;
+    for (const s of [-1, 1]) { beam(c, [s * hw(y), y, z0 - 0.9], [s * L, y, z0], 0.14, col); beam(c, [s * hw(y), y, z0 + 0.9], [s * L, y, z0], 0.14, col); beam(c, [s * hw(y - 2.4), y - 2.4, z0], [s * L, y, z0], 0.09, col);
+      g.cyl(s * L, yb, z0, 0.16, 2.8, 0x8a8478, 4);
+      if (fine) for (let k = 0; k < 6; k++) g.cyl(s * L, yb + 0.25 + k * 0.42, z0, 0.42, 0.12, 0x6f8fa8, 8); // 磁器のがいし（青みの灰）
+      g.box(s * L, yb - 0.25, z0, 0.5, 0.3, 0.5, 0x5a5e62); } }
+  // 頂部（架空地線の腕）と航空障害灯
+  for (const s of [-1, 1]) beam(c, [0, H, z0], [s * PYLON_GW[0], PYLON_GW[1], z0], 0.14, col);
+  beam(c, [0, H, z0], [0, H + 4, z0], 0.2, col);
+  g.box(0, H + 4, z0, 0.5, 0.5, 0.5, 0xd8342a); c.wa.box(0, H + 4.5, z0, 0.36, 0.36, 0.36, 0xff3a3a);
+  for (const s of [-1, 1]) c.wa.box(s * 7.6, PYLON_PH[2][1] + 3.1, z0, 0.26, 0.26, 0.26, 0xff3a3a);
+  if (fine) { g.box(0, 2, z0 + 3.6, 1.4, 1.0, 0.06, 0xf2c230); for (let k = 0; k < 8; k++) g.box(hw(k * 5.5) + 0.1, k * 5.5, z0 + hw(k * 5.5), 0.3, 0.08, 0.6, 0x7a7e82); } // 危険標識・昇降用のステップボルト
+}
+export function modelPylon2(c: Ctx): void {
+  pad(c, 28.4, 88.4, 0x8aa868, 0.02);
+  slab(c, 0, 0, 12, 12, 0xa8a090, 0.06); // 鉄塔敷地の砂利
+  pylonTower(c, 0);
+  fenceRect2(c, 0, 0, 11, 11);
+  for (let i = 0; i < 4; i++) tree(c, (i % 2 ? 9 : -9), -36 + i * 22, 0.8, 1);
+}
+
+/** 太陽光パネルの 1 列（架台つき）。x0..x1 の長さ、奥行き d、低い側の高さ y0・高い側の高さ y1、手前 z（南向き＝+z に傾ける） */
+function panelRow(c: Ctx, x0: number, x1: number, z: number, d: number, y0: number, y1: number, base = 0): void {
+  const g = c.g, pc = c.old ? 0x34465a : 0x1f3354, fine = c.fine !== false;
+  g.quad([x0, base + y0, z], [x1, base + y0, z], [x1, base + y1, z - d], [x0, base + y1, z - d], pc, 1.05);
+  g.quad([x0, base + y1 - 0.05, z - d], [x1, base + y1 - 0.05, z - d], [x1, base + y0 - 0.05, z], [x0, base + y0 - 0.05, z], 0x8b8f93);
+  g.quad([x0, base + y0 - 0.06, z], [x1, base + y0 - 0.06, z], [x1, base + y0, z], [x0, base + y0, z], 0xc8ccd0); // 下端のアルミの縁
+  const n = Math.max(2, Math.round((x1 - x0) / (fine ? 4 : 9)));
+  for (let k = 0; k <= n; k++) { const x = x0 + (x1 - x0) * k / n; g.box(x, base, z - 0.3, 0.16, y0, 0.16, 0x8b8f93); g.box(x, base, z - d + 0.3, 0.16, y1, 0.16, 0x8b8f93);
+    if (fine) { const t = 0.012; g.quad([x - 0.05, base + y0 + t, z], [x + 0.05, base + y0 + t, z], [x + 0.05, base + y1 + t, z - d], [x - 0.05, base + y1 + t, z - d], 0xb8c4d0); } } // 杭と縦の継ぎ目
+  if (fine) { const t = 0.012, ym = (y0 + y1) / 2; g.quad([x0, base + ym + t, z - d / 2 + 0.05], [x1, base + ym + t, z - d / 2 + 0.05], [x1, base + ym + t, z - d / 2 - 0.05], [x0, base + ym + t, z - d / 2 - 0.05], 0x6a7a90); }
+}
+/** パワーコンディショナ（屋外の箱）と、昇圧の変圧器 */
+function pcs(c: Ctx, x: number, z: number, y = 0): void { const g = c.g; g.box(x, y, z, 3.2, 2.2, 1.4, 0xd8dcd6); g.box(x, y + 2.2, z, 3.4, 0.15, 1.6, 0x9aa0a4); g.box(x + 2.6, y, z, 1.6, 1.8, 1.4, 0x7a8a7a); if (c.fine !== false) for (let k = 0; k < 3; k++) g.box(x - 1 + k, y + 0.6, z + 0.71, 0.6, 1.0, 0.02, 0xaab0b0); }
+/** 連系の変電設備（変圧器・鉄構・遮断器）。送電線がここから出ていく */
+function solarSub(c: Ctx, x: number, z: number): void {
+  const g = c.g; slab(c, x, z, 16, 14, 0xa8a49a, 0.12);
+  g.box(x - 3, 0, z, 4, 3.6, 3, 0x7a838c); for (const dx of [-1, 0, 1]) g.cyl(x - 3 + dx * 1.2, 3.6, z, 0.25, 1.8, 0xb9845a, 6); // 主変圧器とブッシング
+  g.box(x + 4, 0, z - 3, 3, 2.8, 2.6, 0xe6e2d8); // 制御室
+  for (const dx of [-6, 6]) g.box(x + dx, 0, z + 4, 0.5, 12, 0.5, 0x9aa0a6); g.box(x, 11.6, z + 4, 12.5, 0.45, 0.45, 0x9aa0a6); // 鉄構
+  for (const dx of [-3, 0, 3]) { g.cyl(x + dx, 9.8, z + 4, 0.18, 1.8, 0x6f8fa8, 6); sagWire(g, [x + dx, 9.8, z + 4], [x + dx, 3.6, z], 0.5, 0.06, 0x3a3e44, 3); }
+  fenceRect2(c, x, z, 15.6, 13.6);
+}
+export function modelSolar2(c: Ctx): void {
+  pad(c, 88.4, 88.4, 0x9aa86e);
+  const g = c.g;
+  slab(c, 0, 33, 84, 3.4, 0xb4ac98, 0.08); slab(c, -40, 0, 3.4, 84, 0xb4ac98, 0.08); // 管理用の砂利道
+  for (let r = 0; r < 10; r++) { const z = -38 + r * 7; for (const [x0, x1] of [[-37, -2], [1, 38]] as const) if (!(r >= 8 && x0 > 0)) panelRow(c, x0, x1, z + 2.4, 3.6, 0.7, 2.0); } // 南向きに傾けた列（影がかからない間隔）
+  for (let k = 0; k < 4; k++) pcs(c, -30 + k * 20, -40.6 + 7 * (2 + (k % 2) * 4) + 0.2);
+  solarSub(c, 28, 33);
+  g.box(-34, 0, 38.5, 6, 2.8, 3.4, 0xe6e0d0); sign(c, '発電', 0, -34, 1.2, 40.22, 2.6);
+  fenceRect(c, 87.6, 87.6, 2.0, 0x7f9a8a, 10);
+  if (c.fine !== false) for (let k = 0; k < 18; k++) g.blob(-42 + c.rnd() * 84, 0.1, -43 + c.rnd() * 2, 0.8, 0.5, 0.8, 0x7a9a5a, 5); // 柵ぎわの草
+}
+export function modelSolarSlope(c: Ctx): void {
+  pad(c, 118.4, 118.4, 0x7a9050);
+  const g = c.g, N = 6, D = 17;
+  for (let k = 0; k < N; k++) { const z = 44 - k * D - D / 2, y = k * 2.4;
+    if (k > 0) g.box(0, 0, z, 110, y, D, 0x8a7a5a, 0x8aa060); // 造成した段（土）
+    g.box(0, y, z + D / 2 - 0.3, 110, 0.5, 0.6, 0xbab6aa); // 段の縁の小段（排水の U 字溝）
+    for (const [x0, x1] of [[-52, -3], [3, 52]] as const) { panelRow(c, x0, x1, z + 6.6, 3.8, 0.7, 2.2, y); panelRow(c, x0, x1, z - 0.6, 3.8, 0.7, 2.2, y); }
+    if (k % 2 === 0) pcs(c, (k % 4 ? -1 : 1) * 2, z + 4, y);
+  }
+  for (let k = 1; k < N; k++) { const z = 44 - k * D; g.quad([-55, (k - 1) * 2.4, z + 0.01], [55, (k - 1) * 2.4, z + 0.01], [55, k * 2.4, z + 0.01], [-55, k * 2.4, z + 0.01], 0x9a9a8e); } // 段の法面（吹き付け）
+  g.box(0, 0, 50, 112, 0.5, 6, 0xa8a49a); slab(c, 0, 52, 30, 6, 0x5a7a8a, 0.55); // 下の調整池（土砂と雨水をためる）
+  solarSub(c, 44, 48);
+  for (let i = 0; i < 16; i++) tree(c, (i % 2 ? 57 : -57), -55 + i * 7, 1.1, 1);
+  fenceRect(c, 117.6, 117.6, 2.0, 0x7f9a8a, 12);
+}
+export function modelSolarFloat(c: Ctx): void {
+  pad(c, 88.4, 88.4, 0x8aa868);
+  const g = c.g;
+  g.box(0, 0, 0, 86, 1.6, 86, 0x8a9a6a, 0x8aa868); slab(c, 0, -2, 78, 74, 0x3d6f8f, 1.62); // ため池の土手と水面
+  for (const [cx, cz, nx, nz] of [[-18, -18, 6, 8], [18, -12, 6, 7], [-6, 22, 9, 3]] as const) { // パネルの島（フロートの上に低い角度で）
+    const w = nx * 4.4, d = nz * 3.6; g.box(cx, 1.62, cz, w + 1.2, 0.35, d + 1.2, 0xeef0ee);
+    for (let r = 0; r < nz; r++) panelRow(c, cx - w / 2, cx + w / 2, cz - d / 2 + (r + 1) * 3.6 - 0.3, 2.6, 0.2, 0.9, 1.97);
+    g.box(cx, 1.97, cz + d / 2 + 0.6, w, 0.12, 0.9, 0xd8dcd8); // 点検通路
+    if (c.fine !== false) for (const [ax, az] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) sagWire(g, [cx + ax * (w / 2 + 0.6), 2, cz + az * (d / 2 + 0.6)], [cx + ax * (w / 2 + 5), 1.65, cz + az * (d / 2 + 5)], 0.2, 0.05, 0x5a5e62, 2); // 係留索
+  }
+  pcs(c, 30, 30, 1.6); solarSub(c, -32, 34);
+  sign(c, '発電', 0, 30, 2.4, 31.42, 2.6);
+  fenceRect(c, 87.6, 87.6, 1.8, 0x7f9a8a, 10);
+}
+
+/** 刑務所の監視塔 */
+function watchTower(c: Ctx, x: number, z: number, h = 13): void {
+  const g = c.g; g.box(x, 0, z, 3.2, h, 3.2, 0xbcbab2); g.box(x, h, z, 5, 0.4, 5, 0x8a8880); g.box(x, h + 0.4, z, 4.4, 2.6, 4.4, 0xd8d6cf);
+  c.wb.box(x, h + 1.0, z, 4.5, 1.4, 4.5, 0x5a6a78); g.box(x, h + 3, z, 5.4, 0.35, 5.4, 0x5a5a58); g.box(x, h + 3.35, z, 0.2, 1.4, 0.2, 0x6a6a68); c.wa.box(x, h + 4.6, z, 0.4, 0.3, 0.4, 0xfff0c0); // 探照灯
+}
+export function modelPrison2(c: Ctx): void {
+  pad(c, 148.4, 148.4, 0xb8b6ae);
+  const g = c.g, wall = dull(c, 0xd8d6cf, 0xbfbdb6), fine = c.fine !== false, R = 69;
+  slab(c, 0, 0, 2 * R - 4, 2 * R - 4, 0xa8b08a, 0.07); // 塀の内側の芝
+  // 高い塀（高さ 5.5m、上に内向きの返し）。正門の所は開ける
+  for (const [x, z, w, d] of [[0, -R, 2 * R + 1.4, 1.4], [-R, 0, 1.4, 2 * R], [R, 0, 1.4, 2 * R], [-R / 2 - 7, R, R - 14, 1.4], [R / 2 + 7, R, R - 14, 1.4]] as const) { g.box(x, 0, z, w, 5.5, d, 0xc8c6be); g.box(x, 5.5, z, w + (d > 1 ? 1.6 : 0), 0.35, d + (w > 1.5 ? 1.6 : 0), 0xb0aea6); }
+  if (fine) for (let k = 0; k < 4; k++) { const s = k < 2 ? -1 : 1, axis = k % 2; for (let t = -R + 6; t < R; t += 12) g.box(axis ? s * (R - 7) : t, 0, axis ? t : s * (R - 7), axis ? 0.1 : 0.1, 3.8, 0.1, 0x8a8f96); g.box(axis ? s * (R - 7) : 0, 3.6, axis ? 0 : s * (R - 7), axis ? 0.06 : 2 * R - 14, 0.06, axis ? 2 * R - 14 : 0.06, 0x8a8f96); } // 内側のフェンス
+  for (const [x, z] of [[-R, -R], [R, -R], [-R, R], [R, R], [-R, 0], [R, 0]]) watchTower(c, x, z);
+  // 正門：門の建物と鉄の扉、外の看板
+  block(c, 0, R - 4, 28, 9, 2, wall, { fh: 3.6, lit: 0.5, band: 0x1d3557 }); g.box(0, 0, R + 0.4, 9, 4.6, 1.2, 0x3a3e44); g.box(0, 4.6, R + 0.6, 12, 0.6, 2.4, 0x5a5a58);
+  sign(c, '刑務所', 0, 0, 5.4, R + 1.85, 8); g.box(-12, 0, R + 3, 0.2, 7, 0.2, 0x9aa0a6); g.box(-11.2, 6, R + 3, 1.6, 1, 0.05, 0xf4f4f0); // 旗竿
+  // 管理棟
+  block(c, -38, 50, 34, 12, 3, wall, { fh: 3.6, lit: 0.45, glass: 0x8fb0c8, band: 0x1d3557 });
+  // 舎房棟（4 階建ての長い棟が 4 本、渡り廊下でつなぐ）
+  for (let k = 0; k < 4; k++) { const x = -48 + k * 22;
+    block(c, x, -24, 13, 50, 4, wall, { fh: 3.2, lit: 0.12, band: 0x9a9890 });
+    if (fine) for (let f = 0; f < 4; f++) for (const s of [-1, 1]) for (let j = 0; j < 9; j++) g.box(x + s * 6.56, 1.2 + f * 3.2, -46 + j * 5.4, 0.04, 1.3, 0.12, 0x5a5e62); } // 窓の鉄格子
+  g.box(-15, 0, 4, 70, 3.4, 3, wall, 0x8a8880); // 中央の渡り廊下
+  // 工場棟（のこぎり屋根）と職業訓練
+  for (let k = 0; k < 2; k++) { const x0 = 18 + k * 0, z0 = -50 + k * 26, w = 40, d = 20; g.box(x0 + w / 2, 0, z0, w, 5, d, 0xd0ccc2, 0x9a9890);
+    for (let j = 0; j < 5; j++) { const xa = x0 + j * 8; g.quad([xa, 5, z0 - d / 2], [xa, 5, z0 + d / 2], [xa + 8, 7.6, z0 + d / 2], [xa + 8, 7.6, z0 - d / 2], 0x8a9096); c.wa.quad([xa + 8, 5, z0 + d / 2], [xa + 8, 5, z0 - d / 2], [xa + 8, 7.6, z0 - d / 2], [xa + 8, 7.6, z0 + d / 2], 0xbfd2de);
+      g.quad([xa, 5, z0 + d / 2], [xa + 8, 5, z0 + d / 2], [xa + 8, 7.6, z0 + d / 2], [xa, 5, z0 + d / 2], 0xd0ccc2); g.tri([xa + 8, 5, z0 - d / 2], [xa, 5, z0 - d / 2], [xa + 8, 7.6, z0 - d / 2], 0xd0ccc2); } }
+  // 運動場（トラックとバスケットのコート）と体育館
+  slab(c, 36, 26, 46, 26, 0xc4a77a, 0.09); slab(c, 36, 26, 34, 14, 0xa8b08a, 0.1); if (fine) { for (const s of [-1, 1]) g.box(36 + s * 15, 0, 26, 0.2, 3, 0.2, 0x7a7e82); }
+  g.box(36, 0, 50, 26, 7, 14, 0xd8d4ca, 0x6a7a8a); g.gable(36, 7, 50, 26.4, 14.4, 2, 0x6a7a8a, 'x', 0xd8d4ca, 0.3);
+  // 畑（園芸作業）と、外の木
+  for (let k = 0; k < 5; k++) slab(c, -58 + k * 4, 30, 2.6, 14, 0x8a6a4a, 0.12);
+  for (let i = 0; i < 6; i++) tree(c, -66 + i * 3.2, 62, 0.8);
+}
+
+/** 法務省の施設の共通：塀つきの敷地 */
+function wallYard(c: Ctx, sx: number, sz: number, h: number, gateW: number): void {
+  const g = c.g, col = 0xc8c6be, hx = sx / 2, hz = sz / 2;
+  g.box(0, 0, -hz, sx, h, 0.8, col); g.box(-hx, 0, 0, 0.8, h, sz, col); g.box(hx, 0, 0, 0.8, h, sz, col);
+  g.box(-(hx + gateW / 2) / 2, 0, hz, hx - gateW / 2, h, 0.8, col); g.box((hx + gateW / 2) / 2, 0, hz, hx - gateW / 2, h, 0.8, col);
+}
+export function modelKochisho2(c: Ctx): void {
+  pad(c, 88.4, 88.4, 0xb4b2aa);
+  const g = c.g, wall = dull(c, 0xdcdad2, 0xc2c0b8);
+  slab(c, 0, 0, 80, 80, 0xa8b08a, 0.07);
+  block(c, -6, -14, 46, 30, 7, wall, { fh: 3.3, lit: 0.18, glass: 0x7a8a98, band: 0x9a9890 }); // 収容棟（窓は細い目隠しのルーバー）
+  if (c.fine !== false) for (let f = 0; f < 7; f++) for (let j = 0; j < 14; j++) g.box(-28 + j * 3.2, 1.0 + f * 3.3, 1.08, 1.6, 1.6, 0.12, 0x9a9890);
+  block(c, 22, 22, 28, 10, 2, wall, { fh: 3.6, lit: 0.5, glass: 0x8fb0c8, band: 0x1d3557 }); // 面会・事務の棟
+  for (let k = 0; k < 3; k++) { slab(c, -30 + k * 12, 22, 10, 14, 0xbab6aa, 0.09); g.box(-30 + k * 12, 0, 29, 10, 4, 0.3, 0xc8c6be); } // 屋外の運動場（仕切りのある小さな庭）
+  wallYard(c, 86, 86, 5.5, 12); for (const [x, z] of [[-42, -42], [42, -42], [-42, 42], [42, 42]]) watchTower(c, x, z, 8);
+  sign(c, '拘置所', 0, 22, 7.8, 27.05, 6);
+  g.box(0, 0, 43.4, 12, 3.6, 0.6, 0x3a3e44); g.box(26, 0, 38, 10, 0.1, 6, 0x4c4f53); car(c, 24, 38, false); car(c, 28, 38, false);
+}
+export function modelShonenin2(c: Ctx): void {
+  pad(c, 88.4, 88.4, 0xb8b4a8);
+  const g = c.g, wall = dull(c, 0xece6da, 0xd2ccc0);
+  slab(c, 18, -16, 44, 38, 0xc4a77a, 0.09); for (const s of [-1, 1]) g.box(18 + s * 20, 0, -16, 0.2, 2.6, 6, 0xf4f4f0); // 運動場とサッカーのゴール
+  block(c, -22, -20, 30, 12, 2, wall, { fh: 3.6, lit: 0.4, band: 0x6a8a5a }); // 寮（男子寮・女子寮）
+  block(c, -22, 4, 30, 12, 2, wall, { fh: 3.6, lit: 0.45, band: 0x6a8a5a }); // 教室棟
+  g.box(18, 0, 22, 24, 6.5, 14, 0xd8d4ca, 0x7a6a5a); g.gable(18, 6.5, 22, 24.4, 14.4, 2, 0x7a6a5a, 'x', 0xd8d4ca, 0.3); // 体育館（職業訓練の実習も）
+  block(c, -22, 30, 26, 10, 2, wall, { fh: 3.6, lit: 0.5, glass: 0x8fb0c8, band: 0x1d3557 });
+  for (let k = 0; k < 4; k++) slab(c, -38 + k * 3.2, -40, 2.4, 8, 0x7a5a3a, 0.12); // 農園芸の畑
+  fenceRect(c, 87, 87, 3.2, 0xb8b6ae, 10);
+  sign(c, '少年院', 0, -22, 6.4, 35.05, 6);
+  for (let i = 0; i < 8; i++) tree(c, 40, -40 + i * 10, 0.9);
+}
+export function modelKanbetsu(c: Ctx): void {
+  pad(c, 58.4, 28.4, 0xb8b4a8);
+  const wall = dull(c, 0xe6e2d8, 0xccc8be);
+  block(c, -6, -2, 36, 14, 3, wall, { fh: 3.4, lit: 0.3, band: 0x6a7a9a });
+  block(c, 20, 6, 12, 8, 1, wall, { fh: 3.6, lit: 0.6, glass: 0x8fb0c8, band: 0x1d3557 }); // 相談の窓口（法務少年支援センター）
+  wallYard(c, 56, 26, 3.6, 8);
+  sign(c, '鑑別所', 0, 20, 2.4, 10.05, 5);
+}
+export function modelHogoKansatsu(c: Ctx): void {
+  pad(c, 58.4, 28.4, 0xb4b0a6);
+  const g = c.g;
+  block(c, -12, -2, 28, 14, 3, dull(c, 0xe8e6e0, 0xcfccc4), { fh: 3.6, lit: 0.55, glass: 0x8fb0c8, band: 0x2a5aa0 }); // 保護観察所（合同庁舎の一角）
+  g.box(16, 0, -2, 18, 6, 12, 0xe8dcc6, 0x7a5a4a); g.gable(16, 6, -2, 18.4, 12.4, 1.8, 0x7a5a4a, 'x', 0xe8dcc6, 0.4); // 更生保護施設（寮）
+  for (let k = 0; k < 4; k++) c.wa.box(10 + k * 4, 3.4, 4.05, 1.6, 1.2, 0.05, 0xffe6b0);
+  sign(c, '保護観察', 0, -12, 7.6, 5.05, 7);
+  for (let i = 0; i < 3; i++) tree(c, 10 + i * 6, 10, 0.7);
+}
+export function modelKensatsu2(c: Ctx): void {
+  pad(c, 58.4, 28.4, 0xb4b0a6);
+  const g = c.g;
+  block(c, -4, -3, 40, 14, 6, dull(c, 0xd6d0c4, 0xbcb6aa), { fh: 3.8, lit: 0.55, glass: 0x7f98ac, band: 0x8a8070 }); // 合同庁舎の型（石張り風の外壁）
+  g.box(-4, 0, 5.5, 12, 3.6, 3, 0xbcb6aa); g.box(-4, 3.6, 6, 14, 0.5, 4.4, 0x8a8070); // 玄関の庇
+  for (const x of [20, 23]) g.box(x, 0, 10, 0.16, 9, 0.16, 0x9aa0a6); g.box(20.8, 8, 10, 1.6, 1.0, 0.05, 0xf4f4f0); g.box(23.8, 8, 10, 1.6, 1.0, 0.05, 0xf4f4f0); // 国旗と庁旗
+  sign(c, '検察庁', 0, -4, 2.0, 7.55, 6);
+  car(c, 18, 2, true); car(c, 18, -4, true);
+}
+
+/** 換気塔（地下の駐車場・道路の）：ルーバーのついた塔 */
+function ventTower(c: Ctx, x: number, z: number, h = 7): void {
+  const g = c.g; g.box(x, 0, z, 3.6, h, 3.6, 0xc8c4bc); g.box(x, h, z, 4, 0.4, 4, 0x8a8f96);
+  if (c.fine !== false) for (let k = 0; k < 5; k++) for (const [dx, dz, sx, sz] of [[0, 1.81, 3, 0.06], [0, -1.81, 3, 0.06], [1.81, 0, 0.06, 3], [-1.81, 0, 0.06, 3]] as const) g.box(x + dx, h - 3 + k * 0.55, z + dz, sx, 0.22, sz, 0x6a6e72);
+}
+export function modelUgParking(c: Ctx): void {
+  const g = c.g, S = 44.2, hole: [number, number][] = [[-38, -27], [27, 38]], zh0 = 6, zh1 = S, D = 4.5;
+  // 地面（出入口のスロープの所だけ開ける）
+  g.box(-(S + 38) / 2 - 0, -5, 0, S - 38, 5.06, 2 * S, 0xa9a59c, 0xd8d0c0); g.box(0, -5, 0, 54, 5.06, 2 * S, 0xa9a59c, 0xd8d0c0); g.box((S + 38) / 2, -5, 0, S - 38, 5.06, 2 * S, 0xa9a59c, 0xd8d0c0);
+  for (const [x0, x1] of hole) g.box((x0 + x1) / 2, -5, (-S + zh0) / 2, x1 - x0, 5.06, zh0 + S, 0xa9a59c, 0xd8d0c0);
+  for (const [x0, x1] of hole) { // スロープ（下りの路面・両側の擁壁・奥の暗がり）と屋根、P の看板
+    g.quad([x0, -D, zh0], [x1, -D, zh0], [x1, 0.06, zh1], [x0, 0.06, zh1], 0x4c4f53);
+    for (const [xw, sgn] of [[x0, 1], [x1, -1]] as const) { if (sgn > 0) g.quad([xw, -D - 0.5, zh1], [xw, -D - 0.5, zh0], [xw, 0.6, zh0], [xw, 0.6, zh1], 0x9a968c); else g.quad([xw, -D - 0.5, zh0], [xw, -D - 0.5, zh1], [xw, 0.6, zh1], [xw, 0.6, zh0], 0x9a968c); g.box(xw, 0.06, (zh0 + zh1) / 2, 0.5, 1.0, zh1 - zh0, 0xbab6ac); }
+    g.quad([x0, -D - 0.5, zh0], [x1, -D - 0.5, zh0], [x1, 0.06, zh0], [x0, 0.06, zh0], 0x1a1c1e);
+    g.box((x0 + x1) / 2, 4.2, zh0 + 5, x1 - x0 + 1, 0.4, 10, 0x8a9aa8); for (const xw of [x0 - 0.3, x1 + 0.3]) g.box(xw, 0, zh0 + 9.6, 0.25, 4.2, 0.25, 0x8a8f96);
+    g.box((x0 + x1) / 2, 3.2, zh1 - 1, x1 - x0, 0.9, 0.2, 0xf2c230); // 高さ制限のバー
+    g.box(x0 - 2, 0, zh1 - 3, 0.2, 4.4, 0.2, 0x9aa0a6); g.box(x0 - 2, 4.4, zh1 - 3, 1.8, 1.8, 0.2, 0x2a5aa0); c.wa.box(x0 - 2, 4.6, zh1 - 2.88, 1.2, 1.2, 0.02, 0xe8f0ff);
+  }
+  // 地上の広場：芝生・並木・噴水・ベンチ・歩行者の出入口（ガラスの屋根）
+  slab(c, 0, -10, 46, 40, 0x8ab062, 0.1); slab(c, 0, -10, 12, 12, 0xbab6aa, 0.14); g.cyl(0, 0.14, -10, 4, 0.7, 0xb8b4ac, 14); g.cyl(0, 0.2, -10, 3.4, 0.62, 0x5a90b8, 14); g.cyl(0, 0.8, -10, 0.3, 2.2, 0xd8e8f0, 6);
+  for (let i = 0; i < 6; i++) { tree(c, -40 + i * 16, -40, 1); tree(c, -40, -28 + i * 9, 0.9); tree(c, 40, -28 + i * 9, 0.9); }
+  if (c.fine !== false) for (let k = 0; k < 4; k++) { g.box(-14 + k * 9, 0.1, 14, 2.4, 0.45, 0.6, 0x8a6a42); g.box(-14 + k * 9, 0.1, 14.3, 0.2, 0.45, 0.2, 0x5a5e62); }
+  g.box(14, 0, 22, 9, 3.4, 6, 0x9fc4dc, 0x6a7a8a); g.box(14, 3.4, 22, 10, 0.3, 7, 0x8a9aa8); c.wa.box(14, 0.5, 25.02, 7.6, 2.4, 0.02, 0xd8ecff); // 階段・エレベーターの出入口
+  g.box(8, 0, 25.2, 0.2, 3.6, 0.2, 0x9aa0a6); g.box(8, 3.6, 25.2, 2.2, 2.2, 0.2, 0x2a5aa0); c.wa.box(8, 3.8, 25.32, 1.6, 1.6, 0.02, 0xe8f0ff);
+  ventTower(c, -14, 22); ventTower(c, 34, -34, 6);
+  sign(c, '駐車場', 0, 14, 3.9, 25.6, 4.4);
+}
+
+/** 小型のビジネスジェット（全長 24m ほど。後ろにエンジン、T 字の尾翼）。dir 0 は機首が -z、1 は機首が +x */
+function bizJet(c: Ctx, x: number, z: number, dir: 0 | 1, stripe = 0x2a4a7a): void {
+  const g = c.g, T = (u: number, w: number): [number, number] => (dir ? [x - w, z + u] : [x + u, z + w]); // u：横、w：前後（-w が前）
+  const B = (u: number, y: number, w: number, su: number, sy: number, sw: number, col: number) => { const [X, Z] = T(u, w); if (dir) g.box(X, y, Z, sw, sy, su, col); else g.box(X, y, Z, su, sy, sw, col); };
+  const P = (u: number, y: number, w: number): V => { const [X, Z] = T(u, w); return [X, y, Z]; };
+  const body = 0xf4f4f2;
+  B(0, 1.5, 0, 2.3, 2.4, 15, body); B(0, 2.2, 0, 2.34, 0.3, 15, stripe);
+  { const [X, Z] = T(0, -8.5); g.blob(X, 2.7, Z, dir ? 2.4 : 1.15, 1.15, dir ? 1.15 : 2.4, body, 8); } // 機首
+  { const [X, Z] = T(0, 9.6); g.blob(X, 2.9, Z, dir ? 3 : 0.9, 0.9, dir ? 0.9 : 3, body, 8); } // 尾部
+  if (c.fine !== false) { const [X, Z] = T(0, -9.2); g.blob(X, 3.3, Z, dir ? 0.9 : 0.8, 0.45, dir ? 0.8 : 0.9, 0x2a3440, 6); for (let k = 0; k < 6; k++) for (const s of [-1, 1]) B(s * 1.17, 2.8, -4 + k * 1.6, 0.02, 0.45, 0.4, 0x2a3440); } // 操縦席の窓と客室の丸窓
+  for (const s of [-1, 1]) { // 後退翼（上下 2 面）・ウイングレット
+    const a = P(s * 1.1, 1.9, -2.5), b = P(s * 1.1, 1.9, 2.5), cc = P(s * 11, 2.3, 4.6), d = P(s * 11, 2.3, 2.6);
+    if ((s > 0) !== !!dir) { g.quad(a, d, cc, b, body); g.quad(a, b, cc, d, 0xc8ccd0); } else { g.quad(a, b, cc, d, body); g.quad(a, d, cc, b, 0xc8ccd0); }
+    B(s * 11, 2.3, 3.9, 0.12, 1.6, 1.4, stripe);
+    const [EX, EZ] = T(s * 2.2, 6.4); g.blob(EX, 3.4, EZ, dir ? 2 : 0.75, 0.75, dir ? 0.75 : 2, 0xd8dcdf, 8); B(s * 1.6, 3.2, 6.4, 1, 0.3, 1.2, 0xc8ccd0); // 後ろのエンジン
+  }
+  { const a = P(0, 4, 7.5), b = P(0, 4, 10.6), cc = P(0, 8, 11.6), d = P(0, 8, 9.8); g.quad(a, b, cc, d, stripe); g.quad(a, d, cc, b, stripe); B(0, 7.9, 10.8, 7, 0.25, 1.6, body); } // 垂直尾翼と T 字の水平尾翼
+  for (const [u, w] of [[0, -6.5], [-1.6, 1.2], [1.6, 1.2]]) B(u, 0, w, 0.3, 1.5, 0.3, 0x3a3e44); // 脚
+}
+export function modelFbo(c: Ctx): void {
+  pad(c, 88.4, 58.4, 0x8fae6a);
+  const g = c.g, wall = dull(c, 0xeef0f2, 0xcfd3d6);
+  slab(c, 6, -8, 76, 40, 0x6a6d71, 0.09); for (let k = 0; k < 3; k++) { g.box(-16 + k * 22, 0.2, -8, 0.3, 0.02, 30, 0xf2c230); g.box(-16 + k * 22, 0.2, 6, 6, 0.02, 0.3, 0xf2c230); } // エプロンと駐機位置の黄線
+  // 格納庫（かまぼこ屋根）と大きな扉
+  const hx = -22, hz = -10, hw = 34, hd = 28, hh = 8;
+  g.box(hx, 0, hz, hw, hh, hd, 0xd8dce0, 0x9aa4ad);
+  for (let k = 0; k < 6; k++) { const a0 = k / 6 * Math.PI, a1 = (k + 1) / 6 * Math.PI, r = hw / 2; g.quad([hx + Math.cos(a1) * r, hh + Math.sin(a1) * 5, hz + hd / 2], [hx + Math.cos(a0) * r, hh + Math.sin(a0) * 5, hz + hd / 2], [hx + Math.cos(a0) * r, hh + Math.sin(a0) * 5, hz - hd / 2], [hx + Math.cos(a1) * r, hh + Math.sin(a1) * 5, hz - hd / 2], 0x9aa4ad);
+    g.tri([hx + Math.cos(a1) * r, hh + Math.sin(a1) * 5, hz + hd / 2 + 0.01], [hx, hh, hz + hd / 2 + 0.01], [hx + Math.cos(a0) * r, hh + Math.sin(a0) * 5, hz + hd / 2 + 0.01], 0xd8dce0); }
+  g.box(hx, 0, hz + hd / 2 + 0.05, hw - 4, hh - 0.6, 0.1, 0xb8c0c8); if (c.fine !== false) for (let k = 1; k < 6; k++) g.box(hx - hw / 2 + 2 + k * (hw - 4) / 6, 0, hz + hd / 2 + 0.12, 0.12, hh - 0.6, 0.06, 0x8a9298);
+  bizJet(c, hx + 4, hz + 2, 0, 0x7a2a2a); // 格納庫の中から機首が見える
+  // 専用ターミナル（ラウンジ・出入国の手続き）
+  block(c, 26, 18, 26, 12, 1, wall, { fh: 5, lit: 0.7, glass: 0x8fb0c8, band: 0x2a3a4a, wide: true }); g.box(26, 5, 25, 30, 0.4, 4, 0xd8dce0); sign(c, 'FBO', 0, 26, 2.8, 24.06, 5);
+  bizJet(c, 4, -14, 0); bizJet(c, 28, -12, 1, 0x1a1a1a);
+  car(c, 12, 22, false); car(c, 16, 22, false); g.box(40, 0, -2, 2.4, 1.6, 4, 0xf2c230); // 送迎の車と給油車
+  for (let i = 0; i < 6; i++) tree(c, -42 + i * 5, 26, 0.8);
+}

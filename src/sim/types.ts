@@ -69,7 +69,8 @@ export type Kind =
   | 'usBase' | 'oilField' | 'oilRefinery' | 'gasStation' | 'parkingTower' | 'ancientRuins' | 'towerMansion' | 'tsunamiTower' | 'tvStation' | 'megaBank' | 'globalIT'
   | 'railDepot' | 'maglevStation' | 'hyperloop' | 'consulate' | 'department' | 'futureTower' | 'expoSite' | 'redBrick' | 'westernHouse' | 'machiya' | 'clockTower' | 'ironTower' | 'windmill' | 'pyramidHall' | 'triumphGate' | 'autoHub'
   | 'kodomoMirai' | 'ecoCenter' | 'kankoDmo' | 'incubator' | 'bosaiCenter' | 'dxCenter'
-  | 'musicArena' | 'brewery' | 'steelMill' | 'partsPlant' | 'defensePlant' | 'kindergarten' | 'salon' | 'maternity' | 'perinatal' | 'clubhouse' | 'postOffice' | 'paddy' | 'field' | 'heliport' | 'multicultural';
+  | 'musicArena' | 'brewery' | 'steelMill' | 'partsPlant' | 'defensePlant' | 'kindergarten' | 'salon' | 'maternity' | 'perinatal' | 'clubhouse' | 'postOffice' | 'paddy' | 'field' | 'heliport' | 'multicultural'
+  | 'ugParking' | 'fbo' | 'kanbetsu' | 'hogoKansatsu' | 'solarSlope' | 'solarFloat';
 
 export type Status = 'construction' | 'operating' | 'suspended' | 'renewing';
 
@@ -205,7 +206,7 @@ export interface Voice {
   tone: 'bad' | 'warn' | 'good';
 }
 
-export type Layer = 'none' | 'conn' | 'traffic' | 'care' | 'age' | 'life' | 'edu' | 'health' | 'safety' | 'env' | 'culture' | 'welfare' | 'disaster' | 'sat' | 'elev' | 'tsunami' | 'land' | 'bus';
+export type Layer = 'none' | 'conn' | 'traffic' | 'care' | 'age' | 'life' | 'edu' | 'health' | 'safety' | 'env' | 'culture' | 'welfare' | 'disaster' | 'sat' | 'elev' | 'tsunami' | 'land' | 'bus' | 'pipes';
 
 export interface Stats {
   pop: number; households: number; units: number; vacancy: number; pentUp: number;
