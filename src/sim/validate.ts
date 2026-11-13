@@ -3,7 +3,7 @@
 import { onMapChange, REAL } from './real';
 import { W, H, P, DEFS, POLICIES, GOALS, VISIONS, LV_CAP } from './config';
 import { OPT } from './options';
-import { getMap, buildable, syncTerrain } from './map';
+import { getMap, buildable, syncTerrain, isCastaway } from './map';
 import { EVENTS } from './events';
 import { validPol, POL_OPS } from './politics';
 import type { GameState, Action, Effect, Kind } from './types';
@@ -171,8 +171,9 @@ export function validateState(s: unknown): string | null {
   if (e1) return e1;
   const tun = new Set([...(Array.isArray(s.tunnel) ? s.tunnel : []), ...(Array.isArray(s.bridge) ? s.bridge : [])]);
   const canal = new Set(Array.isArray(s.canal) ? s.canal : []);
+  const isle = isCastaway(s.seed);
   for (let i = 0; i < N; i++) {
-    const nationalRow = m.national ? m.national[i] === 1 : i >= 15 * W && i < 16 * W;
+    const nationalRow = m.national ? m.national[i] === 1 : !isle && i >= 15 * W && i < 16 * W; // v88：無人島には国道がない
     if (nationalRow !== (s.road[i] === 3)) return `国道の配置が不正です（区画 ${i}）`;
     if ((s.road[i] === 1 || s.road[i] === 2) && !buildable(m, i) && !(m.fixedRoad && m.fixedRoad[i]) && !tun.has(i)) return `道路を置けない土地に道路があります（区画 ${i}）`;
     if (s.road[i] && s.occ[i]) return `道路と建物が重なっています（区画 ${i}）`;
@@ -264,7 +265,7 @@ export function validateState(s: unknown): string | null {
     const x = i % W, y = (i / W) | 0;
     if (x < b.x || x >= b.x + b.w || y < b.y || y >= b.y + b.h) return `建物 ${id} の外の区画が建物を指しています（区画 ${i}）`;
   }
-  if (!REAL && !s.buildings.some((b: any) => b.kind === 'station')) return '駅がありません'; // 実在の地図には鉄道のない街もある
+  if (!REAL && !isle && !s.buildings.some((b: any) => b.kind === 'station')) return '駅がありません'; // 実在の地図には鉄道のない街もある。v88：無人島も
   // ---- 線路（まちづくり版だけ）----
   if (REAL?.rail || !REAL) { // まちづくり版と架空の街（v13 から線路を敷き直せる）
     if (!Array.isArray(s.rail) || s.rail.length !== N || !s.rail.every((v: unknown) => intIn(v, 0, 3))) return '線路のデータが不正です';

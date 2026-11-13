@@ -4,7 +4,8 @@
 // ここは読むだけ：状態を変えない・乱数を使わない・建設や政策の変更を自動でしない。
 import { DISTRICTS, type GameState, type Building, type Layer } from './types';
 import { DEFS, GOALS, P, SAT_PARTS, W } from './config';
-import { getMap } from './map';
+import { getMap, isCastaway } from './map';
+import { isleNext, foodSelf } from './isle';
 import { designCap, staffReq } from './core';
 import { goalProgress, tempDebt, fiscalCrisis, monthlyBudget, electionOutlook, voteText, WIN_VOTE } from './step';
 
@@ -89,6 +90,12 @@ export function allIssues(s: GameState): Issue[] {
   const pledge = (id: string) => { const g = (s.goals ?? []).find(x => x.id === id); if (!g || goalProgress(s, g).ok) return 0; return c01(1 - left / 36) * 0.7 + 0.3; };
   const drag = (k: number) => st.satDrag?.[k] ?? 0, part = (k: number) => st.satParts?.[k] ?? 1;
 
+  // ---- v88：無人島の開拓の次の一手
+  if (isCastaway(s.seed)) {
+    const nx = isleNext(s), f = foodSelf(s);
+    if (nx) add({ key: 'isle', title: `開拓：${nx.title}`, what: nx.how, where: '島全体', cause: s.stats.pop < 1 ? 'まだ誰も住んでいません。桟橋・道・水・電気・住まいがそろうと、定期船で開拓者が来ます' : `いま ${n0(s.stats.pop)} 人。食べ物の自給率 ${pc(f.self)}（足りない分は船で運び、運賃がかかります）`, causeKind: 'isle',
+      options: [nx.kind ? { label: `${DEFS[nx.kind].name}を建てる`, act: 'tool', arg: 'build:' + nx.kind } : { label: '道路を引く', act: 'tool', arg: 'road:1' }], tile: -1, layer: 'none', parts: { people: 1, trend: 0, deadline: 0.3, hard: 0.5 }, affected: '島の開拓者' });
+  }
   // ---- 保育
   if (st.waitlist >= 3) {
     const cc = careCause(s), wd = st.waitDistrict.map((v, d) => ({ v, d })).sort((a, b) => b.v - a.v)[0], v = voice(k => k.startsWith('care'));

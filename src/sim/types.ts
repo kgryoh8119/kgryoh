@@ -70,7 +70,8 @@ export type Kind =
   | 'railDepot' | 'maglevStation' | 'hyperloop' | 'consulate' | 'department' | 'futureTower' | 'expoSite' | 'redBrick' | 'westernHouse' | 'machiya' | 'clockTower' | 'ironTower' | 'windmill' | 'pyramidHall' | 'triumphGate' | 'autoHub'
   | 'kodomoMirai' | 'ecoCenter' | 'kankoDmo' | 'incubator' | 'bosaiCenter' | 'dxCenter'
   | 'musicArena' | 'brewery' | 'steelMill' | 'partsPlant' | 'defensePlant' | 'kindergarten' | 'salon' | 'maternity' | 'perinatal' | 'clubhouse' | 'postOffice' | 'paddy' | 'field' | 'heliport' | 'multicultural'
-  | 'ugParking' | 'fbo' | 'kanbetsu' | 'hogoKansatsu' | 'solarSlope' | 'solarFloat';
+  | 'ugParking' | 'fbo' | 'kanbetsu' | 'hogoKansatsu' | 'solarSlope' | 'solarFloat'
+  | 'pier' | 'well' | 'rainTank' | 'miniWater' | 'dieselGen' | 'solarKit' | 'kaitaku' | 'musenTower' | 'miniIncin' | 'kaitakuFarm' | 'fishRaft'; // v88：無人島
 
 export type Status = 'construction' | 'operating' | 'suspended' | 'renewing';
 

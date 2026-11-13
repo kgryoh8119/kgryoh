@@ -1,7 +1,8 @@
 // 月次処理。1 回の呼び出しで 1 か月進む。描画やフレームレートには依存しない。
 import { onMapChange, REAL } from './real';
 import { W, H, P, DEFS, POLICIES, policyCost, AIR_ROUTES, GOALS, VISIONS, isRes, isShop, isCity, isBiz, RES_TYPE, LV_UPKEEP, LV_CAP, lvK, lvOf, stageName, diffOf, hasOp, countOp, SPORTS, SCALE } from './config';
-import { getMap, idx, buildable, syncTerrain, terrainOf } from './map';
+import { getMap, idx, buildable, syncTerrain, terrainOf, isCastaway } from './map';
+import { isleCost, ISLE_STEPS, isleK, isleGrant } from './isle';
 import { mayorMonthly } from './mayor';
 import { challengeMonthly } from './challenge';
 import { intlMonthly } from './intl';
@@ -47,8 +48,8 @@ function macroNotes(s: GameState, run: () => void): void {
 export function transferParts(s: GameState, L: Pick<Ledger, 'taxResident' | 'taxProperty' | 'taxBusiness'>): { need: number; stdTax: number; kofu: number; grants: number } {
   const tax = s.tax ?? { res: 1, prop: 1, biz: 1, stay: 0 }, pop = s.stats.pop;
   const stdTax = L.taxResident / Math.max(0.5, tax.res) + L.taxProperty / Math.max(0.5, tax.prop) + L.taxBusiness / Math.max(0.5, tax.biz);
-  const need = P.transferBase + P.needPerCapita * pop + P.needPerElder * elderPersons(s);
-  return { need, stdTax, kofu: Math.max(0, need - P.kofuOffset * stdTax), grants: P.transferPerCapita * pop };
+  const need = P.transferBase * isleK(s) + P.needPerCapita * pop + P.needPerElder * elderPersons(s);
+  return { need, stdTax, kofu: Math.max(0, need - P.kofuOffset * stdTax), grants: P.transferPerCapita * pop + isleGrant(s) };
 }
 /** 高齢世帯の人数（高齢化の負担の計算に使う） */
 export const elderPersons = (s: GameState) => (s.stats.hhByType?.[4] ?? 0) * P.persons[4];
@@ -82,9 +83,10 @@ export function monthlyBudget(s: GameState): Ledger {
   }
   if (tax.stay && hotel) L.taxStay! += s.stats.visitors * P.stayShare * P.stayTax;
   L.transfer = transferOf(s, L) * modMul(s, 'transfer') * diffOf(s).transfer * ((s.stats.yudoShare ?? 0) >= 0.6 ? 1.03 : 1); // 立地適正化計画で居住誘導区域に 6 割が住むと、国の補助（コンパクトシティ）
-  L.admin = (P.adminBase + s.stats.pop * P.adminPerCapita + elderPersons(s) * P.elderCost) * modMul(s, 'prices') * (hasOp(s, 'cityHall') ? 0.93 : 1) * (hasOp(s, 'cityOS') ? 0.9 : 1) * (1 - 0.01 * Math.min(4, countOp(s, 'branchOffice')));
+  L.admin = (P.adminBase * isleK(s) + s.stats.pop * P.adminPerCapita + elderPersons(s) * P.elderCost) * modMul(s, 'prices') * (hasOp(s, 'cityHall') ? 0.93 : 1) * (hasOp(s, 'cityOS') ? 0.9 : 1) * (1 - 0.01 * Math.min(4, countOp(s, 'branchOffice')));
   // 市内の斎場で受け入れられない火葬は、隣の市に頼む（1 件 8 万円の上乗せ）
   L.admin += Math.max(0, (s.stats?.deaths ?? 0) - (s.stats?.cremCap ?? 0)) * P.cremOut;
+  L.admin += isleCost(s); // v88：無人島で採れない食べ物の船便の運賃
   // 道の駅：市内の農地が多いほど売上が伸び、市の収入が増える
   if (hasOp(s, 'michinoeki')) L.fees! += 15 * Math.min(16, countOp(s, 'farm') + countOp(s, 'paddy') + countOp(s, 'field') + ['dairy', 'orchard', 'teaField', 'greenhouse', 'flowerFarm', 'wasabi', 'apiary', 'shiitake', 'poultry', 'beefRanch'].reduce((a, k) => a + countOp(s, k as Kind), 0)) * countOp(s, 'michinoeki') * (s.climate?.crop ?? 1); // 作柄が悪いと売上も減る
   for (let i = 0; i < N; i++) if (s.road[i]) L.roads += P.roadUpkeep[s.road[i]];
@@ -280,7 +282,9 @@ export function stepMonth(s: GameState, opts: { forecast?: boolean } = {}): void
   // 4. 世帯：類型の遷移 → 転出 → 転入
   const tax = s.tax ?? { res: 1, prop: 1, biz: 1, stay: 0 };
   const res = s.buildings.filter(b => isRes(b.kind) && b.status === 'operating');
-  const waterLv = st.waterDemand > 0 ? Math.min(1, st.waterCap / st.waterDemand) : 1;
+  const isle = isCastaway(s.seed); // v88：無人島は、水と電気が島にないと誰も住めない（はじめの 1 世帯から）
+  const waterLv = isle ? Math.min(1, st.waterCap / Math.max(4, st.waterDemand)) : st.waterDemand > 0 ? Math.min(1, st.waterCap / st.waterDemand) : 1;
+  const powerIn = isle ? clamp((Math.min(1, st.powerCap / Math.max(4, st.powerDemand)) - 0.4) / 0.6) : 1;
   const outMul = modMul(s, 'outflow');
   // 人の一生：結婚・出産・子の成長・独立・高齢化。高齢世帯は亡くなって減る。医療（病院・診療所）が届かない地区ほど亡くなる人が多い
   let deaths = 0, births = 0; const dm = [0, 0, 0, 0, 0, 0], hh0 = res.reduce((a, r) => a + sumHH(r), 0);
@@ -324,7 +328,7 @@ export function stepMonth(s: GameState, opts: { forecast?: boolean } = {}): void
   const want = elig.map(() => [0, 0, 0, 0, 0]);
   let demandAll = 0, placed = 0;
   for (let t = 0; t < NHH; t++) {
-    const demand = P.baseInflow[t] * s.inflowFactor * (t === 0 && hasOp(s, 'university') ? 1.3 : 1) * modMul(s, 'inflow:' + t) * (t <= 1 && hasOp(s, 'globalIT') ? 1.05 : 1) * modMul(s, 'inflow') * clamp(0.3 + 1.4 * st.satType[t], 0.3, 1.5) * access * waterIn * cityPull * supplyK * (t < 4 ? jobPull : 1) * bigCity * (t <= 1 && hasOp(s, 'sdfBase') ? 1.08 : 1) * (shinOpen(s) ? 1.12 : 1) * (t >= 1 && t <= 3 ? 1 - 0.06 * (((s.econ as any)?.macro?.rate ?? 0.5) - 0.5) : 1); // 金利が上がると住宅ローンが重く、家族の転入が減る // 駐屯地の隊員と家族
+    const demand = P.baseInflow[t] * s.inflowFactor * (t === 0 && hasOp(s, 'university') ? 1.3 : 1) * modMul(s, 'inflow:' + t) * (t <= 1 && hasOp(s, 'globalIT') ? 1.05 : 1) * modMul(s, 'inflow') * clamp(0.3 + 1.4 * st.satType[t], 0.3, 1.5) * access * waterIn * powerIn * cityPull * supplyK * (t < 4 ? jobPull : 1) * bigCity * (t <= 1 && hasOp(s, 'sdfBase') ? 1.08 : 1) * (shinOpen(s) ? 1.12 : 1) * (t >= 1 && t <= 3 ? 1 - 0.06 * (((s.econ as any)?.macro?.rate ?? 0.5) - 0.5) : 1); // 金利が上がると住宅ローンが重く、家族の転入が減る // 駐屯地の隊員と家族
     demandAll += demand;
     let tot = 0;
     const ws = elig.map((r, i) => { const w = vac[i] * P.housingPref[t][kindIx[r.kind]] * (0.4 + r.sat[t]); tot += w; return w; });
@@ -732,6 +736,8 @@ MISSIONS.splice(MISSIONS.findIndex(m => m.id === 'pop10k'), 0,
   { id: 'budget', title: '3 月議会で予算を可決してもらう', how: '［市政］で予算案を選び、賛成が足りなければ会派と意見交換します', reward: { cash: 1000, approval: 0.01 }, done: s => !!s.pol?.vote?.pass },
   { id: 'grant', title: '国の補助金を採択してもらう', how: '［市政］→［国・県との交渉］で条件に合う補助金を申請します（審査 3 か月）', reward: { cash: 0, fame: 1 }, done: s => s.acts.grantOk !== undefined },
 );
+// v88：無人島の開拓の段階（上陸 → 道 → 水 → 電気 → 住まい → 食べ物 → 通信と医療 → ごみ → 発展）
+MISSIONS.splice(0, 0, ...ISLE_STEPS.map(x => ({ id: 'i-' + x.key, terrain: ['castaway'], title: x.title, how: x.how, reward: { cash: x.reward, fame: x.key === 'grow' ? 4 : undefined }, done: (s: GameState) => x.done(s) })));
 /** この街の初仕事（地形に合うもの） */
 export const missionsFor = (s: GameState) => { const t = terrainOf(s.seed).id; return MISSIONS.filter(m => !m.terrain || (!REAL && m.terrain.includes(t))); };
 const MILESTONES = [10000, 20000, 30000, 50000, 100000];

@@ -1,6 +1,6 @@
 // プレイヤーの操作。全て dispatch() を通し、直列化できる Action として記録・再生できる。
 import { LV_CAP, lvK, maxLv, stageName, NIMBY, AIR_ROUTES, W, H, P, DEFS, POLICIES, GOALS, VISIONS, isRes, isShop, isCity, isBiz, lvOf, diffOf, DIFFS, SPORTS, bondCap, SCALE, policyCost } from './config';
-import { getMap, baseMap, syncTerrain, idx, inMap, buildable, landReason, NEIGH, ropewayTop } from './map';
+import { getMap, baseMap, syncTerrain, idx, inMap, buildable, landReason, NEIGH, ropewayTop, isCastaway } from './map';
 import { recompute, roadInfo, accessTile, invalidateCaches, modMul, modAdd, repairState } from './core';
 import { validateAction, validateState, derivedFinite, cleanTiles, ACTION_NAMES } from './validate';
 import { fiscalCrisis, tempDebt, bizScore, rerunCheck, rerunElection, teamCheck, addTeam } from './step';
@@ -50,6 +50,7 @@ export function checkPlace(s: GameState, kind: Kind, x: number, y: number, free 
   const reasons: string[] = [];
   let level: PlaceCheck['level'] = 'ok';
   const acq: Building[] = [], byId = REAL ? idMap(s) : undefined;
+  if (d.isle && !isCastaway(s.seed)) { reasons.push('無人島のシナリオだけで建てられます'); level = 'error'; } // v88
   if (!free && d.unlock && Math.floor(s.month / 12) + 1 < d.unlock) { reasons.push(`まだ技術がありません（${d.unlock} 年目から使えます）`); level = 'error'; }
   for (let dy = 0; dy < d.h; dy++) for (let dx = 0; dx < d.w; dx++) {
     const cx = x + dx, cy = y + dy;

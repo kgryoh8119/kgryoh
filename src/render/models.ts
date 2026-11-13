@@ -2526,6 +2526,7 @@ export const MODEL: Record<Kind, (c: Ctx) => void> = {
   kodomoMirai: modelKodomoMirai, ecoCenter: modelEcoCenter, kankoDmo: modelKankoDmo, incubator: modelIncubator, bosaiCenter: modelBosaiCenter, dxCenter: modelDxCenter,
   weddingHall: modelWeddingHall, jidokan: modelJidokan, kidsPark: modelKidsPark, amusementPark: modelAmusementPark, megaPark: modelMegaPark, pool: modelPool, athletics: modelAthletics, rugby: modelRugby, pachinko: modelPachinko, boatRace: modelBoatRace, keirin: modelKeirin, japaneseGarden: modelJapaneseGarden, giantRobot: modelGiantRobot, robotFactory: modelRobotFactory, casino: modelCasino, outletMall: modelOutletMall, skiResort: modelSkiResort, esportsArena: modelEsportsArena, skyscraper: modelSkyscraper,
   ugParking: modelUgParking, fbo: modelFbo, kanbetsu: modelKanbetsu, hogoKansatsu: modelHogoKansatsu, solarSlope: modelSolarSlope, solarFloat: modelSolarFloat, // v87
+  pier: modelPier, well: modelWell, rainTank: modelRainTank, miniWater: modelMiniWater, dieselGen: modelDieselGen, solarKit: modelSolarKit, kaitaku: modelKaitaku, musenTower: modelMusenTower, miniIncin: modelMiniIncin, kaitakuFarm: modelKaitakuFarm, fishRaft: modelFishRaft, // v88：無人島
 };
 /** v86：よく建つ公共施設の外壁の素材（保育園・幼稚園は塗り壁、消防署はタイル、交番・診療所は窯業サイディング）。形は変えない */
 for (const [k, mat] of [['nursery', 8], ['nurseryS', 8], ['nurseryL', 8], ['kindergarten', 8], ['fire', 6], ['fireS', 6], ['fireL', 6], ['koban', 4], ['clinic', 4]] as [Kind, number][]) {
@@ -2564,6 +2565,7 @@ export const MODEL_H: Record<Kind, number> = {
   kodomoMirai: 13, ecoCenter: 22, kankoDmo: 10, incubator: 16, bosaiCenter: 20, dxCenter: 12,
   weddingHall: 26, jidokan: 9, kidsPark: 13, amusementPark: 40, megaPark: 56, pool: 12, athletics: 22, rugby: 12, pachinko: 18, boatRace: 14, keirin: 12, japaneseGarden: 8, giantRobot: 18, robotFactory: 15, casino: 98, outletMall: 9, skiResort: 10, esportsArena: 15, skyscraper: 300,
   ugParking: 9, fbo: 14, kanbetsu: 11, hogoKansatsu: 11, solarSlope: 14, solarFloat: 4, // v87
+  pier: 6, well: 4, rainTank: 4, miniWater: 7, dieselGen: 4, solarKit: 3, kaitaku: 5, musenTower: 29, miniIncin: 13, kaitakuFarm: 3, fishRaft: 5, // v88
 };
 
 // ---- v17 の施設 ----
@@ -4520,6 +4522,97 @@ export function modelSolarFloat(c: Ctx): void {
   pcs(c, 30, 30, 1.6); solarSub(c, -32, 34);
   sign(c, '発電', 0, 30, 2.4, 31.42, 2.6);
   fenceRect(c, 87.6, 87.6, 1.8, 0x7f9a8a, 10);
+}
+
+// ---- v88：無人島の施設 ----
+const WOOD = 0x8a6a48, WOOD_D = 0x6a4e34, TIN = 0x8f969c;
+/** 桟橋：海へ張り出した木の桟橋と、係留の柱、待合の小屋、着いた定期船（小さな客船） */
+export function modelPier(c: Ctx): void {
+  const g = c.g; pad(c, 58.4, 28.4, 0xc8b88a);
+  g.box(0, 0.06, 0, 56, 0.5, 6, WOOD, 0x9c7a54); for (let k = -26; k <= 26; k += 4) g.box(k, -2.5, -3.2, 0.5, 3.1, 0.5, WOOD_D), g.box(k, -2.5, 3.2, 0.5, 3.1, 0.5, WOOD_D); // 杭
+  for (let k = -24; k <= 24; k += 8) g.cyl(k, 0.56, 3.4, 0.25, 0.7, 0x3a3a3a, 6); // 係船柱
+  g.box(-20, 0.56, -9, 8, 3, 6, 0xe8e2d4); g.gable(-20, 3.56, -9, 8, 6, 1.6, 0x4a6a8a, 'x', 0xe8e2d4); c.wa.box(-20, 1.4, -5.97, 3, 1.1, 0.04, 0xfff0c0); // 待合小屋
+  // 着いている定期船
+  g.box(6, -0.6, 8.6, 22, 2.4, 5.4, 0xf2f2ee); g.box(15.5, -0.6, 8.6, 3, 2.4, 3.6, 0xf2f2ee); g.box(4, 1.8, 8.6, 12, 2.2, 4.2, 0xe8eef2); c.wb.box(4, 2.4, 8.6, 12.1, 1.0, 4.3, 0x4a5a6a); g.box(0, 4, 8.6, 2, 1.6, 2, 0x2f5a8a);
+  standSign(c, '定期船のりば', 12, -8, 1.6, 4);
+}
+/** 井戸：石の井筒と手押しポンプ、小さな屋根 */
+export function modelWell(c: Ctx): void {
+  const g = c.g; pad(c, 28.4, 28.4, 0xb8b0a0);
+  g.cyl(0, 0.06, 0, 1.4, 0.9, 0x9a968c, 10); g.cyl(0, 0.96, 0, 1.1, 0.05, 0x2a3a4a, 10);
+  for (const a of [-1.5, 1.5]) g.box(a, 0.06, 0, 0.25, 3, 0.25, WOOD_D); g.gable(0, 3.06, 0, 4, 3, 0.9, 0x5a5048, 'x', WOOD_D);
+  g.box(2.6, 0.06, 1.4, 0.4, 1.4, 0.4, 0x4a6a8a); g.box(2.6, 1.46, 1.0, 0.15, 0.15, 1.2, 0x4a6a8a); g.box(3.2, 0.06, 2.2, 1.6, 0.4, 1.2, 0x9a968c); // 手押しポンプと流し
+  tree(c, -8, -7, 0.9); tree(c, 8, -8, 0.8);
+}
+/** 雨水タンク：樹脂の大きなタンクと、雨どいのついた小屋 */
+export function modelRainTank(c: Ctx): void {
+  const g = c.g; pad(c, 28.4, 28.4, 0xb8b0a0);
+  g.box(-5, 0.06, -3, 8, 2.6, 6, WOOD); g.gable(-5, 2.66, -3, 8.6, 6.6, 0.8, TIN, 'x', WOOD);
+  for (const [x, z] of [[4, -3], [4, 4], [-4, 5]]) { g.cyl(x, 0.06, z, 1.9, 3.6, 0x3f6a8a, 12); g.cyl(x, 3.66, z, 1.9, 0.2, 0x34587a, 12); }
+  g.box(0, 2.6, -3, 7, 0.2, 0.2, 0x9aa0a6); // 雨どい
+}
+/** 簡易浄水施設：ろ過の水槽 2 つと、ポンプ小屋、配水の小さなタンク */
+export function modelMiniWater(c: Ctx): void {
+  const g = c.g; pad(c, 58.4, 28.4, 0xb0aca4);
+  for (const x of [-16, -4]) { g.box(x, 0.06, 2, 10, 1.6, 10, 0xc8ccd0); g.box(x, 1.4, 2, 8.6, 0.24, 8.6, 0x4a7a9a); }
+  g.box(10, 0.06, -4, 8, 4, 6, 0xe4e6e2); g.gable(10, 4.06, -4, 8.4, 6.4, 1.2, 0x5a7a8a, 'x', 0xe4e6e2); c.wa.box(10, 1.6, -0.97, 2.4, 1.2, 0.04, 0xfff0c0);
+  g.cyl(21, 0.06, 4, 3, 6, 0xd8dcdc, 12); g.cyl(21, 6.06, 4, 3, 0.4, 0xb8bcbc, 12);
+  fenceRect(c, 57.6, 27.6, 1.6, 0x7f9a8a, 8); standSign(c, '浄水', 2, -10, 1.4, 3);
+}
+/** ディーゼル発電機：コンテナ型の発電機と燃料タンク、排気筒 */
+export function modelDieselGen(c: Ctx): void {
+  const g = c.g; pad(c, 28.4, 28.4, 0xa8a49c);
+  g.box(-2, 0.06, 0, 12, 3, 4.6, 0xd8b84a); g.box(-2, 3.06, 0, 12.2, 0.2, 4.8, 0xb89a3a); for (let k = -7; k <= 3; k += 2.5) g.box(k, 0.8, 2.32, 1.6, 1.6, 0.04, 0x8a7a3a); // 吸気口
+  g.cyl(3, 3.26, -1, 0.35, 2.6, 0x5a5a58, 8); g.cyl(-8, 3.26, -1, 0.35, 1.6, 0x5a5a58, 8);
+  g.cyl(8, 0.06, 4, 1.4, 2.2, 0xc8ccd0, 10); g.box(8, 0.06, -4, 3, 1.2, 2, 0x8a3a2a); // 燃料タンクとドラム缶置き場
+  fenceRect(c, 27.6, 27.6, 1.8, 0x8a8f94, 6);
+}
+/** 太陽光パネルと蓄電池：低い架台のパネル 3 列と、白い蓄電池の箱 */
+export function modelSolarKit(c: Ctx): void {
+  const g = c.g; pad(c, 28.4, 28.4, 0x9aaa78);
+  for (let r = 0; r < 3; r++) panelRow(c, -11, 7, -6 + r * 6, 2.8, 0.4, 1.4);
+  g.box(10, 0.06, 0, 4, 2.2, 6, 0xeef0ee); g.box(10, 2.26, 0, 4.2, 0.12, 6.2, 0xb8bcbc); c.wa.box(7.97, 1.4, 0, 0.04, 0.3, 0.3, 0x80ff9a);
+}
+/** 開拓小屋：板張りの小屋と、薪の山・物干し */
+export function modelKaitaku(c: Ctx): void {
+  const g = c.g, r = c.rnd; pad(c, 28.4, 28.4, 0xa89a78);
+  const wc = [0x9a7a54, 0x8a6a48, 0xa88a60][Math.floor(r() * 3)];
+  g.box(-2, 0.3, -2, 9, 3, 6.4, wc); g.gable(-2, 3.3, -2, 9, 6.4, 1.8, r() < 0.5 ? TIN : 0x6a5a4a, 'x', wc, 0.6);
+  c.wa.box(-4.5, 1.4, 1.23, 1.4, 1.0, 0.04, 0xffe0a8); g.box(0.5, 0.3, 1.24, 1.2, 2.2, 0.06, WOOD_D);
+  g.box(-2, 0.06, 2.4, 9, 0.3, 2, WOOD); // 縁台
+  for (let k = 0; k < 3; k++) g.box(6.5, 0.06 + k * 0.4, -4 + k * 0.1, 2.4, 0.4, 1.2, 0x7a5a3a); // 薪
+  g.box(5, 0.06, 5, 0.12, 2, 0.12, WOOD_D); g.box(9, 0.06, 5, 0.12, 2, 0.12, WOOD_D); g.box(7, 1.9, 5, 4, 0.04, 0.04, 0xd8d8d8); g.box(7, 1.2, 5, 1, 0.7, 0.04, 0xe8b8a8);
+  tree(c, -9, 8, 0.8);
+}
+/** 無線中継塔：鉄骨の塔とパラボラ、局舎 */
+export function modelMusenTower(c: Ctx): void {
+  const g = c.g; pad(c, 28.4, 28.4, 0xb0aca4);
+  for (const [a, b] of [[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.6], [1.6, 1.6]]) g.cyl(a, 0.06, b, 0.18, 26, 0xd84a3a, 5, undefined, 0.12);
+  for (let y = 4; y < 26; y += 5) g.box(0, y, 0, 3.4, 0.15, 3.4, (y / 5) % 2 ? 0xe8e8e8 : 0xd84a3a);
+  g.cyl(0, 22, 1.9, 1.2, 0.3, 0xe8e8e8, 10); g.box(0, 26, 0, 0.12, 3, 0.12, 0x5a5a5a); c.wa.box(0, 29, 0, 0.3, 0.3, 0.3, 0xff4a3a);
+  g.box(-8, 0.06, 6, 5, 2.6, 4, 0xe4e6e2); fenceRect(c, 27.6, 27.6, 1.8, 0x8a8f94, 6);
+}
+/** 小型焼却炉：炉の建屋と煙突、灰の置き場 */
+export function modelMiniIncin(c: Ctx): void {
+  const g = c.g; pad(c, 28.4, 28.4, 0xa8a49c);
+  g.box(-3, 0.06, 0, 10, 5, 8, 0xc8c4bc); g.box(-3, 5.06, 0, 10.4, 0.3, 8.4, 0x8a8a88); g.cyl(4, 0.06, -2, 0.9, 13, 0xb0aca4, 10); g.cyl(4, 12, -2, 0.95, 1.06, 0x8a3a2a, 10);
+  g.box(7, 0.06, 6, 4, 1, 3, 0x6a6662); g.box(-3, 0.06, 4.1, 3, 3.4, 0.1, 0x5a5e62);
+}
+/** 開拓の畑：畝の並んだ畑と、作業小屋、まわりの切り株 */
+export function modelKaitakuFarm(c: Ctx): void {
+  const g = c.g; pad(c, 58.4, 58.4, 0x8a6a48);
+  for (let r = 0; r < 12; r++) { const z = -22 + r * 3.8; g.box(-6, 0.06, z, 40, 0.5, 1.6, 0x7a5a3a); if (r % 3 !== 2) for (let k = -24; k <= 12; k += 3) g.blob(k, 0.56, z, 0.8, 0.6, 0.7, r % 3 ? 0x6a9a3a : 0x5a8a34, 5); }
+  g.box(20, 0.06, -14, 7, 2.6, 5, WOOD); g.gable(20, 2.66, -14, 7.4, 5.4, 1.2, TIN, 'x', WOOD);
+  for (const [x, z] of [[22, 6], [24, 14], [18, 20], [-26, 24]]) g.cyl(x, 0.06, z, 0.6, 0.6, 0x9a7a54, 7);
+  tree(c, 24, 24, 0.9); tree(c, -27, -26, 1);
+}
+/** 漁船だまりと養殖いかだ：石積みの船だまり、小さな漁船、竹のいかだ */
+export function modelFishRaft(c: Ctx): void {
+  const g = c.g; pad(c, 58.4, 28.4, 0xb8b0a0);
+  g.box(0, 0.06, -6, 56, 1, 4, 0x9a968c); // 岸壁
+  for (const x of [-16, -4, 8]) { g.box(x, 0.2, 2, 8, 1.4, 3, 0xf0f0ea); g.box(x + 1.5, 1.6, 2, 2.4, 1.8, 2.2, 0xe8eef2); g.box(x - 3, 1.6, 2, 0.15, 3, 0.15, 0x5a5a5a); }
+  for (let k = 0; k < 4; k++) { const x = 18 + (k % 2) * 6, z = -2 + Math.floor(k / 2) * 7; g.box(x, 0.3, z, 5, 0.3, 5, 0xc8b878); for (const a of [-2, 0, 2]) g.box(x + a, 0.3, z, 0.2, 0.4, 5.2, 0xa89858); }
+  g.box(-22, 1.06, -10, 6, 2.6, 4, 0xe8e2d4); g.gable(-22, 3.66, -10, 6.4, 4.4, 1.0, 0x3a5a7a, 'x', 0xe8e2d4);
 }
 
 /** 刑務所の監視塔 */
