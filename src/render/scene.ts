@@ -107,6 +107,7 @@ const ATMO_SHADER = {
 import { FX, glowTex } from './fx';
 import { buildRailPaths, drawRailPaths, railAt, SHIN_LINES, shinDeckY, RAIL_LM, type RailPath, type Gate, type StationSpot } from './rails';
 import { Landmarks, type LmItem } from './landmarks';
+import { roadKitMat, roadTile, face, RK } from './roadkit';
 import TRAIN from '../assets/train.json';
 import VEH from '../assets/vehicles.json';
 import CLOUDS from '../assets/clouds.json';
@@ -125,6 +126,8 @@ export type Quality = 'high' | 'mid' | 'low';
 
 const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+/** 2 つの色の間（v86：道路の老朽度でアスファルトの色を変える） */
+const mixHex = (a: number, b: number, t: number) => { const f = (k: number) => Math.round(((a >> k) & 255) * (1 - t) + ((b >> k) & 255) * t); return (f(16) << 16) | (f(8) << 8) | f(0); };
 
 let stateIds = new WeakMap<object, number>(), nextStateId = 1;
 const sid = (s: object) => { let i = stateIds.get(s); if (!i) { i = nextStateId++; stateIds.set(s, i); } return i; };
@@ -229,7 +232,8 @@ float dvn(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f)
     float cr = 1.0 - smoothstep(0.0, 0.012 + 0.01 * (1.0 - near), abs(dvn(vWPos * 0.32) - 0.5)) * smoothstep(0.45, 0.75, dvn(vWPos * 0.05));
     vec2 pc = floor(vWPos.xz / vec2(6.0, 9.0)); float patchK = step(0.86, dh3(vec3(pc, 3.0)));                                  // 補修の跡（色の違う四角）
     vec2 mc = floor(vWPos.xz / 17.0), mo = (mc + 0.5) * 17.0 + (vec2(dh3(vec3(mc, 1.0)), dh3(vec3(mc, 2.0))) - 0.5) * 6.0; float mh = length(vWPos.xz - mo), hasM = step(0.55, dh3(vec3(mc, 5.0)));
-    sh = 1.0 - asp * near * (0.32 * (1.0 - cr) + 0.06 * patchK);
+    float ageK = smoothstep(0.03, 0.085, lumR);                                                                                 // v86：古い（白っぽい）舗装ほどひびと補修跡が多い。新しい黒い舗装はほぼ無傷
+    sh = 1.0 - asp * near * (0.32 * (0.2 + 0.8 * ageK) * (1.0 - cr) + (0.04 + 0.22 * ageK) * patchK);
     sh *= 1.0 - asp * near * hasM * (0.35 * (1.0 - smoothstep(0.32, 0.36, mh)) - 0.15 * (1.0 - smoothstep(0.24, 0.26, mh)) * step(0.5, fract(vWPos.x * 5.0 + vWPos.z * 5.0))); // マンホール（ふちと格子）
     diffuseColor.rgb *= sh; diffuseColor.rgb += asp * vec3(0.026, 0.027, 0.03); }` : ''}
   // 季節：濃い緑（木の葉・生け垣）は春に一部が桜色、秋は赤・橙・黄、冬は一部が葉を落とす。明るい緑（芝・草地）は冬に枯れ色
@@ -961,7 +965,7 @@ export class View {
     this.clearGroup('roads');
     const m = this.map, g = new Geo();
     const lampPos: number[] = [], vendPos: number[] = [];
-    const pool = new Geo(true);
+    const pool = new Geo(true), kit = new Geo(true); // kit：路面の文字・矢印と標識の面（v86）
     const poles = new Map<number, [number, number, number]>();
     this.roadTiles = []; this.roadW = []; this.pedTiles = [];
     const hA = (wx: number, wz: number) => heightAt(m, wx, wz);
@@ -971,12 +975,17 @@ export class View {
     }
     this.tunnelSet = new Set(s.tunnel ?? []);
     this.computeDecks(s);
-    if (s.rail) this.drawRails(s, g, lampPos);
-    this.drawWaterWorks(s, g);
+    if (s.rail) this.drawRails(s, g, lampPos, kit);
+    this.drawWaterWorks(s, g, kit);
     const wideS = new Set((s.wide ?? []).filter(i => s.road[i] === 2)); this.wideSet = wideS;
     const hwAt = (xx: number, yy: number) => { const j = idx(xx, yy), r = s.road[j]; return r === 2 && wideS.has(j) ? HW[3] : HW[r]; };
     this.drawFlyovers(s, g);
     const stCharge = new Set(s.streets?.charge ?? []), stTree = new Set(s.streets?.tree ?? []), stStone = new Set(s.streets?.stone ?? []), stNo = new Set(s.streets?.nopole ?? []);
+    // v86：路面の文字・矢印と標識の面（1 枚の絵、1 つのメッシュ）。細部は品質「中」以上、さらに細かい物は「高」だけ
+    const fineR = this.fine(), hiR = fineR && this.quality === 'high', sig = this.signals(s);
+    const connAt = (xx: number, yy: number) => { if (!inMap(xx, yy) || !s.road[idx(xx, yy)]) return 0; let n = 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) n += this.roadConn(s, xx, yy, dx, dy) ? 1 : 0; return n; };
+    const schools = s.buildings.filter(b => (b.kind === 'school' || b.kind === 'nursery' || b.kind === 'nurseryS' || b.kind === 'nurseryL' || b.kind === 'jhs') && b.status !== 'construction');
+    const schoolNear = (xx: number, yy: number) => schools.some(b => xx >= b.x - 3 && xx < b.x + b.w + 3 && yy >= b.y - 3 && yy < b.y + b.h + 3);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = idx(x, y), t = s.road[i];
       if (!t) continue;
@@ -1003,7 +1012,9 @@ export class View {
         }
         continue;
       }
-      const old = s.roadAge[i] > 70, asph = t === 3 ? 0x3a3d42 : old ? 0x5d5a55 : s.roadAge[i] > 40 ? 0x46484c : 0x383b40;
+      // v86：アスファルトの色は老朽度で連続的に変える（新しい道は黒く、古い道は白っぽく）。区画ごとに舗装し直した年が違うように、明るさを少しずらす
+      const age = s.roadAge[i] ?? 0, ak = Math.min(1, age / 85), old = age > 70, asph = t === 3 ? mixHex(0x2b2e32, 0x54524d, ak) : mixHex(0x2f3236, 0x56544f, ak), tv = 1 + (hash(x, y, 11) - 0.5) * 0.07;
+      const stone = stStone.has(i), kerbless = t === 1 && !stone && !stTree.has(i), school = kerbless && schoolNear(x, y); // 生活道路：段差の歩道はなく、白線の外が路側帯（学校の近くは緑に塗る）
       // 曲がり角（2 方向だけ、直角につながる区画）は、円弧の道にする
       const bend = nConn === 2 && !!(cE || cW) && !!(cS || cN) && !this.deckH.has(i) ? [cE ? 1 : -1, cS ? 1 : -1] as const : null;
       const bendA = bend ? Math.min(cE ? aE : aW, cS ? aS : aN) : 0;
@@ -1018,10 +1029,12 @@ export class View {
           isW = !isA && ((au < Wd && av < Wd) || (aX > 0 && av < aX + SW) || (aZ > 0 && au < aZ + SW));
         }
         if (!isA && !isW) continue;
-        const X0 = cx + u - CELL / 2, X1 = X0 + CELL, Z0 = cz + v - CELL / 2, Z1 = Z0 + CELL, o = isA ? 0.1 : 0.2;
-        const sh = isA ? (old ? 0.93 + hash(x * 12 + ci, y * 12 + cj, 5) * 0.12 : 0.97 + hash(x * 12 + ci, y * 12 + cj, 5) * 0.06) : 0.96 + hash(x * 12 + ci, y * 12 + cj, 6) * 0.08;
-        const stone = stStone.has(i), brick = ((x * 12 + ci) + (y * 12 + cj)) % 2 === 0; // 石畳：車道は灰色の石、歩道はれんが色の市松
-        g.quad([X0, hA(X0, Z1) + o, Z1], [X1, hA(X1, Z1) + o, Z1], [X1, hA(X1, Z0) + o, Z0], [X0, hA(X0, Z0) + o, Z0], isA ? (stone ? (t === 1 ? 0x8d877c : 0x55524c) : asph) : stone ? (brick ? 0xae9888 : 0xbca898) : 0xb9b4a9, sh);
+        const X0 = cx + u - CELL / 2, X1 = X0 + CELL, Z0 = cz + v - CELL / 2, Z1 = Z0 + CELL, o = isA || kerbless ? 0.1 : 0.2;
+        const hc = hash(x * 12 + ci, y * 12 + cj, 5), sh = (isA || kerbless ? (old ? 0.93 + hc * 0.12 : 0.97 + hc * 0.06) : 0.96 + hash(x * 12 + ci, y * 12 + cj, 6) * 0.08) * (isA || kerbless ? tv : 1);
+        const brick = ((x * 12 + ci) + (y * 12 + cj)) % 2 === 0; // 石畳：車道は灰色の石、歩道はれんが色の市松
+        // 歩道：幹線はインターロッキング（2 色の平板を区画ごとに決まった並びで）、2 車線は灰色の平板
+        const pave = t === 3 || wideT ? [0xb7ab98, 0xa89c8a, 0xc2b6a2, 0x9d958a][((hc * 7) | 0) % 4] : [0xbab6ad, 0xb0aca3][((hc * 3) | 0) % 2];
+        g.quad([X0, hA(X0, Z1) + o, Z1], [X1, hA(X1, Z1) + o, Z1], [X1, hA(X1, Z0) + o, Z0], [X0, hA(X0, Z0) + o, Z0], isA ? (stone ? (t === 1 ? 0x8d877c : 0x55524c) : asph) : stone ? (brick ? 0xae9888 : 0xbca898) : kerbless ? (school ? 0x3d7f55 : mixHex(asph, 0x6b675f, 0.12)) : pave, sh);
       }
       // 走行中給電の道路：車線の真ん中に、給電コイルの青い線
       if (stCharge.has(i) && !bend) { const ew2 = !!(cE || cW); for (const o of [-Wd * 0.62, -Wd * 0.25, Wd * 0.25, Wd * 0.62]) { const wx = cx + (ew2 ? 0 : o), wz = cz + (ew2 ? o : 0); g.at(0, hA(wx, wz) + 0.06, 0); g.box(wx, 0, wz, ew2 ? TILE : 0.32, 0.02, ew2 ? 0.32 : TILE, 0x3ad0e8); } g.at(0, 0, 0); }
@@ -1044,16 +1057,8 @@ export class View {
         const dot = (a: number, rr: number, sz: number, color: number) => { const u = bend[0] * 15 - bend[0] * Math.cos(a) * rr, v = bend[1] * 15 - bend[1] * Math.sin(a) * rr; mark(u - sz, v - sz, u + sz, v + sz, color); };
         for (let k = 0; k <= 24; k++) { const a = (k / 24) * Math.PI / 2; for (const off of [-(bendA - 0.3), bendA - 0.3]) dot(a, 15 + off, 0.09, 0xdcdcd8); if (t >= 2 && k % 4 < 2) dot(a, 15, 0.12, t === 3 ? 0xf2c230 : 0xeeeeea); }
       }
-      for (const [dx, dz, ah] of bend ? [] : arms) {
-        const from = junction ? hw + 3.4 : 0, lw = 0.09;
-        if (t >= 2) for (let d = from + 0.5; d < 15; d += 5) {
-          const d1 = Math.min(15, d + 2.6), col = t === 3 ? 0xf2c230 : 0xeeeeea;
-          if (dx) mark(dx * d, -lw, dx * d1, lw, col); else mark(-lw, dz * d, lw, dz * d1, col);
-          if (t === 3 || wideT) for (const off of [-3.75, 3.75]) { if (dx) mark(dx * d, off - lw, dx * d1, off + lw, 0xeeeeea); else mark(off - lw, dz * d, off + lw, dz * d1, 0xeeeeea); }
-        }
-        for (const off of [-(ah - 0.3), ah - 0.3]) { if (dx) mark(dx * (junction ? hw : 0), off - 0.07, dx * 15, off + 0.07, 0xdcdcd8); else mark(off - 0.07, dz * (junction ? hw : 0), off + 0.07, dz * 15, 0xdcdcd8); }   // 路側帯
-        if (junction) for (let k = -ah + 0.5; k < ah - 0.3; k += 0.95) { if (dx) mark(dx * (hw + 0.6), k, dx * (hw + 3.0), k + 0.48, 0xf0f0ec); else mark(k, dz * (hw + 0.6), k + 0.48, dz * (hw + 3.0), 0xf0f0ec); }   // 横断歩道
-      }
+      // v86：路面標示（等級・幅・交差点の形ごと）、縁石・側溝・植樹帯・ガードパイプ・信号機・標識（render/roadkit.ts）
+      if (!bend) roadTile({ g, kit, s, i, x, y, t, cx, cz, hw, Wd, aE, aW, aS, aN, nConn, kerbless, stone, wide: wideT, ak, hA, mark, sig: sig[i] === 1, fine: fineR, hi: hiR, conn: connAt, lamps: lampPos });
       // 電柱・街灯
       const ew = !!(cE || cW), ns = !!(cS || cN);
       const px = cx + (ns ? -(Wd - 0.6) : 0), pz = cz + (ew ? -(Wd - 0.6) : (ns ? 0 : -(Wd - 0.6)));
@@ -1074,16 +1079,23 @@ export class View {
         lampPos.push(px + lx, py + 5.35, pz + lz);
         { const X = px + lx, Z = pz + lz, R = 9, Y = hA(X, Z) + 0.3; pool.quad([X - R, Y, Z + R], [X + R, Y, Z + R], [X + R, Y, Z - R], [X - R, Y, Z - R], 0xffffff); }
       } else {
-        g.at(px, py, pz); g.cyl(0, 0, 0, 0.14, 10, 0x8b9094, 6);
-        const lx = ns && !ew ? 2.6 : 0, lz = ew ? 2.6 : 0;
-        g.box(lx / 2, 9.9, lz / 2, lx ? 2.6 : 0.1, 0.1, lz ? 2.6 : 0.1, 0x8b9094); g.box(lx, 9.75, lz, 0.7, 0.16, 0.4, 0xe9e9e4);
-        lampPos.push(px + lx, py + 9.6, pz + lz);
-        { const X = px + lx, Z = pz + lz, R = 14, Y = hA(X, Z) + 0.3; pool.quad([X - R, Y, Z + R], [X + R, Y, Z + R], [X + R, Y, Z - R], [X - R, Y, Z - R], 0xffffff); }
+        // v86：街灯の型は通り（同じ行・列）ごとに変える。0 まっすぐな腕・1 先の曲がったベンド型（LED の薄い灯具）・2 車道と歩道の 2 灯。柱の色も銀と焦げ茶（景観に配慮した通り）
+        const ax0 = ew ? y : x, lt = this.fine() ? (hash(ax0, ew ? 3 : 5, 61) * 3) | 0 : 0, pc = hash(ax0, ew ? 9 : 4, 62) < 0.3 ? 0x4b4640 : 0x8b9094, Hh = t === 3 || wideT ? 10 : 8.6, ln = t === 3 || wideT ? 2.6 : 2.0;
+        const lx = ns && !ew ? 1 : 0, lz = ew ? 1 : 0;
+        g.at(px, py, pz); g.cyl(0, 0, 0, lt === 1 ? 0.12 : 0.14, lt === 1 ? Hh - 0.7 : Hh, pc, 6);
+        if (lt === 1) { for (let k = 1; k <= 3; k++) g.box(lx * k * 0.3, Hh - 0.75 + k * 0.22, lz * k * 0.3, 0.2, 0.2, 0.2, pc); g.box(lx * (0.9 + ln / 2), Hh, lz * (0.9 + ln / 2), lx ? ln : 0.1, 0.1, lz ? ln : 0.1, pc); g.box(lx * (ln + 0.8), Hh - 0.1, lz * (ln + 0.8), lx ? 0.9 : 0.36, 0.08, lz ? 0.9 : 0.36, 0xf4f4f0); }
+        else { g.box(lx * ln / 2, Hh - 0.1, lz * ln / 2, lx ? ln : 0.1, 0.1, lz ? ln : 0.1, pc); g.box(lx * ln, Hh - 0.25, lz * ln, 0.7, 0.16, 0.4, 0xe9e9e4); }
+        if (lt === 2) { g.box(-lx * 0.6, 4.8, -lz * 0.6, lx ? 1.2 : 0.08, 0.08, lz ? 1.2 : 0.08, pc); g.box(-lx * 1.15, 4.68, -lz * 1.15, 0.5, 0.14, 0.32, 0xe9e9e4); lampPos.push(px - lx * 1.15, py + 4.6, pz - lz * 1.15); } // 歩道を照らす低い灯
+        const L2 = lt === 1 ? ln + 0.8 : ln; lampPos.push(px + lx * L2, py + Hh - 0.4, pz + lz * L2);
+        { const X = px + lx * L2, Z = pz + lz * L2, R = 14, Y = hA(X, Z) + 0.3; pool.quad([X - R, Y, Z + R], [X + R, Y, Z + R], [X + R, Y, Z - R], [X - R, Y, Z - R], 0xffffff); }
       }
       g.at(0, 0, 0);
       // 街の細部（v49）：道ばたの自販機・ポスト・電話ボックス・ごみ集積所・猫。電柱と反対の歩道に、区画ごとに決まった物を置く
-      if (t === 1 && junction && this.fine() && ((x * 31 + y * 17) % 3 === 0)) { // 交差点の角のカーブミラー（オレンジの柱と丸い鏡）
-        const qx = cx + Wd - 0.4, qz = cz + Wd - 0.4, qy = hA(qx, qz); g.at(qx, qy, qz); g.cyl(0, 0, 0, 0.06, 2.8, 0xf08a1a, 5); g.blob(0, 2.75, -0.12, 0.44, 0.44, 0.07, 0xf08a1a, 10); g.blob(0, 2.75, -0.2, 0.37, 0.37, 0.04, 0xd8e8f0, 10); g.at(0, 0, 0); }
+      if (t === 1 && (junction || bend) && this.fine() && ((x * 31 + y * 17) % 3 === 0 || (bend && (x + y) % 2 === 0))) { // 交差点の角・曲がり角の外側のカーブミラー（オレンジの柱と丸い鏡。2 面の鏡もある）
+        const mo = bend ? 15 + bendA + SW - 0.5 : 0, qx = bend ? cx + bend[0] * 15 - bend[0] * mo * 0.7071 : cx + Wd - 0.4, qz = bend ? cz + bend[1] * 15 - bend[1] * mo * 0.7071 : cz + Wd - 0.4, qy = hA(qx, qz), two = hash(x, y, 71) < 0.4;
+        g.at(qx, qy, qz, bend ? Math.atan2(bend[0], bend[1]) : 0); g.cyl(0, 0, 0, 0.06, 2.8, 0xf08a1a, 5);
+        for (const sx of two ? [-0.5, 0.5] : [0]) { g.box(sx / 2, 2.72, -0.05, Math.abs(sx) + 0.06, 0.06, 0.06, 0xf08a1a); g.blob(sx, 2.75, -0.12, 0.44, 0.44, 0.07, 0xf08a1a, 10); g.blob(sx, 2.75, -0.2, 0.37, 0.37, 0.04, 0xd8e8f0, 10); }
+        g.at(0, 0, 0); }
       if ((t === 1 || t === 2) && nConn === 2 && (ew !== ns) && this.fine()) { // 行き止まり（つながりが 1 つ）には置かない
         const hv = ((x * 73856093) ^ (y * 19349663)) >>> 0, kind = hv % 11, side = Wd - 0.7, along = ((hv >> 8) % 3 - 1) * 6;
         const qx = cx + (ew ? along : side), qz = cz + (ew ? side : along), qy = hA(qx, qz), ox = ew ? 0 : -1, oz = ew ? -1 : 0; // ox/oz：道路側を向く
@@ -1106,12 +1118,15 @@ export class View {
       for (const j of [i + 1, i + W]) {
         if (j % W === 0 && j === i + 1) continue;
         const q = poles.get(j); if (!q || s.road[j] !== 1 || stNo.has(i) || stNo.has(j)) continue;
-        for (const dy of [8.3, 7.4]) g.quad([p[0], p[1] + dy, p[2]], [q[0], q[1] + dy, q[2]], [q[0], q[1] + dy + 0.05, q[2]], [p[0], p[1] + dy + 0.05, p[2]], 0x2c2e30);
-        for (const dy of [8.3, 7.4]) g.quad([q[0], q[1] + dy, q[2]], [p[0], p[1] + dy, p[2]], [p[0], p[1] + dy + 0.05, p[2]], [q[0], q[1] + dy + 0.05, q[2]], 0x2c2e30);
+        // v86：電線は柱の間でたるませる（高圧線 2 本と、低い所の太い通信ケーブル）
+        const m3 = (a: number) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2 + a, (p[2] + q[2]) / 2] as [number, number, number];
+        for (const [dy, sg, th, col] of [[8.3, 0.45, 0.05, 0x2c2e30], [7.4, 0.4, 0.05, 0x2c2e30], [5.9, 0.3, this.fine() ? 0.1 : 0, 0x222325]] as const) { if (!th) continue; const M = m3(dy - sg);
+          for (const [A, B] of [[[p[0], p[1] + dy, p[2]], M], [M, [q[0], q[1] + dy, q[2]]]] as [[number, number, number], [number, number, number]][]) { g.quad(A, B, [B[0], B[1] + th, B[2]], [A[0], A[1] + th, A[2]], col); g.quad(B, A, [A[0], A[1] + th, A[2]], [B[0], B[1] + th, B[2]], col); } }
       }
     }
     const mesh = new THREE.Mesh(g.build(!!REAL), this.matRoad); mesh.receiveShadow = true; mesh.castShadow = false; mesh.frustumCulled = false;
     this.scene.add(mesh); this.groups.roads.push(mesh);
+    if (kit.ix.length) { const km = new THREE.Mesh(kit.build(), roadKitMat()); km.receiveShadow = true; km.frustumCulled = false; this.scene.add(km); this.groups.roads.push(km); }
     if (this.lamps) { this.scene.remove(this.lamps); this.lamps.geometry.dispose(); }
     const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(lampPos), 3));
     this.lamps = new THREE.Points(lg, this.matLamp); this.lamps.frustumCulled = false; this.scene.add(this.lamps);
@@ -1197,7 +1212,7 @@ export class View {
     return true;
   }
   /** 水路（掘った運河：石の護岸と水面、岸の散歩道）と歩道橋（道路をまたぐ青い橋と両側の階段） */
-  private drawWaterWorks(s: GameState, g: Geo): void {
+  private drawWaterWorks(s: GameState, g: Geo, kit?: Geo): void {
     const m = this.map, hA = (x: number, z: number) => heightAt(m, x, z), canal = new Set(s.canal ?? []);
     const wet = (x: number, y: number) => inMap(x, y) && (canal.has(idx(x, y)) || !!m.water[idx(x, y)]);
     for (const i of canal) {
@@ -1231,7 +1246,12 @@ export class View {
       g.at(cx, h, cz, ew ? 0 : Math.PI / 2); // 道路が東西なら、待合所は道路の南の歩道
       g.box(-3, 0, hw + 0.2, 0.15, 2.6, 0.15, 0x6a6f76); g.box(-6, 0, hw + 0.2, 0.15, 2.6, 0.15, 0x6a6f76);
       g.box(-4.5, 2.6, hw + 0.4, 4, 0.18, 1.6, 0x2a4a7a); g.box(-4.5, 0.5, hw + 0.9, 3.4, 0.12, 0.6, 0x8a6a4a); g.box(-4.5, 0.2, hw + 1.15, 3.6, 2.3, 0.08, 0xbfd8e8);
-      g.box(1.5, 0, hw + 0.3, 0.12, 2.8, 0.12, 0x9aa0a6); g.cyl(1.5, 2.8, hw + 0.3, 0.6, 0.12, 0x2a4a7a, 10, 0xf2f2f2); // 停留所の標識
+      g.box(1.5, 0, hw + 0.3, 0.12, 2.8, 0.12, 0x9aa0a6);
+      if (kit && this.fine()) { // v86：停留所の標識は丸い板（緑の輪とバスの絵）を両面に、柱に時刻表、待合所の中にベンチ
+        g.box(1.5, 2.45, hw + 0.3, 0.06, 1.0, 1.0, 0x9aa0a6); g.box(1.5, 1.0, hw + 0.3, 0.2, 0.7, 0.45, 0xf2f2ee); g.box(-4.5, 0.42, hw + 0.95, 3.2, 0.08, 0.4, 0x7a5a3a);
+        const r2 = ew ? 0 : Math.PI / 2, c = Math.cos(r2), sn = Math.sin(r2), wx = cx + 1.5 * c + (hw + 0.3) * sn, wz = cz - 1.5 * sn + (hw + 0.3) * c;
+        for (const f of [-1, 1]) face(kit, RK.sBus, wx + c * f * 0.04, h + 2.95, wz - sn * f * 0.04, c * f, -sn * f, 0.95, 0.95);
+      } else g.cyl(1.5, 2.8, hw + 0.3, 0.6, 0.12, 0x2a4a7a, 10, 0xf2f2f2); // 停留所の標識
       g.at(0, 0, 0);
     }
     for (const i of s.footbridge ?? []) {
@@ -1298,9 +1318,9 @@ export class View {
   private stSpots: StationSpot[] = [];
   /** 線路と一緒に描いた駅（町の塊では描かない） */
   private railStations = new Set<number>();
-  private drawRails(s: GameState, g: Geo, lampPos?: number[]): void {
+  private drawRails(s: GameState, g: Geo, lampPos?: number[], kit?: Geo): void {
     this.railPaths = buildRailPaths(s, this.map);
-    const r = drawRailPaths(g, s, this.map, this.railPaths); if (lampPos) for (const v of r.lamps) lampPos.push(v);
+    const r = drawRailPaths(g, s, this.map, this.railPaths, !this.fine() ? 0 : this.quality === 'high' ? 2 : 1, kit); if (lampPos) for (const v of r.lamps) lampPos.push(v);
     this.gates = r.gates; this.gateAng = r.gates.map(() => Math.PI / 2); this.stSpots = r.spots;
     const ids = r.spots.map(o => o.id).sort((a, b) => a - b).join(',');
     if (ids !== [...this.railStations].sort((a, b) => a - b).join(',')) this.chunkSig.clear(); // 駅を線路側で描くかどうかが変わったら、町の塊を描き直す
