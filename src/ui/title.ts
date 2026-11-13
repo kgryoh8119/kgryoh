@@ -8,7 +8,7 @@ import { importCollected, isCollected } from '../mapgen/importer';
 export interface Choice { id: string; raw: any | null; save?: string; terrain?: string; contest?: number }
 /** 今週の大会：週の番号と、その週の地形（同じ週はみんな同じ地図・同じ条件） */
 export const contestWeek = () => Math.floor((Date.now() / 86400000 + 3) / 7);
-export const contestTerrain = (w: number) => TERRAINS[w % TERRAINS.length];
+export const contestTerrain = (w: number) => TERRAINS[w % 8]; // v88：無人島（特別シナリオ）は大会に出さない
 
 const esc = (t: string) => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const hasSave = (id: string) => { try { return !!localStorage.getItem(saveKey(id)); } catch { return false; } };

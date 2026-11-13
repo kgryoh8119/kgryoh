@@ -33,7 +33,7 @@ export async function open(w = 1440, h = 900, mapId = process.env.MAPID ?? 'sumi
   if (!process.env.TITLESHOT) await page.click(`#title [data-t="start"][data-id="${mapId}"]`);
   const tr = process.env.TERRAIN ?? 'coast';
   if (await page.$(`#title [data-t="terrain"][data-tr="${tr}"]`)) await page.click(`#title [data-t="terrain"][data-tr="${tr}"]`);
-  await page.waitForFunction(() => window.__sumu && window.__sumu.view.stats.buildings > 0, null, { timeout: 240000 });
+  await page.waitForFunction(tr => window.__sumu && (window.__sumu.view.stats.buildings > 0 || tr === 'castaway'), tr, { timeout: 240000 }); // v88：無人島ははじめ建物がない
   return { browser, page, errors };
 }
 if (process.argv[1].endsWith('/shot.mjs')) {

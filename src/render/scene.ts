@@ -298,6 +298,9 @@ ${road ? '' : `${body ? '' : `  { // v78：地図の外は、田畑・草地・�
   diffuseColor.rgb = cc; }`);
   };
 }
+/** v88：なめらかな値のむら（g 区画ごとの乱数を補間）。地面の色に使う */
+const vnoise = (x: number, y: number, g: number, k: number) => { const gx = Math.floor(x / g), gy = Math.floor(y / g), fx = x / g - gx, fy = y / g - gy, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy), q = (a: number, b: number) => hash(a, b, k);
+  return (q(gx, gy) * (1 - sx) + q(gx + 1, gy) * sx) * (1 - sy) + (q(gx, gy + 1) * (1 - sx) + q(gx + 1, gy + 1) * sx) * sy; };
 /** 最初にカメラを向ける場所（地図ごとの駅） */
 let START = { x: 0, z: 0 };
 /** はじめから区画（計算上の建物）があったタイル */
@@ -578,6 +581,13 @@ export class View {
     const isle = T === 'island';
     // v70：地形ごとの霞（山の地形は空気が澄んで遠くの峰まで見える。海辺は少し潮霞）
     this.fogBase = T === 'mountain' || T === 'inland' ? { near: 1500, far: 8200 } : T === 'lake' ? { near: 1300, far: 7200 } : T === 'urban' ? { near: 800, far: 4800 } : { near: 1100, far: 6200 };
+    if (T === 'castaway') { // v88：無人島。地図の外はすべて海（遠い北に本土の山なみだけ）
+      flat(-far, -far, MAPW + far, MAPH + far, -3.4, 0x4f6658);
+      const og = new THREE.PlaneGeometry(MAPW + far * 2, MAPH + far * 2); og.rotateX(-Math.PI / 2);
+      const ocean = new THREE.Mesh(og, this.matWater); ocean.position.set(MAPW / 2, -1.55, MAPH / 2); this.scene.add(ocean);
+      const om = new THREE.Mesh(outer.build(), this.matTerrain); om.receiveShadow = true; this.scene.add(om);
+      this.target.set(70 * TILE, 0, 80 * TILE); this.want.x = 70 * TILE; this.want.z = 80 * TILE; this.want.dist = this.dist = 1400; return; // はじめは南の入り江（上陸する所）を見る
+    }
     flat(-far, -far, MAPW + far, 0, -0.02, G);
     if (isle) { flat(-far, 0, 0, 24.5 * TILE, -0.02, G); flat(-far, 24.5 * TILE, 0, RY * TILE, -3.2, 0x566b5a); flat(MAPW, 0, MAPW + far, RY * TILE, -3.2, 0x566b5a); }
     else { flat(-far, 0, 0, RY * TILE, -0.02, G); flat(MAPW, 0, MAPW + far, RY * TILE, -0.02, G); }
@@ -649,7 +659,8 @@ export class View {
       let y = heightAt(m, x, z);
       if (this.cutKey) { const ax = i % SUB === 0 ? [i / SUB - 1, i / SUB] : [Math.floor(i / SUB)], az = j % SUB === 0 ? [j / SUB - 1, j / SUB] : [Math.floor(j / SUB)]; let n = 0, cc = 0; for (const a of ax) for (const b of az) { n++; if (cutT(a, b)) cc++; } if (cc) y -= 6.5 * cc / n; }
       pos[k] = x; pos[k + 1] = y; pos[k + 2] = z;
-      const n = hash(Math.floor(i / 2), Math.floor(j / 2), 91) * 0.5 + hash(i, j, 17) * 0.5;
+      // v88：地面の色のむらを、20m 角の乱数（上空から市松模様に見えた）から、なめらかな大小 2 つのむらに
+      const n = vnoise(i / SUB, j / SUB, 5, 91) * 0.55 + vnoise(i / SUB, j / SUB, 1.4, 17) * 0.3 + hash(i, j, 17) * 0.15;
       c.setHex(0x6c9a52).lerp(c2.setHex(0x86b160), n);
       const tx = Math.min(W - 1, Math.floor(x / TILE)), tz = Math.min(H - 1, Math.floor(z / TILE)), ti = idx(tx, tz);
       if (m.forest[ti]) c.lerp(c2.setHex(0x4f7f45), 0.6);
@@ -658,7 +669,11 @@ export class View {
         if (dc === 1) c.lerp(c2.setHex(0xe6d6a6).lerp(new THREE.Color(0xd8c48e), n), 0.9);        // 砂浜
         else if (dc === 4) c.lerp(c2.setHex(0xb9b3a0).lerp(new THREE.Color(0x9aa08a), n), 0.75);  // 河原（石と草）
         else if (dc === 3) c.lerp(c2.setHex(0x8b8a7e).lerp(new THREE.Color(0x6f7566), n), 0.7);   // 岩肌
-        else if (dc === 5) c.setHex(0xf2f5f8).lerp(c2.setHex(0xd2dce6), n * 0.5); }               // 雪をかぶった頂
+        else if (dc === 5) c.setHex(0xf2f5f8).lerp(c2.setHex(0xd2dce6), n * 0.5);                // 雪をかぶった頂
+        else if (dc === 6) { const rw = 0.5 + 0.5 * Math.sin(((tz & 1) ? x : z) * 0.9); c.lerp(c2.setHex(0x8a6e4c).lerp(new THREE.Color(0x6f8a48), rw * 0.7), 0.7); } // v88：畑（土とうねの作物）
+        else if (dc === 7) c.lerp(c2.setHex(0x9aa868).lerp(new THREE.Color(0x7f9a58), n), 0.55);  // 草地（野原）
+        else if (dc === 8) c.lerp(c2.setHex(0x3f6a3c), 0.7);                                       // 屋敷林・雑木林の跡
+        else if (dc === 9) c.lerp(c2.setHex(0xa89a7a).lerp(new THREE.Color(0x8f9a6a), n), 0.6); } // 空き地（土と雑草）
       if (m.sand?.[ti]) c.lerp(c2.setHex(0xdcc894).lerp(new THREE.Color(0xcdb67c), n), 0.85);
       if (m.wet?.[ti]) c.lerp(c2.setHex(0x6b7444), 0.7);
       if (m.dug?.[ti]) c.lerp(c2.setHex(0x8c7c5c), 0.7); // 掘った池の岸と底
@@ -698,6 +713,10 @@ export class View {
     const wg = new Geo(), mg = new Geo(), tId = terrainOf(m.seed).id;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = idx(x, y), dug = m.dug?.[i], wet = m.wet?.[i];
+      if (!dug && !wet && tId === 'castaway') { // v88：無人島の沢と湧水の池（海は地図の外の海面が覆う）
+        if (!m.water[i]) continue; const S = W + 1, lo = Math.min(m.heights[y * S + x], m.heights[y * S + x + 1], m.heights[(y + 1) * S + x], m.heights[(y + 1) * S + x + 1]); if (lo < -1.2) continue;
+        wg.quad([x * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, y * TILE], [x * TILE, lo + 0.35, y * TILE], 0x3f7fa6); continue;
+      }
       if (!dug && !wet) { // 地形の水面（大河・湖・島の海）。南の川とため池は別に描く
         if (!m.water[i] || REAL || tId === 'coast' || y >= H - 4 || Math.hypot(x + 0.5 - 44.5, y + 0.5 - 50.5) < 2.1 || (W > 76 && Math.hypot(x + 0.5 - 112.5, y + 0.5 - 72.5) < 2.5) || (m.base && !m.base.water[i])) continue;
         { const Y = -1.44; wg.quad([x * TILE, Y, (y + 1) * TILE], [(x + 1) * TILE, Y, (y + 1) * TILE], [(x + 1) * TILE, Y, y * TILE], [x * TILE, Y, y * TILE], 0x3f7fa6); } continue; // 外の海（-1.55 / -1.62）と重なる所で面がちらつかないよう、高さを離す
@@ -774,12 +793,13 @@ export class View {
         g.surfv = -2; g.quadN(v, nn, cA.getHex(), shv); g.surfv = -1; } // -2：季節の色替え（春の桜色・秋の紅葉）をしない面。遠くの山に掛かると、点々の雑音に見える
     };
     g.surfv = -1; // 遠くの山には壁や地面の細かい模様をつけない（砂利の山のように見える）
-    const NP = tId === 'mountain' || tId === 'inland' ? 64 : tId === 'rural' ? 40 : tId === 'coast' || tId === 'island' ? 26 : 46;
+    const NP = tId === 'castaway' ? 7 : tId === 'mountain' || tId === 'inland' ? 64 : tId === 'rural' ? 40 : tId === 'coast' || tId === 'island' ? 26 : 46;
     for (let k = 0; k < NP; k++) {
       let a = (k / NP) * Math.PI * 2 + hash(k, 1, 9) * 0.1;
       if ((tId === 'coast' || tId === 'island') && Math.sin(a) > -0.15) a = -Math.PI / 2 + (hash(k, 6, 9) - 0.5) * 2.6; // 海の側（南）には山を置かない
+      if (tId === 'castaway') a = -Math.PI / 2 + (k / 6 - 0.5) * 1.6; // v88：無人島は、はるか北の本土の山なみだけ
       const big = tId === 'mountain' || tId === 'inland' || (tId === 'lake' && Math.cos(a) > 0.3); // 東西へ抜ける国道の先（真東・真西）には寄せない
-      const r = (big ? 1650 : 3000) + hash(k, 2, 9) * (big ? 1500 : 2200) + (Math.abs(Math.sin(a)) < 0.22 ? 900 : 0), hh = tId === 'rural' ? 110 + hash(k, 3, 9) * 200 : big ? 620 + hash(k, 3, 9) * 820 : 260 + hash(k, 3, 9) * 520;
+      const r = tId === 'castaway' ? 7600 + hash(k, 2, 9) * 900 : (big ? 1650 : 3000) + hash(k, 2, 9) * (big ? 1500 : 2200) + (Math.abs(Math.sin(a)) < 0.22 ? 900 : 0), hh = tId === 'rural' ? 110 + hash(k, 3, 9) * 200 : big ? 620 + hash(k, 3, 9) * 820 : 260 + hash(k, 3, 9) * 520;
       const rad = (tId === 'rural' ? 900 : 700) + hash(k, 4, 9) * 700;
       let px = MAPW / 2 + Math.cos(a) * r, pz = MAPH / 2 + Math.sin(a) * r;
       // すそ（半径の約 1.25 倍）が地図の中や手前にかからないよう、外へ押し出す（前は地図の端に謎の壁のように立っていた）
@@ -3254,7 +3274,9 @@ export class View {
     if (so !== this.sigOverlay) { this.sigOverlay = so; this.rebuildOverlay(s); }
     this.moveBuses(s, dt);
     this.moveShin(dt);
-    { const lk = `${s.unlocked ? s.unlocked.join(',') : '-'}:${this.sigTown}`; if (lk !== this.lockKey) { this.lockKey = lk; this.rebuildLock(s); } }
+    { const lk = `${s.unlocked ? s.unlocked.join(',') : '-'}:${this.sigTown}`; if (lk !== this.lockKey) { this.lockKey = lk; this.rebuildLock(s); }
+      // v88：全景（遠く）では、編入前の区域の暗幕と黄色い柵を薄くする（街の全景で地面の明るさの境目と黄色い線に見えていた）
+      const fl = 1 - Math.max(0, Math.min(1, (this.dist - 1600) / 1800)); this.matLock.opacity = 0.3 * (0.35 + 0.65 * fl); this.matLockLine.opacity = 0.75 * fl; if (this.lockLine) this.lockLine.visible = fl > 0.02; }
     this.updateCamera(dt);
     this.updateRide(); // 遠近の切り替え（LOD）などに乗り物の視点を使う。最後にもう一度合わせ直す
     this.updateSky2(dt);

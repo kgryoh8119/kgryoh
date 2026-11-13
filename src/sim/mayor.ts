@@ -4,6 +4,7 @@ import type { GameState, Kind } from './types';
 import { W, H, DEFS, countOp } from './config';
 import type { Difficulty } from './config';
 import { REAL } from './real';
+import { isCastaway } from './map';
 
 // ---------------------------------------------------------------- 市長レベル
 /** v43：はじめの数年でレベルが上がりすぎないように、必要なポイントを見直した（自動で遊ぶと Lv2 が 2〜4 年目、Lv5 が 16〜19 年目） */
@@ -71,7 +72,7 @@ export function initLocks(s: GameState): void {
   const n = new Array(BX * BY).fill(0);
   for (let i = 0; i < W * H; i++) if (s.occ[i]) n[blockOf(i)]++;
   const un = n.map((v, b) => (v >= 15 ? b : -1)).filter(b => b >= 0);
-  s.unlocked = un.length ? un : [5, 6, 9, 10];
+  s.unlocked = isCastaway(s.seed) ? Array.from({ length: BX * BY }, (_, b) => b) : un.length ? un : [5, 6, 9, 10]; // v88：無人島は島全体が村の区域
   s.mayor = s.mayor ?? newMayor();
   s.mayor.annex = Math.max(s.mayor.annex, mayorDiff(s).start);
 }

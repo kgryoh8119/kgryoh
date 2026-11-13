@@ -30,3 +30,4 @@ export * from './threats';
 export * from './macro';
 export { monthlyIssues, allIssues, careCause, ISSUE_W } from './issues';
 export type { Issue, IssueOption } from './issues';
+export * from './isle';

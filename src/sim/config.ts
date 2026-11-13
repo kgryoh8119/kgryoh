@@ -46,7 +46,7 @@ export const P = {
   housingPref: [
     [0.2, 1, 0.8], [0.6, 0.8, 1], [0.9, 0.6, 1], [1, 0.4, 0.6], [1, 0.6, 0.3],
   ],
-  rent: { house: 7, apartment: 7.5, mansion: 11, towerMansion: 14, danchi: 5, newTown: 7.5, shataku: 4, studentDorm: 4, shareHouse: 5, sakouju: 12, yuryoRojin: 16, groupHome: 10, nagaya: 4.5, kominka: 5, besso: 9, nisetai: 8.5, hiraya: 7, garageHouse: 9, gatedTown: 16, tinyVillage: 4, kasetsu: 0.5, jiritsu: 1 } as Record<string, number>, // 住居費（万円/月）
+  rent: { house: 7, apartment: 7.5, mansion: 11, towerMansion: 14, danchi: 5, newTown: 7.5, shataku: 4, studentDorm: 4, shareHouse: 5, sakouju: 12, yuryoRojin: 16, groupHome: 10, nagaya: 4.5, kominka: 5, besso: 9, nisetai: 8.5, hiraya: 7, garageHouse: 9, gatedTown: 16, tinyVillage: 4, kasetsu: 0.5, jiritsu: 1, kaitaku: 2 } as Record<string, number>, // 住居費（万円/月）
   targetVacancy: 0.05,
 
   // --- 保育・学校 ---
@@ -215,6 +215,8 @@ export interface Def {
   unlock?: number;
   /** 増築できる最大のレベル（0 は増築なし） */
   lvMax?: number;
+  /** v88：無人島のシナリオだけで建てられる */
+  isle?: boolean;
 }
 
 const base = { staffReq: 0, staffKind: '', wage: 0, hire: 0, capacity: 0, capUnit: '', ageRate: 0, renewCost: 0, renewMonths: 0, renewFactor: 1, upkeep: 0, cost: 0 };
@@ -932,6 +934,18 @@ export const DEFS: Record<Kind, Def> = {
   // メガソーラーの型：市営メガソーラー（3×3・18,000 万円・900 世帯）と面積あたり同じ水準。斜面は造成と土砂の対策で費用が 1 割高く、水上は水で冷えて発電量が 1 割多い
   solarSlope: { ...city('power', 'infra'), name: '斜面のメガソーラー', note: '山の斜面に段々にパネルを並べる大きな太陽光発電所。急斜面の近くに置きます。造成で費用が高く、土砂の流出と景観を気にする声があります。', lvMax: 0, w: 4, h: 4, cost: 36000, months: 12, upkeep: 50, capacity: 1600, capUnit: '世帯相当（発電）', gen: 1600, income: 260, ageRate: 0.2, renewCost: 16000, renewMonths: 4, renewFactor: 0.5 },
   solarFloat: { ...city('power', 'infra'), name: '水上メガソーラー（ため池）', note: 'ため池の水面にパネルを浮かべる太陽光発電所。土地を使わず、水で冷えて発電量が少し多い。水辺の近くに置きます。', lvMax: 0, w: 3, h: 3, cost: 21000, months: 8, upkeep: 30, capacity: 1000, capUnit: '世帯相当（発電）', gen: 1000, income: 170, ageRate: 0.2, renewCost: 10000, renewMonths: 3, renewFactor: 0.5, req: 'water' },
+  // ---- v88：無人島（特別シナリオ）の施設。isle の印のものは無人島でだけ建てられる ----
+  pier: { ...city('transport', 'transport'), name: '桟橋（船着き場）', note: '【無人島】定期船が着く木の桟橋。桟橋に面した道路が、島の外との出入口になります（ここに道路でつながった区画だけが使えます）。水辺から 90m 以内。維持費は定期船の運航の補助です。', lvMax: 0, w: 2, h: 1, cost: 1200, months: 3, upkeep: 40, capacity: 0, capUnit: '', ageRate: 0.25, renewCost: 500, renewMonths: 1, renewFactor: 0.5, req: 'water', isle: true },
+  well: { ...city('water', 'infra'), name: '井戸（手押しポンプ）', note: '【無人島】地下水をくみ上げる井戸。安くすぐできますが、30 世帯分まで。日照りの年は水が減ります。', lvMax: 0, w: 1, h: 1, cost: 200, months: 1, upkeep: 3, capacity: 30, capUnit: '世帯', ageRate: 0.2, renewCost: 80, renewMonths: 1, renewFactor: 0.5, isle: true },
+  rainTank: { ...city('water', 'infra'), name: '雨水タンク', note: '【無人島】屋根の雨水をためる大きなタンク。12 世帯分。雨が少ないと減ります。', lvMax: 0, w: 1, h: 1, cost: 120, months: 1, upkeep: 2, capacity: 12, capUnit: '世帯', ageRate: 0.25, renewCost: 50, renewMonths: 1, renewFactor: 0.5, isle: true },
+  miniWater: { ...city('water', 'infra'), name: '簡易浄水施設（沢の水）', note: '【無人島】沢や湧水の水をろ過・消毒して配る小さな浄水施設。400 世帯分。水辺から 90m 以内。島が大きくなったら海水淡水化プラントへ。', lvMax: 0, w: 2, h: 1, cost: 3500, months: 6, upkeep: 60, staffReq: 2, staffKind: '技術職員', wage: 40, hire: 1, capacity: 400, capUnit: '世帯', ageRate: 0.2, renewCost: 1500, renewMonths: 2, renewFactor: 0.5, req: 'water', isle: true },
+  dieselGen: { ...city('power', 'infra'), name: 'ディーゼル発電機', note: '【無人島】すぐに電気が使える発電機（150 世帯相当）。燃料の軽油を船で運ぶので、維持費がとても高く、音と排気が出ます。太陽光や風力に置き換えていきます。', lvMax: 0, w: 1, h: 1, cost: 600, months: 1, upkeep: 160, capacity: 150, capUnit: '世帯相当（発電）', gen: 150, ageRate: 0.3, renewCost: 300, renewMonths: 1, renewFactor: 0.5, pollution: 0.4, isle: true },
+  solarKit: { ...city('power', 'infra'), name: '太陽光パネルと蓄電池', note: '【無人島】小さな太陽光パネルと、夜に使う蓄電池の組（70 世帯相当）。燃料が要らず、維持費が安い。', lvMax: 0, w: 1, h: 1, cost: 1500, months: 2, upkeep: 6, capacity: 70, capUnit: '世帯相当（発電）', gen: 70, ageRate: 0.2, renewCost: 700, renewMonths: 1, renewFactor: 0.5, isle: true },
+  kaitaku: { ...city('res', 'housing'), name: '開拓小屋', note: '【無人島】開拓者が最初に暮らす木の小屋（4 世帯）。市が建て、桟橋につながった道路に面していれば、定期船で開拓者が移ってきます。', lvMax: 0, w: 1, h: 1, cost: 150, months: 2, upkeep: 1, capacity: 0, capUnit: '', ageRate: 0.3, renewCost: 60, renewMonths: 1, renewFactor: 0.5, units: 4, isle: true },
+  musenTower: { ...city('telecom', 'infra'), name: '無線中継塔', note: '【無人島】本土と無線でつなぐ中継塔。電話とインターネットが 600 世帯分使えるようになり、急病の連絡もできます。', lvMax: 0, w: 1, h: 1, cost: 800, months: 3, upkeep: 10, capacity: 600, capUnit: '世帯相当（通信）', ageRate: 0.15, renewCost: 300, renewMonths: 1, renewFactor: 0.5, isle: true },
+  miniIncin: { ...city('waste', 'infra'), name: '小型焼却炉', note: '【無人島】島のごみを島で燃やす小さな炉（400 世帯分）。灰は埋め立てます。煙が出るので、住宅から少し離して。', lvMax: 0, w: 1, h: 1, cost: 2500, months: 4, upkeep: 45, staffReq: 1, staffKind: '技術職員', wage: 40, hire: 1, capacity: 400, capUnit: '世帯', ageRate: 0.25, renewCost: 1000, renewMonths: 2, renewFactor: 0.5, pollution: 0.6, isle: true },
+  kaitakuFarm: { ...city('agri', 'agri'), name: '開拓の畑', note: '【無人島】森を切り開いた畑。いも・野菜で 40 世帯分の食べ物をまかないます。島で採れない分は船で運ぶので、その運賃が毎月かかります。', lvMax: 0, w: 2, h: 2, cost: 400, months: 4, upkeep: 4, capacity: 40, capUnit: '世帯分（食料）', jobs: 6, ageRate: 0.1, renewCost: 150, renewMonths: 1, renewFactor: 0.5, green: 0.3, isle: true },
+  fishRaft: { ...city('agri', 'agri'), name: '漁船だまりと養殖いかだ', note: '【無人島】小さな漁船の船だまりと、魚・貝を育てるいかだ。120 世帯分の食べ物と、漁の仕事。水辺から 90m 以内。', lvMax: 0, w: 2, h: 1, cost: 1800, months: 6, upkeep: 12, capacity: 120, capUnit: '世帯分（食料）', jobs: 15, ageRate: 0.15, renewCost: 700, renewMonths: 2, renewFactor: 0.5, req: 'water', isle: true },
 };
 
 export const RES_KINDS: Kind[] = ['house', 'apartment', 'mansion', 'towerMansion'];
@@ -944,13 +958,13 @@ export const NIMBY: Partial<Record<Kind, [number, number]>> = {
   waste: [0.5, 2], wasteL: [0.8, 3], recycleCenter: [0.4, 2], sewage: [0.4, 2], sewageS: [0.2, 1], factory: [0.6, 2], smallFactory: [0.2, 1], industrialPark: [0.5, 3],
   coalPower: [1, 4], lngPower: [0.7, 3], nuclear: [1, 5], biomass: [0.4, 2], windFarm: [0.3, 2], substation: [0.2, 1], gas: [0.3, 1],
   airport: [1, 5], vertiport: [0.3, 2], port: [0.4, 3], logistics: [0.4, 2], semicon: [0.3, 2], battery: [0.4, 2], foodFactory: [0.2, 1], pharma: [0.2, 1],
-  crematorium: [0.7, 3], cemetery: [0.2, 1], funeralHall: [0.2, 1], prison: [0.8, 4], kochisho: [0.5, 2], shonenin: [0.4, 2], kanbetsu: [0.2, 1], hogoKansatsu: [0.3, 1], fbo: [0.3, 2], solarSlope: [0.2, 1], pylon: [0.1, 1], sdfBase: [0.6, 4], shipyard: [0.6, 3], racecourse: [0.3, 2], market: [0.3, 2], pachinko: [0.25, 1], smr: [0.6, 3], offshoreWind: [0.2, 2], yokocho: [0.1, 1], nightDistrict: [0.35, 2], fuzokuDistrict: [0.8, 3], carPlant: [0.6, 3], heavyInd: [0.6, 3], foodMaker: [0.2, 1], spaceport: [0.5, 4], casino: [0.5, 3], boatRace: [0.3, 2], keirin: [0.3, 2], robotFactory: [0.3, 2], usBase: [1.0, 5], oilRefinery: [0.6, 4], oilField: [0.3, 2],
+  crematorium: [0.7, 3], cemetery: [0.2, 1], funeralHall: [0.2, 1], prison: [0.8, 4], kochisho: [0.5, 2], shonenin: [0.4, 2], kanbetsu: [0.2, 1], hogoKansatsu: [0.3, 1], fbo: [0.3, 2], dieselGen: [0.3, 1], miniIncin: [0.4, 2], solarSlope: [0.2, 1], pylon: [0.1, 1], sdfBase: [0.6, 4], shipyard: [0.6, 3], racecourse: [0.3, 2], market: [0.3, 2], pachinko: [0.25, 1], smr: [0.6, 3], offshoreWind: [0.2, 2], yokocho: [0.1, 1], nightDistrict: [0.35, 2], fuzokuDistrict: [0.8, 3], carPlant: [0.6, 3], heavyInd: [0.6, 3], foodMaker: [0.2, 1], spaceport: [0.5, 4], casino: [0.5, 3], boatRace: [0.3, 2], keirin: [0.3, 2], robotFactory: [0.3, 2], usBase: [1.0, 5], oilRefinery: [0.6, 4], oilField: [0.3, 2],
 };
 export const BUILD_KINDS: Kind[] = (Object.keys(DEFS) as Kind[]).filter(k => DEFS[k].build !== 'none');
 /** 誘致して建てる住宅（v49）。ふつうの住宅と同じく世帯が入居する */
 /** 誘致する住宅が、ふつうの住宅のどれに近いか（住み手の好み・家賃の計算に使う） */
-export const RES_TYPE: Record<string, 'house' | 'apartment' | 'mansion'> = { danchi: 'apartment', newTown: 'house', shataku: 'apartment', studentDorm: 'apartment', shareHouse: 'apartment', sakouju: 'apartment', yuryoRojin: 'apartment', groupHome: 'apartment', nagaya: 'apartment', kominka: 'house', besso: 'house', nisetai: 'house', hiraya: 'house', garageHouse: 'house', gatedTown: 'mansion', tinyVillage: 'house', kasetsu: 'apartment', jiritsu: 'apartment' };
-export const HOUSING_EXTRA = new Set<Kind>(['danchi', 'newTown', 'shataku', 'studentDorm', 'shareHouse', 'sakouju', 'yuryoRojin', 'groupHome', 'nagaya', 'kominka', 'besso', 'nisetai', 'hiraya', 'garageHouse', 'gatedTown', 'tinyVillage', 'kasetsu', 'jiritsu']);
+export const RES_TYPE: Record<string, 'house' | 'apartment' | 'mansion'> = { danchi: 'apartment', newTown: 'house', shataku: 'apartment', studentDorm: 'apartment', shareHouse: 'apartment', sakouju: 'apartment', yuryoRojin: 'apartment', groupHome: 'apartment', nagaya: 'apartment', kominka: 'house', besso: 'house', nisetai: 'house', hiraya: 'house', garageHouse: 'house', gatedTown: 'mansion', tinyVillage: 'house', kasetsu: 'apartment', jiritsu: 'apartment', kaitaku: 'house' };
+export const HOUSING_EXTRA = new Set<Kind>(['danchi', 'newTown', 'shataku', 'studentDorm', 'shareHouse', 'sakouju', 'yuryoRojin', 'groupHome', 'nagaya', 'kominka', 'besso', 'nisetai', 'hiraya', 'garageHouse', 'gatedTown', 'tinyVillage', 'kasetsu', 'jiritsu', 'kaitaku']);
 export const isRes = (k: Kind) => k === 'house' || k === 'apartment' || k === 'mansion' || k === 'towerMansion' || HOUSING_EXTRA.has(k);
 export const isShop = (k: Kind) => k === 'bakery' || k === 'shop' || k === 'supermarket' || k === 'konbini' || k === 'cafe' || k === 'drugstore';
 export const isCity = (k: Kind) => DEFS[k].build === 'city';

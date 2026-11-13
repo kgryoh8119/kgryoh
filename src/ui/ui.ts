@@ -16,7 +16,7 @@ import {
   CHALLENGES, CH, maxLv, stageName, upgradeBlock, expandCost, optionsFor, optSlots, optCost, STYLES, STYLE_COST, sponsorOf, moveCost,
   LEVELS, MEDALS, RANK_CATS, N_CITIES, mayorDiff, MAYOR_DIFF, levelOf, blockRect, blockName, annexable, BX, BY,
   planStreet, planRailKind, rerunRules, RERUN, monthlyIssues, allIssues, type Issue, WIN_VOTE, voteText, fiscalWatch, RAILKIND_NAME, modAdd, THREATS, SECTORS, sectorOf, industryBalance, rateAdd, type Macro, REAL, MAP_ID, mapEntry, baseEntry, TILE, monthlyBudget, pledgeStatus, GOALS, VISIONS, CAT_NAMES, BUILD_KINDS, fam, lvOf, LV_CAP, SV_NAMES, goalProgress, visionProgress, electionOutlook, upgradeCost, buildCost, CIVIC, isBiz, NEIGHBOR_SEED, DIFFS, diffOf, rerunCheck, teamCheck, teamVenue, SPORTS, upkeepOf, staffReq, designCap, sumHH, roadCapacity, checkPlace, lineTiles, rectTiles, planRoad, planTunnel, planBridge, planOverpass, planFootbridge, planCanal, planBusStop, planLevee, planArea, planTerra, planWiden, planFlyover, TERRA_NAMES, planUnroad, planRepair, planZone, planRail, planRailGrade, planUnrail, fiscalCrisis, tempDebt, ledgerGap, stationUpCheck, shinCheck, eventDef, forecastAsync, modMul,
-  stationStats, FREQS, DOOR_COST, SUBWAY_COST, BIDS, bidChance, STYLES_M, REC_PLANS, hasOp, terrainOf, missionsFor, calMonth, POSTS, candidates, execOf, landOf, landPrices, routeStats, FREQ, MAX_ROUTES, citsOf, CIT_N, voteForecast, FACTIONS, PLANS, LOBBY_COST, SPEECH_COST, ADS_COST, monthsToElection, campaignOpen, PRESS, grantChance, PETITION_COST, GRANTS, GRANT_COOL, APPLY_COST, FESTS, pyramid, projection,
+  stationStats, FREQS, DOOR_COST, SUBWAY_COST, BIDS, bidChance, STYLES_M, REC_PLANS, hasOp, terrainOf, isCastaway, missionsFor, calMonth, POSTS, candidates, execOf, landOf, landPrices, routeStats, FREQ, MAX_ROUTES, citsOf, CIT_N, voteForecast, FACTIONS, PLANS, LOBBY_COST, SPEECH_COST, ADS_COST, monthsToElection, campaignOpen, PRESS, grantChance, PETITION_COST, GRANTS, GRANT_COOL, APPLY_COST, FESTS, pyramid, projection,
 } from '../sim/index';
 import type { GameState, Building, Kind, Zone, Layer, ForecastSet, Action, TilePlan, Cat, TerraOp, MissionDef } from '../sim/index';
 import { sound } from '../audio/sound';
@@ -972,9 +972,10 @@ export class UI {
         T('reset', '選んだ区画を、造作する前の元の地形に戻します');
     }
     else if (this.group === 'build') {
-      const cats = (Object.keys(CAT_NAMES) as Cat[]).filter(c => BUILD_KINDS.some(k => DEFS[k].cat === c && (k !== 'station' || this.s.rail)));
+      const isle = isCastaway(this.s.seed), BK = BUILD_KINDS.filter(k => !DEFS[k].isle || isle).sort((a, b) => (DEFS[b].isle ? 1 : 0) - (DEFS[a].isle ? 1 : 0)); // v88：無人島の施設は島でだけ、先頭に
+      const cats = (Object.keys(CAT_NAMES) as Cat[]).filter(c => BK.some(k => DEFS[k].cat === c && (k !== 'station' || this.s.rail)));
       if (!cats.includes(this.bcat)) this.bcat = cats[0];
-      const kinds = BUILD_KINDS.filter(k => DEFS[k].cat === this.bcat && (k !== 'station' || this.s.rail));
+      const kinds = BK.filter(k => DEFS[k].cat === this.bcat && (k !== 'station' || this.s.rail));
       const how = (k: Kind) => DEFS[k].build === 'invite' ? '<span class="tag">誘致</span> ' : DEFS[k].build === 'request' ? '<span class="tag">要望</span> ' : '';
       f.innerHTML = `<h3>施設を建てる・誘致する</h3><div class="btnrow cats">${cats.map(c => `<button class="seg" data-act="bcat" data-arg="${c}" aria-pressed="${this.bcat === c}">${CAT_NAMES[c]}</button>`).join('')}</div>
         <p>${this.bcat === 'biz' || this.bcat === 'industry' || this.bcat === 'commerce' ? '企業やホテル・工場・店は市が建てるのではなく、用地を整えて誘致します。条件（道路・駅・電力・知名度）と税で来てくれる見込みが変わり、失敗することもあります。' : '<b>市</b>の施設は市が建てて運営します。<span class="tag">要望</span>は県や事業者が建て、市は用地と負担金を出します。建設費は着工時に支出します。'}</p>` +

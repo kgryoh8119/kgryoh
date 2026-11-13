@@ -15,6 +15,7 @@ import { mayorAdd, mayorMul } from './mayor';
 import { optAdd, optMul, optCap } from './options';
 import { intlAdd, intlMul, intlVisitors } from './intl';
 import { execAdd, execMul, routeAdd, routeCarK } from './admin';
+import { shipGates } from './isle';
 
 /** 市外への出入口（道路でここにつながれば市外とつながる）。実在都市版では地図の縁の幹線道路 */
 const LIVESTOCK = new Set<string>(['poultry', 'pigFarm', 'beefRanch', 'dairy']);
@@ -40,18 +41,19 @@ export interface RoadInfo {
   n: number; nodes: Int32Array; nodeOf: Int32Array; adj: Int32Array; free: Float64Array;
   freeTrees: Map<number, Tree>;
 }
-const infoCache = new WeakMap<GameState, { ver: number; info: RoadInfo }>();
+const infoCache = new WeakMap<GameState, { ver: string; info: RoadInfo }>();
 
 /** 操作の取り消し後などに、道路の解析結果の使い回しをやめる */
 export function invalidateCaches(s: GameState): void { infoCache.delete(s); }
 
 /** 国道の市外接続点から道路でつながるタイル */
 export function roadInfo(s: GameState): RoadInfo {
+  const ships = shipGates(s), ver = ships.length ? s.roadVersion + ':' + ships.join(',') : String(s.roadVersion); // v88：無人島は桟橋・港に面した道路も出入口
   const c = infoCache.get(s);
-  if (c && c.ver === s.roadVersion) return c.info;
+  if (c && c.ver === ver) return c.info;
   const conn = new Uint8Array(N);
   const q: number[] = [];
-  for (const g of GATEWAYS) if (s.road[g]) { conn[g] = 1; q.push(g); }
+  for (const g of [...GATEWAYS, ...ships]) if (s.road[g] && !conn[g]) { conn[g] = 1; q.push(g); }
   for (let h = 0; h < q.length; h++) {
     const i = q[h], x = tx(i), y = ty(i);
     for (const [dx, dy] of NEIGH) {
@@ -73,7 +75,7 @@ export function roadInfo(s: GameState): RoadInfo {
     for (let e = 0; e < 4; e++) { const nx = x + NEIGH[e][0], ny = y + NEIGH[e][1]; if (inMap(nx, ny)) adj[k * 4 + e] = nodeOf[idx(nx, ny)]; }
   }
   const info: RoadInfo = { conn, dist: new Map<number, Int16Array>(), reach: new Map(), n, nodes, nodeOf, adj, free, freeTrees: new Map() };
-  infoCache.set(s, { ver: s.roadVersion, info });
+  infoCache.set(s, { ver, info });
   return info;
 }
 
@@ -689,7 +691,10 @@ export function recompute(s: GameState, lite = false): void {
   }
   const peak = modMul(s, 'peakTrips') * (hasOp(s, 'fiberHub') ? 0.96 : 1); // 光回線でテレワークが広がる
   const stTile = stationOk ? station!.acc : -1;
-  const g0 = node[THROUGH[0]], g1 = node[THROUGH[1]];
+  // v88：無人島で本土とつながっていなければ、桟橋・港が市外への出入口（通過交通はない）
+  const ships = shipGates(s), isleOnly = ships.length > 0 && !GATEWAYS.some(g => s.road[g]);
+  const gt0 = isleOnly ? ships[0] : THROUGH[0], gt1 = isleOnly ? ships[ships.length - 1] : THROUGH[1];
+  const g0 = node[gt0], g1 = node[gt1];
   const gwN = GATEWAYS.map(g => node[g]).filter(q => q >= 0);
   // 駅には、駅に面した道路のどこからでも入れる
   const stN: number[] = [], stOf = new Map<number, Building>();
@@ -717,7 +722,7 @@ export function recompute(s: GameState, lite = false): void {
     if (REAL) { dijkstra(G, gwN, cost, T0); dijkstra(G, g1, cost, T1); } else { dijkstra(G, g0, cost, T0); dijkstra(G, g1, cost, T1); }
     dijkstra(G, stN, cost, T2);
     const f = fr[k];
-    walk(g0, T1, P.throughTraffic * f);
+    if (!isleOnly) walk(g0, T1, P.throughTraffic * f);
     for (let ri = 0; ri < nRes; ri++) {
       const a = resNode[ri]; if (a < 0) continue;
       const gt = REAL || T0.d[a] <= T1.d[a] ? T0 : T1;
@@ -746,7 +751,7 @@ export function recompute(s: GameState, lite = false): void {
   // 所要時間（混雑あり・なし）
   if (REAL) { dijkstra(G, gwN, cost, T0); dijkstra(G, gwN, cost, T1); } else { dijkstra(G, g0, cost, T0); dijkstra(G, g1, cost, T1); }
   dijkstra(G, stN, cost, T2);
-  const F0 = REAL ? freeTree(G, -200, gwN) : freeTree(G, GATEWAYS[0]), F1 = REAL ? F0 : freeTree(G, GATEWAYS[1]), F2 = freeTree(G, -100, stN);
+  const F0 = REAL ? freeTree(G, -200, gwN) : freeTree(G, isleOnly ? gt0 : GATEWAYS[0]), F1 = REAL ? F0 : freeTree(G, isleOnly ? gt1 : GATEWAYS[1]), F2 = freeTree(G, -100, stN);
   // まちづくり版：駅ごとの朝の利用者と、面する線路の能力（単線・複線）。あふれると駅経由の通勤が遅くなる
   const resCrowd = new Float64Array(nRes).fill(1);
   st.railCrowd = 0;

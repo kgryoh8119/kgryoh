@@ -1,5 +1,5 @@
 // 地形。シードから毎回同じものを作るので GameState には保存しない。
-import { W, H, TILE } from './config';
+import { W, H, TILE, FIC_PREV_W, FIC_PREV_H } from './config';
 import { REAL, RF, onMapChange } from './real';
 
 export interface MapDef {
@@ -31,7 +31,7 @@ export interface MapDef {
   waterLv?: Float32Array;
   /** 造作の前の地形（元の地図） */
   base?: MapDef;
-  /** v70：地形の見た目だけの印（計算には使わない）。1 砂浜 2 田んぼ 3 岩肌 4 河原 5 雪の頂 */
+  /** v70：地形の見た目だけの印（計算には使わない）。1 砂浜 2 田んぼ 3 岩肌 4 河原 5 雪の頂。v88：6 畑 7 草地（野原） 8 屋敷林・雑木林の跡 9 空き地（土） */
   deco?: Uint8Array;
 }
 
@@ -131,18 +131,22 @@ export const TERRAINS = [
   { id: 'mountain', name: '山あいの村', desc: '東と南に険しい山。平地が少なく、過疎と土砂災害に向き合う。', lv: 4, city: '山里村' },
   { id: 'urban', name: '都会の街', desc: '最初から人口が多く、資金もあるが、地価と渋滞が手ごわい。', lv: 5, city: '新都市' },
   { id: 'island', name: '島の町', desc: '三方を海に囲まれ、橋で本土とつながる。港と観光、そして津波。', lv: 6, city: '汐見町' },
+  { id: 'castaway', name: '無人島（特別シナリオ）', desc: '四方を海に囲まれた、道も人もない島。桟橋をつくって開拓者を呼び、水・電気・食べ物・住まいをゼロから整える。', lv: 7, city: '開拓島' }, // v88
 ] as const;
 export type TerrainId = typeof TERRAINS[number]['id'];
 export const terrainIx = (seed: number) => (seed >= 1e9 ? Math.max(0, Math.min(TERRAINS.length - 1, Math.floor(((seed >= 2e9 ? seed - 2e9 : seed - 1e9)) / 1e6))) : 0);
 /** v70 の地形（湖を大きく、川を太く、山を高く）。古いセーブの地形は変えないよう、新しく始めた街だけ（シードの 20 億以上） */
 export const terrainV2 = (seed: number) => seed >= 2e9;
 export const terrainOf = (seed: number) => TERRAINS[terrainIx(seed)];
+/** v88：無人島（外とつながっていない島。桟橋と定期船が市外への出入口） */
+export const isCastaway = (seed: number) => !REAL && seed >= 2e9 && terrainOf(seed).id === 'castaway';
 export const seedForTerrain = (id: string, n = 261011) => { const k = Math.max(0, TERRAINS.findIndex(t => t.id === id)); return k === 0 && n === 261011 ? 20261011 : 2e9 + k * 1e6 + (n % 1e6); };
 /** 造作の前の、元の地形 */
 export function baseMap(seed: number): MapDef {
   if (REAL) return realMap();
   const c = cache.get(seed);
   if (c) return c;
+  if (isCastaway(seed)) { const m = castawayMap(seed); cache.set(seed, m); return m; }
   // v9：44×44 の旧市街はそのままの位置に残し、東（東台）と南（南原）へ広げた。川は地図の南端
   const T = terrainOf(seed).id, noSea = T === 'inland' || T === 'rural' || T === 'mountain', V2 = terrainV2(seed);
   // v70 の湖：東の半分を占める大きな湖（楕円）と、小さな島
@@ -216,9 +220,77 @@ export function baseMap(seed: number): MapDef {
     if (hm > snowT) { deco[i] = 5; if (V2) forest[i] = 0; } else if (hm > rockT && (!forest[i] || V2)) { deco[i] = 3; if (V2) forest[i] = 0; }
     if (!deco[i] && !forest[i] && !steep[i] && (T === 'rural' || ((T === 'mountain' || T === 'inland') && hm > 2 && hm < 16)) && hash(x >> 1, y >> 1, seed + 77) < (T === 'rural' ? 0.85 : 0.55)) deco[i] = 2;
   }
+  if (W > FIC_PREV_W) extDeco(seed, T, heights, water, forest, steep, deco);
   const m: MapDef = { seed, heights, water, rail, forest, steep, district, deco };
   cache.set(seed, m);
   return m;
+}
+
+/** v88：v87 で広げた土地（76 列目から東・68 行目から南）の見た目。一様な草地に見えないよう、田んぼ・畑・草地・屋敷林・空き地を
+ *  区画（3×2 区画を基本に、行ごとにずらす）のまとまりで置く。見た目だけの印なので、古いセーブの計算は変わらない */
+function extDeco(seed: number, T: string, heights: Float32Array, water: Uint8Array, forest: Uint8Array, steep: Uint8Array, deco: Uint8Array): void {
+  const S = W + 1, hv = (x: number, y: number) => heights[y * S + x];
+  const vn = (x: number, y: number, g: number, k: number) => { const gx = Math.floor(x / g), gy = Math.floor(y / g), sx = smooth((x - gx * g) / g), sy = smooth((y - gy * g) / g), q = (a: number, b: number) => hash(a + k * 977, b, seed);
+    return (q(gx, gy) * (1 - sx) + q(gx + 1, gy) * sx) * (1 - sy) + (q(gx, gy + 1) * (1 - sx) + q(gx + 1, gy + 1) * sx) * sy; };
+  // 地形ごとの割合：[田んぼ, 畑, 草地, 屋敷林, 空き地]
+  const MIX: Record<string, number[]> = { coast: [0.34, 0.2, 0.22, 0.08, 0.04], inland: [0.38, 0.22, 0.16, 0.1, 0.02], rural: [0.5, 0.22, 0.1, 0.1, 0.02], river: [0.42, 0.16, 0.2, 0.08, 0.04],
+    lake: [0.3, 0.18, 0.28, 0.1, 0.04], mountain: [0.3, 0.26, 0.16, 0.16, 0.02], urban: [0.1, 0.14, 0.3, 0.06, 0.22], island: [0.18, 0.26, 0.3, 0.1, 0.04] };
+  const mix = MIX[T] ?? MIX.coast;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (x < FIC_PREV_W && y < FIC_PREV_H) continue;
+    const i = idx(x, y); if (water[i] || forest[i] || steep[i] || deco[i]) continue;
+    const hm = (hv(x, y) + hv(x + 1, y) + hv(x, y + 1) + hv(x + 1, y + 1)) / 4;
+    // 区画：3×2 の田畑を、行ごとにずらして並べる。まとまり（10 区画ほど）ごとに田んぼの多い所・草地の多い所が分かれる
+    const py = y >> 1, px = Math.floor((x + Math.floor(hash(py, 3, seed + 301) * 3)) / 3), r = hash(px, py, seed + 303), reg = vn(x, y, 11, 1);
+    const low = hm < 4 ? 1 : hm < 9 ? 0.5 : 0.15; // 低い所ほど田んぼ
+    const w = [mix[0] * low * (0.1 + 2.4 * smooth((reg - 0.35) / 0.35)), mix[1] * (0.3 + 1.4 * vn(x, y, 8, 4)), mix[2] * (0.3 + 1.9 * smooth((0.62 - reg) / 0.3)), mix[3], mix[4] * (0.3 + 1.4 * vn(x, y, 7, 2))];
+    const sum = w.reduce((a, b) => a + b, 0) / Math.min(0.92, mix.reduce((a, b) => a + b, 0) + 0.1);
+    let acc = 0, pick = 0; for (let k = 0; k < 5; k++) { acc += w[k] / sum; if (r < acc) { pick = k + 1; break; } }
+    if (pick === 4 && vn(x, y, 5, 3) < 0.45) pick = 3; // 屋敷林は小さな塊だけ（ほかは草地）
+    deco[i] = pick === 1 ? 2 : pick === 2 ? 6 : pick === 3 ? 7 : pick === 4 ? 8 : pick === 5 ? 9 : 0;
+  }
+}
+
+/** v88：無人島の地形。中央に山（森）、山から南の入り江へ流れる沢、西の湧水、まわりは砂浜と海。地図の縁はすべて海 */
+function castawayMap(seed: number): MapDef {
+  const S = W + 1, heights = new Float32Array(S * (H + 1)), n = (a: number, b: number) => hash(a, b, seed);
+  const CX = 64, CY = 54;
+  const noise = (x: number, y: number, g: number, k: number) => { const gx = Math.floor(x / g), gy = Math.floor(y / g), sx = smooth((x % g) / g), sy = smooth((y % g) / g), q = (a: number, b: number) => hash(a + k * 131, b, seed);
+    return (q(gx, gy) * (1 - sx) + q(gx + 1, gy) * sx) * (1 - sy) + (q(gx, gy + 1) * (1 - sx) + q(gx + 1, gy + 1) * sx) * sy; };
+  // 海岸線：楕円に、ゆるい出入りと小さな岬を重ねる
+  const coastD = (x: number, y: number) => { const a = Math.atan2(y - CY, x - CX);
+    return Math.hypot((x - CX) / 47, (y - CY) / 41) * (1 + 0.07 * Math.sin(3 * a + 1.2) + 0.05 * Math.sin(5 * a + 0.4) + 0.03 * Math.sin(9 * a + 2)) + 0.12 * (noise(x, y, 7, 1) - 0.5); };
+  const coveD = (x: number, y: number) => Math.hypot((x - 72) / 7.5, (y - 92) / 6); // 南の入り江（波の静かな船着き場）
+  const streamX = (y: number) => 62 + 9 * (y - 50) / 38 + 1.6 * Math.sin(y / 4.3); // 山から入り江へ流れる沢
+  for (let y = 0; y <= H; y++) for (let x = 0; x <= W; x++) {
+    const d = coastD(x, y), cv = coveD(x, y), land = smooth((1 - d) / 0.06) * smooth((cv - 1) / 0.35);
+    const dm = Math.hypot(x - 58, y - 44) / 15, dm2 = Math.hypot(x - 80, y - 38) / 9, dm3 = Math.hypot(x - 40, y - 64) / 8;
+    let h = 0.5 + 4.5 * smooth((1 - d) / 0.45) + 58 * Math.pow(smooth(1 - dm), 1.3) * (0.8 + 0.4 * noise(x, y, 3, 2)) + 26 * smooth(1 - dm2) + 9 * smooth(1 - dm3);
+    h += (noise(x, y, 4, 3) - 0.5) * 1.4;
+    if (y > 46 && y < 90) { const ds = Math.abs(x - streamX(y)); h = h * smooth((ds - 0.5) / 2.2) + (0.2 + 0.08 * Math.max(0, 88 - y)) * (1 - smooth((ds - 0.5) / 2.2)); } // 沢の谷
+    h = h * land - 3.2 * (1 - land);
+    heights[y * S + x] = h;
+  }
+  const water = new Uint8Array(W * H), rail = new Uint8Array(W * H), forest = new Uint8Array(W * H), steep = new Uint8Array(W * H), district = new Uint8Array(W * H), deco = new Uint8Array(W * H);
+  const hv = (x: number, y: number) => heights[y * S + x];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = idx(x, y), cx = x + 0.5, cy = y + 0.5, hs = [hv(x, y), hv(x + 1, y), hv(x, y + 1), hv(x + 1, y + 1)], lo = Math.min(...hs), hi = Math.max(...hs), hm = (hs[0] + hs[1] + hs[2] + hs[3]) / 4;
+    if (coastD(cx, cy) > 1 || coveD(cx, cy) < 1 || x < 2 || y < 2 || x >= W - 2 || y >= H - 2 || hm < -0.6) water[i] = 1;
+    if (cy > 52 && cy < 87 && Math.abs(cx - streamX(cy)) < 0.6) water[i] = 1; // 沢
+    if (Math.hypot(cx - 46, cy - 57) < 1.4) water[i] = 1; // 湧水の池
+    if (hi - lo > 3.5) steep[i] = 1;
+    if (!water[i] && (hm > 9 || (hm > 2.5 && noise(cx, cy, 6, 4) + 0.15 * n(x, y) < 0.4))) forest[i] = 1; // 山の森と、ふもとの雑木林
+    if (water[i]) forest[i] = 0;
+    district[i] = y < CY ? (x < CX ? 1 : 4) : (x < CX ? 5 : 7);
+  }
+  const nearSea = (x: number, y: number, r: number) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const a = x + dx, b = y + dy; if (a >= 0 && b >= 0 && a < W && b < H && water[idx(a, b)] && (coastD(a + 0.5, b + 0.5) > 0.9 || coveD(a + 0.5, b + 0.5) < 1.2)) return true; } return false; };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = idx(x, y); if (water[i]) continue;
+    const hm = (hv(x, y) + hv(x + 1, y) + hv(x, y + 1) + hv(x + 1, y + 1)) / 4;
+    if (hm < 1.6 && nearSea(x, y, 1)) { deco[i] = 1; forest[i] = 0; } // 砂浜
+    else if (hm > 34) { deco[i] = 3; forest[i] = 0; } // 山頂の岩場
+  }
+  return { seed, heights, water, rail, forest, steep, district, deco };
 }
 
 let realCache: MapDef | null = null;

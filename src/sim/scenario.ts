@@ -1,7 +1,8 @@
 // 初期シナリオ「駅前開発で子育て世帯が増える郊外都市」
 import { onMapChange } from './real';
 import { W, H, P, DEFS, POLICIES, NEIGHBOR_SEED, isRes, FIC_PREV_W } from './config';
-import { getMap, idx, buildable, hash, inMap, NEIGH, syncTerrain, terrainOf, terrainIx } from './map';
+import { getMap, idx, buildable, hash, inMap, NEIGH, syncTerrain, terrainOf, terrainIx, isCastaway } from './map';
+import { startCastaway } from './isle';
 import { recompute, emptyStats } from './core';
 import { addBuilding, removeBuilding } from './events';
 import { emptyLedger } from './step';
@@ -31,6 +32,11 @@ export function newGame(opts: { seed?: number; short?: boolean } = {}): GameStat
     neighbors: NEIGHBOR_SEED.map(n => ({ name: n.name, trait: n.trait, pop: n.pop, appeal: n.appeal, tax: n.tax, rel: 0.5 })), acts: {}, notes: [], teams: [],
   };
   if (REAL) { buildReal(s, seed); return s; }
+  if (isCastaway(seed)) { // v88：無人島。道路も建物も人もない所から
+    startCastaway(s); s.pending = emptyLedger(0, s.cash); recompute(s); s.approval = 0.6;
+    s.history.push({ month: 0, pop: 0, cash: s.cash, sat: s.stats.sat, wait: 0, op: 0, maxVc: 0 });
+    return s;
+  }
   const road = (x0: number, y0: number, x1: number, y1: number, t: number) => {
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const i = idx(x, y);
