@@ -108,6 +108,7 @@ import { FX, glowTex } from './fx';
 import { buildRailPaths, drawRailPaths, railAt, SHIN_LINES, shinDeckY, RAIL_LM, type RailPath, type Gate, type StationSpot } from './rails';
 import { Landmarks, type LmItem } from './landmarks';
 import { roadKitMat, roadTile, face, RK } from './roadkit';
+import { drawPowerLines, drawUtilities, kyodokoTiles, infraKey, pipeReach, pipeOverlay } from './infra'; // v87
 import TRAIN from '../assets/train.json';
 import { makeVeh, makeTrain, VEH_MODELS, carColor, TRAIN_PART } from './vehgen';
 import VEH from '../assets/vehicles.json';
@@ -992,7 +993,7 @@ export class View {
     const wideS = new Set((s.wide ?? []).filter(i => s.road[i] === 2)); this.wideSet = wideS;
     const hwAt = (xx: number, yy: number) => { const j = idx(xx, yy), r = s.road[j]; return r === 2 && wideS.has(j) ? HW[3] : HW[r]; };
     this.drawFlyovers(s, g);
-    const stCharge = new Set(s.streets?.charge ?? []), stTree = new Set(s.streets?.tree ?? []), stStone = new Set(s.streets?.stone ?? []), stNo = new Set(s.streets?.nopole ?? []);
+    const stCharge = new Set(s.streets?.charge ?? []), stTree = new Set(s.streets?.tree ?? []), stStone = new Set(s.streets?.stone ?? []), stNo = new Set(s.streets?.nopole ?? []); kyodokoTiles(s, stNo); // v87：共同溝の周りも無電柱化
     // v86：路面の文字・矢印と標識の面（1 枚の絵、1 つのメッシュ）。細部は品質「中」以上、さらに細かい物は「高」だけ
     const fineR = this.fine(), hiR = fineR && this.quality === 'high', sig = this.signals(s);
     const connAt = (xx: number, yy: number) => { if (!inMap(xx, yy) || !s.road[idx(xx, yy)]) return 0; let n = 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) n += this.roadConn(s, xx, yy, dx, dy) ? 1 : 0; return n; };
@@ -1136,6 +1137,8 @@ export class View {
           for (const [A, B] of [[[p[0], p[1] + dy, p[2]], M], [M, [q[0], q[1] + dy, q[2]]]] as [[number, number, number], [number, number, number]][]) { g.quad(A, B, [B[0], B[1] + th, B[2]], [A[0], A[1] + th, A[2]], col); g.quad(B, A, [A[0], A[1] + th, A[2]], [B[0], B[1] + th, B[2]], col); } }
       }
     }
+    // v87：送電線（鉄塔・発電所・変電所）と、道ばたの水道の設備
+    if (!REAL) { drawPowerLines(s, g, b => this.place(s, b), hA, fineR); if (fineR) drawUtilities(s, g, (i, x, z) => this.deckH.get(i) ?? hA(x, z), t => HW[t] + SW * 0.5); }
     const mesh = new THREE.Mesh(g.build(!!REAL), this.matRoad); mesh.receiveShadow = true; mesh.castShadow = false; mesh.frustumCulled = false;
     this.scene.add(mesh); this.groups.roads.push(mesh);
     if (kit.ix.length) { const km = new THREE.Mesh(kit.build(), roadKitMat()); km.receiveShadow = true; km.frustumCulled = false; this.scene.add(km); this.groups.roads.push(km); }
@@ -1149,6 +1152,7 @@ export class View {
     if (this.agentRoadVer !== s.roadVersion * 1000 + sid(s)) { this.agentRoadVer = s.roadVersion * 1000 + sid(s); this.spawnAgents(); }
   }
   private agentRoadVer = -1;
+  private infraV = -1; private infraK = '';
   /** トンネルの区画（路面を描かず、車と人は山の中を通る＝見えない） */
   tunnelSet = new Set<number>();
   /** 橋・陸橋の路面の高さ（区画ごと）。陸橋は両側の区画に坂（rampOf：坂の区画→陸橋の区画） */
@@ -1708,6 +1712,10 @@ export class View {
         if (!tsd) tsd = tsunamiDepth(s, designWave(s));
         const d = tsd[i]; if (d <= 0.05) continue;
         this.tileQuad(g, s, i, d < 0.5 ? 0xf2ea7a : d < 1 ? 0xf4c38a : d < 3 ? 0xf08a8a : d < 5 ? 0xe05060 : d < 10 ? 0xb03a8a : 0x7a2a8a);
+      } else if (this.layer === 'pipes') {
+        // v87：地下の管（上水・下水・ガス）。届いている道路の下に線、関係する施設は青
+        if (i === 0) pipeOverlay(s, g, pipeReach(s), (j, x, z) => this.deckH.get(j) ?? heightAt(this.map, x, z));
+        if (s.occ[i]) { const b = info(i)!; const f = fam(b.kind); if (f === 'water' || f === 'sewage' || f === 'gas' || b.kind === 'kyodoko') this.tileQuad(g, s, i, f === 'sewage' ? 0x9a5a2a : f === 'gas' ? 0xe8c020 : 0x2a8ae0); }
       } else if (LAYER_SV[this.layer] !== undefined) {
         // 暮らしの観点：住宅は水準（低いほど赤）、関係する施設は青、空気を汚す施設は紫
         const fl = this.layer === 'disaster' ? floodRisk(s) : null;
@@ -3105,7 +3113,8 @@ export class View {
     let fac = 0; if (REAL) for (const b of s.buildings) if (!b.osm) fac += b.id + (b.kind === 'station' && b.status !== 'construction' ? 0.5 : 0); // 施設の敷地を横切る細い道を消すため。駅は完成で線路側に描く
     const stK = s.buildings.filter(b => b.kind === 'station').map(b => `${b.id}.${b.status === 'construction' ? 0 : 1}.${b.lv ?? 1}.${b.shin === undefined ? '-' : s.month >= b.shin ? 'o' : 'p'}`).join(','); // 駅ビル・新幹線は線路と一緒に描く
     { const mm = getMap(s.seed), ck = s.rail ? (s.railGrade ?? []).map((g, i) => (g === 3 && s.rail![i] ? i : -1)).filter(i => i >= 0).join(',') : ''; if (mm !== this.map || (!REAL && ck !== this.cutKey)) { this.map = mm; if (!REAL) this.buildLand(); this.chunkSig.clear(); this.sigRoad = ''; this.sigTown = ''; this.sigOverlay = ''; this.sigSites = ''; } } // 地形の造作
-    const sr = `${id}:${s.roadVersion}:${old}:${fac}:${stK}`;
+    if (this.infraV !== s.bVersion) { this.infraV = s.bVersion; this.infraK = infraKey(s); } // v87：鉄塔・発電所・変電所・共同溝が変わったら道路（送電線・無電柱化）を描き直す
+    const sr = `${id}:${s.roadVersion}:${old}:${fac}:${stK}:${this.infraK}`;
     if (sr !== this.sigRoad) { this.sigRoad = sr; this.rebuildRoads(s); this.sigOverlay = ''; }
     const st = `${id}:${s.bVersion}:${s.roadVersion}:${s.buildings.filter(b => isCity(b.kind) && b.age > 70).length}`;
     if (st !== this.sigTown) { this.sigTown = st; this.rebuildTown(s); this.buildLightProfile(s); this.sigOverlay = ''; }
