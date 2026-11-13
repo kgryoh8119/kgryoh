@@ -2,7 +2,7 @@ export * from './types';
 export * from './config';
 export * from './map';
 export { floodRisk, stationDist, recompute, roadInfo, distField, accessTile, modMul, modAdd, sumHH, staffReq, designCap, condFactor, roadCapacity, GATEWAYS, shinOpen } from './core';
-export { stepMonth, missionsFor, monthlyBudget, pledgeStatus, upkeepOf, shopPotential, fiscalCrisis, tempDebt, ledgerGap, goalProgress, visionProgress, electionOutlook, bizScore, rerunCheck, rerunRules, RERUN, WIN_VOTE, voteText, winChance, runElection, rerunElection, fiscalWatch, teamCheck, teamVenue, MISSIONS } from './step';
+export { stepMonth, missionsFor, monthlyBudget, pledgeStatus, upkeepOf, shopPotential, fiscalCrisis, tempDebt, ledgerGap, goalProgress, visionProgress, electionOutlook, bizScore, rerunCheck, rerunRules, RERUN, WIN_VOTE, voteText, winChance, runElection, rerunElection, fiscalWatch, teamCheck, teamVenue, MISSIONS, transferParts, elderPersons } from './step';
 export type { MissionDef } from './step';
 export { dispatch, checkPlace, checkRoad, roadCost, lineTiles, rectTiles, planRoad, planTunnel, planBridge, planOverpass, planFootbridge, planCanal, planBusStop, planStreet, planRailKind, RAILKIND_NAME, planLevee, planArea, planTerra, planWiden, planFlyover, isJunction, TERRA_NAMES, airportUpCheck, airRouteCheck, isCanal, planUnroad, planRepair, planZone, planRail, planRailGrade, planUnrail, stationRailLevel, railBlocks, acquirable, acqCost, upgradeCost, upgradeBlock, expandCost, moveCost, buildCost, buyoutCost, CIVIC, stationUpCheck, shinCheck } from './actions';
 export type { CivicDef } from './actions';
