@@ -23,6 +23,8 @@ export class Geo {
   wid: number[] = []; widv: [number, number] = [0, 0];
   /** 面の種類（0 なし・1 外壁・2 平らな屋上・3 瓦などの傾いた屋根）。壁や屋根の模様をシェーダーで描くため */
   surf: number[] = []; surfv = 0;
+  /** 外壁の素材（v86）：大きな箱の側面と妻壁に付ける面の種類。1 は区画の種類で決まる既定の模様、4〜10 は素材ごとの模様（窯業サイディング・ガルバ・タイル・打放し・塗り壁・横張り・板張り。scene.ts の BODY_GLSL） */
+  wallMat = 1;
   // ローカル→ワールド変換（平行移動＋Y 軸回転）
   ox = 0; oy = 0; oz = 0; cos = 1; sin = 0;
 
@@ -80,7 +82,7 @@ export class Geo {
   /** 箱。cy は底面の高さ。top / side で色を変えられる */
   box(cx: number, cy: number, cz: number, sx: number, sy: number, sz: number, color: number, top?: number, noBottom = true): void {
     const x0 = cx - sx / 2, x1 = cx + sx / 2, y0 = cy, y1 = cy + sy, z0 = cz - sz / 2, z1 = cz + sz / 2;
-    const sv0 = this.surfv, big = sv0 === 0 && sy >= 2.4 && y1 > 1.5 && Math.min(sx, sz) >= 2.5 && sy < 400; if (big) this.surfv = 1; // 大きな箱の側面は外壁
+    const sv0 = this.surfv, big = sv0 === 0 && sy >= 2.4 && y1 > 1.5 && Math.min(sx, sz) >= 2.5 && sy < 400; if (big) this.surfv = this.wallMat; // 大きな箱の側面は外壁
     // 地面に接する壁は根元を少し暗く（環境光の遮蔽。建物が地面に沈んで見える）
     if (Geo.ao && cy <= 0.35 && cy > -0.5 && sy >= 1.2 && sy < 400) {
       const a = Math.max(0.68, 1 - 0.3 * Math.min(1, sy / 4)), t2 = Math.min(1, 2.2 / sy), ym = y0 + sy * t2;
@@ -119,14 +121,14 @@ export class Geo {
       const x0 = cx - sx / 2 - over, x1 = cx + sx / 2 + over, z0 = cz - sz / 2 - over, z1 = cz + sz / 2 + over;
       this.quad([x0, cy, z1], [x1, cy, z1], [x1, cy + h, cz], [x0, cy + h, cz], color);
       this.quad([x1, cy, z0], [x0, cy, z0], [x0, cy + h, cz], [x1, cy + h, cz], color, 0.85);
-      const ix0 = cx - sx / 2, ix1 = cx + sx / 2, iz0 = cz - sz / 2, iz1 = cz + sz / 2, hh = h * (sz / 2) / (sz / 2 + over); this.surfv = 1;
+      const ix0 = cx - sx / 2, ix1 = cx + sx / 2, iz0 = cz - sz / 2, iz1 = cz + sz / 2, hh = h * (sz / 2) / (sz / 2 + over); this.surfv = this.wallMat;
       this.tri([ix1, cy, iz1], [ix1, cy, iz0], [ix1, cy + hh, cz], wall, 0.9);
       this.tri([ix0, cy, iz0], [ix0, cy, iz1], [ix0, cy + hh, cz], wall, 0.86);
     } else {
       const x0 = cx - sx / 2 - over, x1 = cx + sx / 2 + over, z0 = cz - sz / 2 - over, z1 = cz + sz / 2 + over;
       this.quad([x1, cy, z1], [x1, cy, z0], [cx, cy + h, z0], [cx, cy + h, z1], color, 0.92);
       this.quad([x0, cy, z0], [x0, cy, z1], [cx, cy + h, z1], [cx, cy + h, z0], color, 0.8);
-      const ix0 = cx - sx / 2, ix1 = cx + sx / 2, iz0 = cz - sz / 2, iz1 = cz + sz / 2, hh = h * (sx / 2) / (sx / 2 + over); this.surfv = 1;
+      const ix0 = cx - sx / 2, ix1 = cx + sx / 2, iz0 = cz - sz / 2, iz1 = cz + sz / 2, hh = h * (sx / 2) / (sx / 2 + over); this.surfv = this.wallMat;
       this.tri([ix0, cy, iz1], [ix1, cy, iz1], [cx, cy + hh, iz1], wall);
       this.tri([ix1, cy, iz0], [ix0, cy, iz0], [cx, cy + hh, iz0], wall, 0.82);
     }

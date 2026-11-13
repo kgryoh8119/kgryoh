@@ -298,7 +298,7 @@ function standSign(c: Ctx, label: string, x: number, z: number, y: number, w: nu
 const GLASS = 0x8fa9b8;
 /** 窓。face と座標の取り方は sign と同じ */
 /** 窓枠を描く（架空の街の町並みで有効。実在都市版は軽さを優先して描かない） */
-export const DETAIL = { frames: false };
+export const DETAIL = { frames: false, hi: false };
 export function win(c: Ctx, face: number, a: number, y: number, p: number, w: number, h: number, lit = 0.45, color = GLASS): void {
   if (DETAIL.frames && w >= 0.7 && h >= 0.7) {
     // 窓枠と水切り：壁から少しだけ浮かせた細い帯（枠の色は位置から決め、乱数の並びは変えない）
@@ -325,6 +325,10 @@ export function win(c: Ctx, face: number, a: number, y: number, p: number, w: nu
   else if (face === 2) t.quad([p + o, y, a + w / 2], [p + o, y, a - w / 2], [p + o, y + h, a - w / 2], [p + o, y + h, a + w / 2], color);
   else t.quad([p - o, y, a - w / 2], [p - o, y, a + w / 2], [p - o, y + h, a + w / 2], [p - o, y + h, a - w / 2], color);
   t.widv = [0, 0];
+}
+/** 窓（v86）：点灯の乱数を位置から作る版。細部表示のときだけ付ける窓に使い、本体の乱数の並びを品質で変えない */
+function winD(c: Ctx, face: number, a: number, y: number, p: number, w: number, h: number, lit = 0.45, color = GLASS): void {
+  const r = c.rnd, q = dh(a * 1.3 + c.g.ox, y * 2.1 + p + c.g.oz, face + 9); c.rnd = () => q; try { win(c, face, a, y, p, w, h, lit, color); } finally { c.rnd = r; }
 }
 /** 壁面に窓を等間隔で並べる */
 function winRow(c: Ctx, face: number, a0: number, a1: number, y: number, p: number, n: number, w: number, h: number, lit = 0.45, color?: number): void {
@@ -420,134 +424,221 @@ function fenceRect(c: Ctx, sx: number, sz: number, h: number, color: number, gap
 }
 const dull = (c: Ctx, fresh: number, aged: number) => (c.old ? aged : fresh);
 
-// ---- 住宅 ----
-const WALLS = [0xf2efe6, 0xe9e2d0, 0xd9cfc0, 0xcfd6da, 0xe8ded2, 0xbfa98a, 0xf5f5f0, 0xc9b8a0, 0xdcd4c4, 0x9aa3a8];
-const ROOFS = [0x3b3f46, 0x2f3a4a, 0x5a3a2e, 0x7a3b2e, 0x2f4a3f, 0x4a4a4a, 0x39424e, 0x6b4a3a];
-
-function house1(c: Ctx, hx: number, hz: number): boolean {
-  const g = c.g, wall = pick(c, WALLS), roof = pick(c, ROOFS), t = c.rnd();
-  const w = 7.2 + c.rnd() * 1.4, d = 6.0 + c.rnd() * 1.0;
-  const fz = hz + d / 2; let ax: 'x' | 'z' = 'x', rh = 1.9;
-  { const v = dh(hx + g.ox, hz + g.oz, 21); if (t >= 0.3 && v < 0.52) { houseVariant(c, hx, hz, w, d, wall, roof, v); return v >= 0.14 && v < 0.27; } }
-  if (t < 0.16) { // 平屋
-    const ww = w + 1.6;
-    g.box(hx, 0, hz, ww, 3.0, d, wall);
-    g.gable(hx, 3.0, hz, ww, d, 2.1, 0x3b3f46, 'x', wall, 0.6);
-    winRow(c, 0, hx - ww / 2 + 2.6, hx + ww / 2, 0.5, fz, 2, 1.8, 1.7);
-    winRow(c, 1, hx - ww / 2, hx + ww / 2, 0.9, hz - d / 2, 2, 1.4, 1.1);
-    g.box(hx - ww / 2 + 1.2, 0, fz + 0.06, 0.95, 2.05, 0.1, 0x4a3426);
-  } else if (t < 0.3) { // 陸屋根のモダンな家
-    const dark = pick(c, [0x3c4046, 0xf3f3ef, 0x7a6a58]);
-    g.box(hx, 0, hz, w, 5.9, d, wall, 0x8b8f92);
-    g.box(hx + w / 4, 0, fz - 0.4, w / 2 + 0.3, 6.2, 1.2, dark, 0x8b8f92);
-    win(c, 0, hx - w / 4, 0.6, fz, 2.2, 1.9); win(c, 0, hx - w / 4, 3.5, fz, 2.4, 1.2); win(c, 0, hx + w / 4, 3.8, fz + 0.2, 0.7, 1.6);
-    winRow(c, 2, hz - d / 2, hz + d / 2, 3.5, hx + w / 2, 2, 1.0, 1.0); winRow(c, 1, hx - w / 2, hx + w / 2, 3.5, hz - d / 2, 2, 1.2, 1.0);
-    g.box(hx + w / 4, 0, fz + 0.26, 0.95, 2.1, 0.1, 0x5a4636);
-  } else { // 2 階建て
-    const axis = c.rnd() < 0.6 ? 'x' : 'z';
-    g.box(hx, 0, hz, w, 5.5, d, wall);
-    rh = 1.7 + c.rnd() * 0.6; ax = axis; g.gable(hx, 5.5, hz, w, d, rh, roof, axis, wall);
-    const dx = hx - w / 4;
-    g.box(dx, 0, fz + 0.06, 0.95, 2.05, 0.1, pick(c, [0x4a3426, 0x2e3a44, 0x6b4a32]));
-    g.box(dx, 2.25, fz + 0.5, 1.9, 0.12, 1.0, roof);                       // 玄関ひさし
-    win(c, 0, hx + w / 5, 0.5, fz, 2.0, 1.8);                              // 掃き出し窓
-    winRow(c, 0, hx - w / 2, hx + w / 2, 3.3, fz, 2, 1.5, 1.2);
-    winRow(c, 2, hz - d / 2, hz + d / 2, 3.4, hx + w / 2, 1, 1.1, 1.0); winRow(c, 3, hz - d / 2, hz + d / 2, 0.9, hx - w / 2, 1, 1.1, 1.0);
-    winRow(c, 1, hx - w / 2, hx + w / 2, 3.4, hz - d / 2, 2, 1.2, 1.0); winRow(c, 1, hx - w / 2, hx + w / 2, 0.9, hz - d / 2, 2, 1.2, 1.0);
-    if (c.rnd() < 0.7) { g.box(hx + w / 5, 2.75, fz + 0.55, 3.2, 0.14, 1.1, 0xd9d6cf); g.box(hx + w / 5, 2.89, fz + 1.05, 3.2, 0.95, 0.08, pick(c, [0xeeeeea, 0x6f7a80, wall])); } // ベランダ
-    if (c.rnd() < 0.35) { g.box(hx - w / 2 - 1.3, 0, hz - 0.6, 2.6, 2.7, 3.4, wall); g.gable(hx - w / 2 - 1.3, 2.7, hz - 0.6, 2.6, 3.4, 0.9, roof, 'z', wall, 0.25); }
-  }
-  g.box(hx + w / 2 + 0.35, 0, hz - d / 4, 0.4, 0.7, 0.8, 0xe6e6e2); // 室外機
-  if (c.fine) houseDetail(c, hx, hz, w, d, t, roof, wall, ax, rh);
-  return false;
+// ---- 住宅（v86：戸建ては 10 の型。外壁の素材・屋根・ベランダ・玄関・窓まわり・屋上の設備・塀を、建物の乱数で家ごとに選ぶ） ----
+/** 外壁の素材と色の系統：横張りサイディング・窯業サイディング・塗り壁・ガルバリウム・板張り（数字は geo.ts の wallMat） */
+const H_MAT: [number, number[]][] = [
+  [9, [0xf2efe6, 0xe9e2d0, 0xd9cfc0, 0xcfd6da, 0xe8ded2, 0xbfa98a, 0xdcd4c4, 0x9aa3a8, 0xc8d0c4]],
+  [4, [0xc9b8a0, 0xb79f86, 0xe2d8c6, 0x9c8a78, 0xd8d0c2, 0x8a7d70, 0xe9e4da, 0xa8a49c]],
+  [8, [0xf5f3ee, 0xefe8da, 0xe8dcc8, 0xd8cdb8, 0xf0ece4, 0xe6e2da]],
+  [5, [0x3c4046, 0x5a5e62, 0x8a8f93, 0x2f3438, 0x6b5f52, 0xdedcd6, 0x46505a]],
+  [10, [0x8a6448, 0x6b4a32, 0xa07a58, 0x3a3430]],
+];
+const SLATE = [0x3b3f46, 0x2f3a4a, 0x4a4a4a, 0x39424e, 0x5a3a2e, 0x2f4a3f, 0x6b4a3a, 0x7a3b2e];
+const KAWARA = [0x4a4e54, 0x5a5f66, 0x3e4248, 0x6a5a4e, 0x8a4a34];
+const GALV = [0x3c4046, 0x5a5e62, 0x2f3a3a, 0x6b6f72, 0x4a3a32];
+const DOORS = [0x4a3426, 0x2e3a44, 0x6b4a32, 0x8a6a4a, 0x3a3e42, 0xb8b2a6, 0x5a2e2a];
+/** 素材を重みで選ぶ（w は H_MAT の順の重み） */
+function hmat(c: Ctx, w: number[]): { mat: number; wall: number } {
+  let r = c.rnd() * w.reduce((a, b) => a + b, 0), i = 0; while (i < w.length - 1 && (r -= w[i]) > 0) i++;
+  const [mat, cols] = H_MAT[i]; return { mat, wall: pick(c, cols) };
 }
-/** 寄棟屋根（4 面）。cy は軒の高さ、over は軒の出、ins は棟の寄り（既定は短い辺の半分＝正方形ならピラミッド） */
+/** 寄棟屋根（4 面）。cy は軒の高さ、over は軒の出、ins は棟の寄り（既定は短い辺の半分＝正方形ならピラミッド）。v86：瓦の模様・軒先の厚み・棟の押さえ */
 function hipRoof(g: Geo, cx: number, cy: number, cz: number, w: number, d: number, h: number, color: number, over = 0.5, ins?: number): void {
-  const a = w / 2 + over, b = d / 2 + over, k = Math.min(ins ?? Math.min(a, b), Math.min(a, b) * 0.999);
+  const a = w / 2 + over, b = d / 2 + over, k = Math.min(ins ?? Math.min(a, b), Math.min(a, b) * 0.999), sv = g.surfv;
   const P: [number, number, number][] = [[cx - a, cy, cz + b], [cx + a, cy, cz + b], [cx + a, cy, cz - b], [cx - a, cy, cz - b]];
   const Q: [number, number, number][] = [[cx - a + k, cy + h, cz + b - k], [cx + a - k, cy + h, cz + b - k], [cx + a - k, cy + h, cz - b + k], [cx - a + k, cy + h, cz - b + k]];
-  for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; g.quad(P[i], P[j], Q[j], Q[i], color); }
-  g.quad(P[3], P[2], P[1], P[0], 0x6f6a62, 0.8); // 軒裏
+  g.surfv = 3; for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; g.quad(P[i], P[j], Q[j], Q[i], color); }
+  g.surfv = 0; g.quad(P[3], P[2], P[1], P[0], 0x6f6a62, 0.8); // 軒裏
+  if (Geo.fineRoof && h > 0.3) { const t = 0.14; for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; g.quad([P[i][0], cy - t, P[i][2]], [P[j][0], cy - t, P[j][2]], P[j], P[i], color, 0.55); } // 軒先の厚み
+    const rl = Q[1][0] - Q[0][0], rz = Q[0][2] - Q[3][2]; if (rl > 0.3) g.box(cx, cy + h - 0.04, cz, rl + 0.2, 0.14, 0.24, color); else if (rz > 0.3) g.box(cx, cy + h - 0.04, cz, 0.24, 0.14, rz + 0.2, color); } // 棟
+  g.surfv = sv;
 }
-/** 戸建てのバリエーション（v64）：寄棟の 2 階建て・都市型 3 階建て・片流れ屋根・和風の家 */
-function houseVariant(c: Ctx, hx: number, hz: number, w: number, d: number, wall: number, roof: number, v: number): void {
-  const g = c.g, fz = hz + d / 2, door = pick(c, [0x4a3426, 0x2e3a44, 0x6b4a32]);
-  if (v < 0.14) { // 寄棟の 2 階建て
-    g.box(hx, 0, hz, w, 5.5, d, wall); hipRoof(g, hx, 5.5, hz, w, d, 2.0, roof, 0.55, 2.4);
-    g.box(hx - w / 4, 0, fz + 0.06, 0.95, 2.05, 0.1, door); g.box(hx - w / 4, 2.25, fz + 0.5, 1.9, 0.12, 1.0, roof);
-    win(c, 0, hx + w / 5, 0.5, fz, 2.0, 1.8); winRow(c, 0, hx - w / 2, hx + w / 2, 3.3, fz, 3, 1.3, 1.2);
-    winRow(c, 2, hz - d / 2, hz + d / 2, 3.4, hx + w / 2, 1, 1.1, 1.0); winRow(c, 1, hx - w / 2, hx + w / 2, 3.4, hz - d / 2, 2, 1.2, 1.0);
-    if (c.fine) { g.box(hx + w / 5, 2.75, fz + 0.55, 3.2, 0.14, 1.1, 0xd9d6cf); g.box(hx + w / 5, 2.89, fz + 1.05, 3.2, 0.95, 0.06, 0xd9d6cf); }
-  } else if (v < 0.27) { // 都市型の 3 階建て（間口が狭く、1 階は車庫）
-    const ww = w * 0.78, H = 8.6;
-    g.box(hx, 0, hz, ww, H, d, wall, 0x8b8f92); g.box(hx, H, hz, ww + 0.2, 0.45, d + 0.2, pick(c, [0x5a5e62, wall, 0xf3f3ef]), 0x8b8f92);
-    g.box(hx + ww / 4 - 0.1, 0, fz + 0.04, ww / 2 - 0.2, 2.3, 0.1, 0x3a3e42); // 車庫のシャッター（区画の駐車スペースの奥）
-    g.box(hx - ww / 4 - 0.3, 0, fz + 0.06, 0.9, 2.1, 0.1, door);
-    for (const y of [3.1, 5.9]) { win(c, 0, hx + ww / 6, y, fz, 2.2, 1.5); win(c, 0, hx - ww / 3, y + 0.3, fz, 0.7, 1.2); }
-    winRow(c, 2, hz - d / 2, hz + d / 2, 3.2, hx + ww / 2, 2, 1.0, 1.0); winRow(c, 2, hz - d / 2, hz + d / 2, 6.0, hx + ww / 2, 2, 1.0, 1.0);
-    g.box(hx + ww / 6, 5.5, fz + 0.45, 2.8, 0.12, 0.9, 0xd9d6cf); g.box(hx + ww / 6, 5.62, fz + 0.88, 2.8, 0.9, 0.05, 0xb8c4c8); // ガラスの手すり
-  } else if (v < 0.4) { // 片流れ屋根のモダンな家（木の外壁を組み合わせる）
-    const H1 = 6.4, H0 = 4.6, wood = 0x8a6448;
-    g.box(hx, 0, hz, w, H0, d, wall, 0x8b8f92);
-    const a = w / 2, b = d / 2, o = 0.5;
-    g.quad([hx - a, H0, hz + b], [hx + a, H0, hz + b], [hx + a, H1, hz - b], [hx - a, H1, hz - b], wall); // 上の三角の壁を作るための面
-    g.quad([hx - a - o, H0 + 0.15, hz + b + o], [hx + a + o, H0 + 0.15, hz + b + o], [hx + a + o, H1 + 0.25, hz - b - o], [hx - a - o, H1 + 0.25, hz - b - o], pick(c, [0x3c4046, 0x5a5e62, 0x6b5a4a]));
-    g.box(hx, H0, hz - b + 0.02, w, H1 - H0, 0.04, wall);
-    for (const sx of [-1, 1]) g.tri([hx + sx * a, H0, hz + b], [hx + sx * a, H0, hz - b], [hx + sx * a, H1, hz - b], wall); // 妻（三角）
-    g.box(hx + w / 4, 0, fz + 0.02, w / 2, H0, 0.08, wood); // 木の外壁
-    win(c, 0, hx - w / 4, 0.5, fz, 2.4, 2.0); win(c, 0, hx - w / 4, 3.0, fz, 3.0, 0.8); win(c, 0, hx + w / 4, 2.8, fz + 0.06, 0.6, 1.4);
-    g.box(hx + w / 4 + 1.2, 0, fz + 0.12, 0.95, 2.1, 0.1, door);
-    winRow(c, 2, hz - d / 2, hz + d / 2, 3.0, hx + w / 2, 1, 1.4, 0.6);
-  } else { // 和風の家（瓦の寄棟、下屋のひさし、格子と縁側）
-    const kawara = 0x4a4e54, wood = 0x6b4a32, shikkui = 0xf1ece0;
-    g.box(hx, 0, hz, w, 5.6, d, shikkui);
-    hipRoof(g, hx, 2.9, hz, w, d, 0.6, kawara, 0.9, 0.9);       // 1 階のひさし（下屋）
-    g.box(hx, 2.9, hz, w - 0.6, 2.7, d - 0.6, shikkui);
-    hipRoof(g, hx, 5.6, hz, w - 0.6, d - 0.6, 2.2, kawara, 0.8, 2.6);
-    for (let i = 0; i <= 5; i++) g.box(hx - w / 2 + 0.1 + i * (w - 0.2) / 5, 0, fz + 0.04, 0.16, 2.8, 0.08, wood); // 柱
-    for (let i = 0; i < 9; i++) g.box(hx - w / 2 + 0.6 + i * 0.32, 0.3, fz + 0.1, 0.06, 2.0, 0.05, wood); // 格子
-    g.box(hx + w / 6, 0, fz + 0.06, 1.8, 2.1, 0.1, 0x3a2a20); g.box(hx + w / 6, 0, fz + 0.7, 2.4, 0.3, 1.0, 0x9a9488); // 玄関と踏み石
-    winRow(c, 0, hx - w / 2 + 0.6, hx + w / 2 - 0.6, 3.6, fz - 0.28, 3, 1.2, 1.0);
-    g.box(hx, 0, hz - d / 2 - 0.6, w - 1, 0.45, 1.2, wood); // 縁側（裏）
+/** 片流れ屋根：奥行き d の箱の上に、高さ h だけ傾いた屋根。s = 1 は手前（+z）が低く、-1 は奥が低い。高い側の壁と左右の三角の壁も塞ぐ。galv はガルバの縦はぜ */
+/** いま描いている家の外壁の色（shedRoof の妻壁用。house1 が入れる） */
+let H_WALL = 0xf2efe6;
+function shedRoof(g: Geo, cx: number, cy: number, cz: number, w: number, d: number, h: number, color: number, s = 1, over = 0.45, galv = true, walls = true): void {
+  const a = w / 2, b = d / 2, o = over, sv = g.surfv, Z = (z: number) => cz + s * z, P = (x: number, y: number, z: number): V => [x, y, Z(z)];
+  const Qd = (p: V, q: V, r: V, u: V, col: number, sh = 1) => (s > 0 ? g.quad(p, q, r, u, col, sh) : g.quad(u, r, q, p, col, sh));
+  const Tr = (p: V, q: V, r: V, col: number) => (s > 0 ? g.tri(p, q, r, col) : g.tri(r, q, p, col));
+  if (walls) { // 三角の妻壁と高い側の壁
+    g.surfv = g.wallMat;
+    Tr(P(cx + a, cy, b), P(cx + a, cy, -b), P(cx + a, cy + h, -b), H_WALL); Tr(P(cx - a, cy, -b), P(cx - a, cy, b), P(cx - a, cy + h, -b), H_WALL);
+    Qd(P(cx + a, cy, -b), P(cx - a, cy, -b), P(cx - a, cy + h, -b), P(cx + a, cy + h, -b), H_WALL, 0.85);
   }
-  g.box(hx + w / 2 + 0.35, 0, hz - d / 4, 0.4, 0.7, 0.8, 0xe6e6e2); // 室外機
+  const yF = cy + 0.12 - h * o / d, yB = cy + 0.12 + h + h * o / d, t = 0.16;
+  g.surfv = galv ? 5 : 3; Qd(P(cx - a - o, yF, b + o), P(cx + a + o, yF, b + o), P(cx + a + o, yB, -b - o), P(cx - a - o, yB, -b - o), color);
+  g.surfv = 0; Qd(P(cx - a - o, yB - t, -b - o), P(cx + a + o, yB - t, -b - o), P(cx + a + o, yF - t, b + o), P(cx - a - o, yF - t, b + o), 0xd8d4cc, 0.7); // 軒裏
+  if (Geo.fineRoof) { Qd(P(cx - a - o, yF - t, b + o), P(cx + a + o, yF - t, b + o), P(cx + a + o, yF, b + o), P(cx - a - o, yF, b + o), color, 0.55); Qd(P(cx + a + o, yB - t, -b - o), P(cx - a - o, yB - t, -b - o), P(cx - a - o, yB, -b - o), P(cx + a + o, yB, -b - o), color, 0.5);
+    Qd(P(cx + a + o, yF - t, b + o), P(cx + a + o, yB - t, -b - o), P(cx + a + o, yB, -b - o), P(cx + a + o, yF, b + o), color, 0.5); Qd(P(cx - a - o, yB - t, -b - o), P(cx - a - o, yF - t, b + o), P(cx - a - o, yF, b + o), P(cx - a - o, yB, -b - o), color, 0.5); } // 鼻隠しとけらば
+  g.surfv = sv;
 }
-/** 家の細部：雨どい・玄関の段と表札と郵便受け・雨戸の戸袋・屋根の太陽光パネル・テレビのアンテナ・給湯器 */
-function houseDetail(c: Ctx, hx: number, hz: number, w: number, d: number, t: number, roof: number, wall: number, ax: 'x' | 'z', rh: number): void {
+/** 家の窓（正面）。sb：シャッターボックス、tb：雨戸の戸袋、grille：面格子 */
+function hwin(c: Ctx, a: number, y: number, fz: number, w: number, h: number, o: { sb?: boolean; tb?: number; grille?: boolean; lit?: number } = {}): void {
+  winD(c, 0, a, y, fz, w, h, o.lit ?? 0.45);
+  if (!c.fine) return; const g = c.g;
+  if (o.sb) g.box(a, y + h + 0.12, fz + 0.13, w + 0.3, 0.3, 0.26, 0xd9d8d2);
+  if (o.tb) g.box(a + o.tb * (w / 2 + 0.35), y - 0.05, fz + 0.12, 0.5, h + 0.2, 0.22, 0xd2d0c8);
+  if (o.grille && DETAIL.hi) { for (let i = 1; i < 4; i++) g.box(a - w / 2 + i * w / 4, y, fz + 0.13, 0.04, h, 0.04, 0x9aa0a4); }
+}
+/** ベランダ（2 階）。kind 0 手すり壁・1 アルミの縦格子・2 ガラス・3 鉄の手すり（古い家） */
+function hBalcony(c: Ctx, x: number, y: number, fz: number, bw: number, bd: number, kind: number, col: number): void {
+  const g = c.g, rail = kind === 3 ? 0x5a5e5a : 0xa4aaae, zf = fz + bd - 0.05;
+  g.box(x, y - 0.16, fz + bd / 2, bw, 0.16, bd, 0xd9d6cf);
+  if (kind === 0) { g.box(x, y, zf, bw, 1.05, 0.1, col); g.box(x - bw / 2 + 0.05, y, fz + bd / 2, 0.1, 1.05, bd, col); g.box(x + bw / 2 - 0.05, y, fz + bd / 2, 0.1, 1.05, bd, col); g.box(x, y + 1.05, zf, bw + 0.04, 0.05, 0.16, 0xc8c6c0); return; }
+  g.box(x, y + 0.95, zf, bw, 0.07, 0.09, rail); g.box(x, y + 0.05, zf, bw, 0.05, 0.06, rail);
+  for (const sx of [-1, 1]) g.box(x + sx * (bw / 2 - 0.04), y, fz + bd / 2, 0.06, 1.0, bd, rail);
+  if (kind === 2) { g.box(x, y + 0.1, zf, bw - 0.1, 0.82, 0.03, 0xb4c4ca); return; }
+  if (c.fine && DETAIL.hi) { const n = Math.round(bw / (kind === 3 ? 0.42 : 0.7)); for (let i = 1; i < n; i++) g.box(x - bw / 2 + i * bw / n, y + 0.1, zf, 0.035, 0.85, 0.035, rail); }
+  else g.box(x, y + 0.1, zf, bw - 0.1, 0.85, 0.02, shadeC(rail, 0.85));
+}
+/** 玄関：扉・ポーチの段・庇（3 通り）・表札と郵便受け・門柱（細部表示のとき） */
+function hEntry(c: Ctx, x: number, fz: number, door: number, roof: number, kind: number): void {
+  const g = c.g;
+  g.box(x, 0, fz + 0.05, 0.95, 2.1, 0.1, door); g.box(x, 0, fz + 0.5, 1.7, 0.2, 0.9, 0xbab5aa);
+  if (kind === 0) g.box(x, 2.3, fz + 0.5, 1.9, 0.12, 1.0, roof);                                          // 板の庇
+  else if (kind === 1) { g.box(x, 2.35, fz + 0.65, 2.2, 0.1, 1.3, 0xe9e7e1); g.box(x + 0.95, 0, fz + 1.2, 0.12, 2.35, 0.12, 0xe9e7e1); } // 柱つきのポーチ
+  else g.box(x, 2.3, fz + 0.45, 1.6, 0.06, 0.9, 0x9fb8c4);                                               // ガラスの庇
+  if (!c.fine) return;
+  g.box(x + 0.9, 1.2, fz + 0.07, 0.3, 0.42, 0.06, 0x3a3a3a); g.box(x - 0.85, 0.95, fz + 0.1, 0.32, 0.4, 0.18, 0x4a5056); // 表札と郵便受け
+  if (DETAIL.hi) g.box(x - 0.62, 1.95, fz + 0.12, 0.12, 0.16, 0.14, 0xf2eedc); // ポーチの灯り
+}
+/** 家の細部：基礎・雨どい・給湯器（エコキュート）・室外機・アンテナ・BS アンテナ・屋根の太陽光パネル */
+function hDetail(c: Ctx, hx: number, hz: number, w: number, d: number, wh: number, roofY: number, solar: ((k: number) => void) | null): void {
   const g = c.g, k = (n: number) => dh(hx + g.ox, hz + g.oz, n), fz = hz + d / 2;
-  const wh = t < 0.16 ? 3.0 : t < 0.3 ? 5.9 : 5.5;
-  for (const sx of [-1, 1]) g.box(hx + sx * (w / 2 + 0.06), 0, fz + 0.06, 0.1, wh, 0.1, 0x8a8478);           // 縦の雨どい
-  g.box(hx - w / 4, 0, fz + 0.45, 1.6, 0.18, 0.8, 0xbab5aa);                                                   // 玄関の段
-  g.box(hx - w / 4 + 0.9, 1.2, fz + 0.07, 0.3, 0.42, 0.08, 0x3a3a3a); g.box(hx - w / 4 - 0.9, 0.95, fz + 0.1, 0.32, 0.4, 0.18, 0x4a5056); // 表札と郵便受け
-  g.box(hx + w / 2 - 0.5, 0.5, fz + 0.15, 0.5, 0.75, 0.25, 0xeeeeea);                                         // 給湯器
-  if (t >= 0.3) {
-    g.box(hx + w / 5 + 1.3, 0.5, fz + 0.12, 0.35, 1.8, 0.2, wall === 0xf5f5f0 ? 0xe2e2dc : 0xd9d6cf);              // 雨戸の戸袋
-    if (ax === 'x') { g.box(hx, 5.3, hz + d / 2 + 0.5, w + 0.4, 0.14, 0.14, 0x8a8478); g.box(hx, 5.3, hz - d / 2 - 0.5, w + 0.4, 0.14, 0.14, 0x8a8478); } // 軒どい（屋根の下のふち）
-    else { g.box(hx + w / 2 + 0.5, 5.3, hz, 0.14, 0.14, d + 0.4, 0x8a8478); g.box(hx - w / 2 - 0.5, 5.3, hz, 0.14, 0.14, d + 0.4, 0x8a8478); }
-    if (ax === 'x' && k(1) < 0.3) { // 南の屋根に太陽光パネル（屋根の傾きに沿わせる）
-      const over = 0.45, half = d / 2 + over, y0 = 5.5 + 0.1, P = (z: number) => y0 + rh * (1 - Math.abs(z - hz) / half) + 0.08;
-      const z0 = hz + 0.35, z1 = hz + d / 2 - 0.2, x0 = hx - w / 2 + 0.7, x1 = hx + w / 2 - 0.7;
-      c.wb.quad([x0, P(z1), z1], [x1, P(z1), z1], [x1, P(z0), z0], [x0, P(z0), z0], 0x1f2b3c);
-    }
-    if (k(2) < 0.35) { g.cyl(hx + w / 3, 5.5 + 1.2, hz - 0.4, 0.04, 2.4, 0x9aa0a6, 4); g.box(hx + w / 3, 7.6, hz - 0.4, 0.06, 0.06, 1.6, 0x9aa0a6); g.box(hx + w / 3, 7.2, hz - 0.4, 0.06, 0.06, 1.1, 0x9aa0a6); } // テレビのアンテナ
+  g.box(hx, 0, hz, w + 0.08, 0.42, d + 0.08, 0x8f8d86);                                                      // 基礎
+  g.box(hx + w / 2 + 0.35, 0, hz - d / 4, 0.4, 0.7, 0.8, 0xe6e6e2);                                          // 室外機
+  if (!c.fine) return;
+  for (const sx of [-1, 1]) g.box(hx + sx * (w / 2 + 0.06), 0, fz + 0.06, 0.1, wh, 0.1, 0x8a8478);          // 縦の雨どい
+  if (k(3) < 0.45) { g.box(hx + w / 2 + 0.45, 0, hz + d / 4 - 0.2, 0.75, 1.8, 0.75, 0xeeeeea); } // エコキュート
+  else g.box(hx + w / 2 + 0.2, 0.6, hz + d / 4, 0.25, 0.7, 0.5, 0xeeeeea);                                  // 給湯器
+  if (k(2) < 0.3) { g.cyl(hx + w / 4, roofY - 0.4, hz - d / 4, 0.04, 2.4, 0x9aa0a6, 4); g.box(hx + w / 4, roofY + 1.7, hz - d / 4, 0.06, 0.06, 1.6, 0x9aa0a6); g.box(hx + w / 4, roofY + 1.3, hz - d / 4, 0.06, 0.06, 1.1, 0x9aa0a6); } // テレビのアンテナ
+  else if (k(2) < 0.55) { g.box(hx + w / 2 + 0.05, wh - 1.2, hz - d / 4, 0.1, 0.1, 0.3, 0x9aa0a6); g.cyl(hx + w / 2 + 0.25, wh - 1.3, hz - d / 4 - 0.1, 0.32, 0.05, 0xe9e9e4, 6); } // BS アンテナ
+  if (solar && k(1) < 0.32) solar(k(4));
+}
+/** 戸建て 1 棟（v86）。戻り値は「車庫が家の中にある」（都市型 3 階建て） */
+function house1(c: Ctx, hx: number, hz: number): boolean {
+  const g = c.g, t = c.rnd(), w = 7.2 + c.rnd() * 1.4, d = 6.0 + c.rnd() * 1.0, fz = hz + d / 2, door = pick(c, DOORS), sv0 = g.wallMat;
+  const type = t < 0.2 ? 0 : t < 0.33 ? 1 : t < 0.43 ? 2 : t < 0.52 ? 3 : t < 0.61 ? 4 : t < 0.68 ? 5 : t < 0.76 ? 6 : t < 0.86 ? 7 : t < 0.93 ? 8 : 9;
+  const W8 = [[45, 40, 0, 15, 0], [20, 50, 30, 0, 0], [0, 0, 50, 50, 0], [0, 20, 50, 30, 0], [0, 40, 25, 35, 0], [0, 0, 1, 0, 0], [40, 30, 30, 0, 0], [50, 50, 0, 0, 0], [30, 0, 0, 30, 40], [0, 10, 45, 45, 0]][type];
+  const m = hmat(c, W8), wall = type === 8 && m.mat === 5 ? pick(c, [0x8a9a9a, 0xa8a090, 0x7a8a7a, 0x9a8a7a]) : m.wall, wood = pick(c, [0x8a6448, 0x6b4a32, 0xa07a58]);
+  const bal = Math.floor(c.rnd() * 3), ent = Math.floor(c.rnd() * 3), sbox = c.rnd() < 0.5, roofA = pick(c, SLATE), roofG = pick(c, GALV), roofK = pick(c, KAWARA);
+  H_WALL = wall; g.wallMat = m.mat;
+  let wh = 5.6, roofY = 7.2, solar: ((k: number) => void) | null = null, garage = false;
+  // 正面（2 階建ての共通）：玄関・1 階の掃き出し窓・2 階の窓とベランダ
+  const front2 = (x0: number, ww: number, H1: number, roof: number, balKind: number) => {
+    const dx = x0 - ww / 4; hEntry(c, dx, fz, door, roof, ent);
+    hwin(c, x0 + ww / 5, 0.5, fz, 2.0, 1.85, { sb: sbox, tb: sbox ? 0 : 1 });
+    if (balKind >= 0) { hBalcony(c, x0 + ww / 5, H1, fz, 3.2, 1.0, balKind, wall); hwin(c, x0 + ww / 5, H1 + 0.05, fz, 1.7, 1.9, { lit: 0.4 }); hwin(c, dx, H1 + 0.6, fz, 1.2, 1.1, { sb: sbox }); }
+    else { hwin(c, x0 + ww / 5, H1 + 0.6, fz, 1.6, 1.2, { sb: sbox }); hwin(c, dx, H1 + 0.6, fz, 1.2, 1.1, { sb: sbox }); }
+    if (DETAIL.hi) hwin(c, dx + 1.25, 1.0, fz, 0.5, 0.9, { grille: true });                              // 玄関わきの細い窓（面格子）
+  };
+  const sides = (ww: number, floors: number, H1: number) => { for (let f = 0; f < floors; f++) { const y = f * H1 + 0.9; winRow(c, 2, hz - d / 2, hz + d / 2, y, hx + ww / 2, 1, 1.1, 1.0); winRow(c, 3, hz - d / 2, hz + d / 2, y, hx - ww / 2, f ? 1 : 2, 0.8, 1.0); winRow(c, 1, hx - ww / 2, hx + ww / 2, y, hz - d / 2, 2, 1.2, 1.0); } };
+  if (type === 0 || type === 1 || type === 7) { // 総二階の切妻・寄棟、L 字（1 階の張り出しに片流れの下屋）
+    const L = type === 7, bw = L ? w - 2.2 : w, bx = L ? hx + 1.1 : hx, H = 5.6, ax: 'x' | 'z' = type === 0 && c.rnd() < 0.3 ? 'z' : 'x', rh = 1.7 + c.rnd() * 0.6;
+    g.box(bx, 0, hz, bw, H, d, wall);
+    const roof = type === 1 ? (c.rnd() < 0.45 ? roofK : roofA) : (c.rnd() < 0.3 ? roofG : roofA);
+    if (type === 1) hipRoof(g, bx, H, hz, bw, d, 2.0, roof, 0.55, 2.4); else g.gable(bx, H, hz, bw, d, rh, roof, ax, wall, 0.5);
+    if (L) { g.box(hx - w / 2 + 1.5, 0, hz + 0.6, 3.0, 2.9, d + 1.2, wall); shedRoof(g, hx - w / 2 + 1.5, 2.9, hz + 0.6, 3.0, d + 1.2, 0.7, roofG, 1, 0.35);
+      hEntry(c, bx - bw / 4 + 0.6, fz, door, roof, ent); hwin(c, hx - w / 2 + 1.5, 0.9, fz + 1.2, 1.8, 1.1, { sb: sbox }); hwin(c, bx + bw / 5, 0.5, fz, 2.0, 1.85, { sb: sbox, tb: sbox ? 0 : 1 });
+      if (bal < 2) hBalcony(c, bx + bw / 5, 2.8, fz, 3.0, 1.0, bal, wall); hwin(c, bx + bw / 5, 2.85, fz, 1.6, 1.9); hwin(c, bx - bw / 4 + 0.4, 3.4, fz, 1.0, 1.1, { sb: sbox });
+    } else front2(hx, w, 2.8, roof, type === 1 ? (bal === 2 ? -1 : bal) : bal);
+    sides(bw, 2, 2.8); wh = H; roofY = H + 2;
+    if (ax === 'x' && type !== 1) solar = (q) => { const over = 0.5, half = d / 2 + over, P = (z: number) => H + 0.1 + rh * (1 - Math.abs(z - hz) / half) + 0.1, z0 = hz + 0.4, z1 = hz + d / 2 - 0.2, x0 = bx - bw / 2 + 0.6, x1 = bx + bw / 2 - 0.6 - q * 1.5;
+      c.wb.quad([x0, P(z1), z1], [x1, P(z1), z1], [x1, P(z0), z0], [x0, P(z0), z0], 0x1f2b3c); };
+    if (type === 1) solar = () => { const y0 = H + 0.25, y1 = H + 1.5, z0 = hz + d / 2 + 0.2, z1 = hz + d / 2 - 1.9; c.wb.quad([hx - 1.6, y0, z0], [hx + 1.6, y0, z0], [hx + 1.2, y1, z1], [hx - 1.2, y1, z1], 0x1f2b3c); };
+  } else if (type === 2) { // 片流れ屋根のモダンな家（木の板張りを組み合わせる）
+    const H0 = 4.8, rh = 1.9;
+    g.box(hx, 0, hz, w, H0, d, wall, 0x8b8f92); shedRoof(g, hx, H0, hz, w, d, rh, roofG, 1, 0.5);
+    g.surfv = 10; g.box(hx + w / 4, 0, fz + 0.04, w / 2, H0, 0.1, wood); g.surfv = 0;                    // 板張りの面
+    hwin(c, hx - w / 4, 0.5, fz, 2.4, 2.0); hwin(c, hx - w / 4, 3.1, fz, 3.0, 0.7); hwin(c, hx + w / 4 + 0.9, 2.7, fz + 0.1, 0.55, 1.6);
+    hEntry(c, hx + w / 4 - 0.6, fz + 0.06, door, roofG, 2);
+    winRow(c, 2, hz - d / 2, hz + d / 2, 3.0, hx + w / 2, 1, 1.4, 0.6); winRow(c, 3, hz - d / 2, hz + d / 2, 0.9, hx - w / 2, 2, 0.8, 1.0); winRow(c, 1, hx - w / 2, hx + w / 2, 3.6, hz - d / 2, 3, 1.0, 1.0, 0.4);
+    wh = H0; roofY = H0 + rh; solar = () => { const yF = H0 + 0.28 - rh * 0.5 / d, z0 = hz + d / 2 - 0.3, z1 = hz - d / 2 + 0.6, yr = (z: number) => yF + rh * (z0 + 0.3 + 0.5 - z) / (d + 1) + 0.08; c.wb.quad([hx - w / 2 + 0.4, yr(z0), z0], [hx + w / 2 - 0.4, yr(z0), z0], [hx + w / 2 - 0.4, yr(z1), z1], [hx - w / 2 + 0.4, yr(z1), z1], 0x1f2b3c); };
+  } else if (type === 3) { // 陸屋根の箱の家（高さの違う 2 つの箱、片方は色を変える）
+    const H = 6.0, acc = pick(c, [0x3c4046, 0xf3f3ef, 0x7a6a58, 0x5a5e62]), aw = w * 0.45;
+    g.box(hx - w * 0.12, 0, hz, w * 0.76, H, d, wall, 0x8b8f92); g.box(hx - w * 0.12, H, hz, w * 0.76 + 0.1, 0.35, d + 0.1, shadeC(wall, 0.92), 0x8b8f92);
+    g.wallMat = acc === 0xf3f3ef ? 8 : 5; g.box(hx + w / 2 - aw / 2, 0, hz + 0.4, aw, H + 0.6, d - 0.4, acc, 0x8b8f92); g.wallMat = m.mat;
+    hwin(c, hx - w / 4, 0.4, fz, 2.6, 2.0); hwin(c, hx - w / 4, 3.6, fz, 3.0, 0.6); if (c.fine) g.box(hx - w / 4, 2.6, fz + 0.4, 3.2, 0.1, 0.8, acc);
+    hwin(c, hx + w / 2 - aw / 2, 3.2, fz + 0.4, 0.6, 2.0);
+    g.surfv = 10; g.box(hx + w / 2 - aw / 2, 0, fz + 0.42, 1.6, 2.6, 0.1, wood); g.surfv = 0; g.box(hx + w / 2 - aw / 2, 0, fz + 0.48, 0.95, 2.15, 0.06, door); g.box(hx + w / 2 - aw / 2, 0, fz + 0.9, 1.8, 0.18, 0.9, 0xbab5aa);
+    winRow(c, 2, hz - d / 2, hz + d / 2, 3.6, hx + w / 2, 2, 0.9, 1.0); winRow(c, 1, hx - w / 2, hx + w / 2, 3.6, hz - d / 2, 2, 1.2, 1.0); winRow(c, 1, hx - w / 2, hx + w / 2, 0.9, hz - d / 2, 2, 1.2, 1.0);
+    wh = H; roofY = H + 0.6;
+  } else if (type === 4) { // 都市型の 3 階建て（間口が狭く、1 階は車庫）
+    const ww = w * 0.78, H = 8.8; garage = true;
+    g.box(hx, 0, hz, ww, H, d, wall, 0x8b8f92); g.box(hx, H, hz, ww + 0.2, 0.45, d + 0.2, pick(c, [0x5a5e62, wall, 0xf3f3ef]), 0x8b8f92);
+    g.box(hx + ww / 4 - 0.1, 0, fz + 0.04, ww / 2 - 0.2, 2.3, 0.1, pick(c, [0x3a3e42, 0x9aa0a4, 0x6b5a4a])); // 車庫のシャッター
+    if (c.fine) for (let i = 1; i < 6; i++) g.box(hx + ww / 4 - 0.1, i * 0.38, fz + 0.1, ww / 2 - 0.3, 0.03, 0.03, 0x2a2c2e);
+    g.box(hx - ww / 4 - 0.3, 0, fz + 0.06, 0.9, 2.1, 0.1, door); g.box(hx - ww / 4 - 0.3, 2.25, fz + 0.4, 1.4, 0.08, 0.8, 0x9fb8c4);
+    for (const y of [3.1, 6.0]) { hwin(c, hx + ww / 6, y, fz, 2.2, 1.5, { sb: sbox }); hwin(c, hx - ww / 3, y + 0.3, fz, 0.7, 1.2); }
+    hBalcony(c, hx + ww / 6, 5.6, fz, 2.8, 0.9, 2, wall);
+    winRow(c, 2, hz - d / 2, hz + d / 2, 3.2, hx + ww / 2, 2, 1.0, 1.0); winRow(c, 2, hz - d / 2, hz + d / 2, 6.0, hx + ww / 2, 2, 1.0, 1.0); winRow(c, 1, hx - ww / 2, hx + ww / 2, 3.2, hz - d / 2, 2, 1.0, 1.0);
+    if (c.fine) { g.box(hx - ww / 4, H + 0.45, hz - d / 4, 1.6, 2.2, 1.6, wall, 0x8b8f92); g.box(hx + ww / 4, H + 0.45, hz, 0.9, 0.6, 0.6, 0xe6e6e2); } // 屋上の階段室と室外機
+    hDetail(c, hx, hz, ww, d, H, H + 0.5, null); g.wallMat = sv0; return garage;
+  } else if (type === 5) { // 和風の家（瓦の寄棟、下屋のひさし、格子、腰の板張り、縁側）
+    const wd = 0x5a4030, shikkui = pick(c, [0xf1ece0, 0xe8e0d0, 0xf4f1ea]); H_WALL = shikkui;
+    g.box(hx, 0, hz, w, 5.6, d, shikkui); g.surfv = 10; g.box(hx, 0, hz, w + 0.06, 1.0, d + 0.06, wd); g.surfv = 0; // 腰の板張り
+    hipRoof(g, hx, 2.9, hz, w, d, 0.6, roofK, 0.9, 0.9);
+    g.box(hx, 2.9, hz, w - 0.6, 2.7, d - 0.6, shikkui); hipRoof(g, hx, 5.6, hz, w - 0.6, d - 0.6, 2.2, roofK, 0.8, 2.6);
+    for (let i = 0; i <= 5; i++) g.box(hx - w / 2 + 0.1 + i * (w - 0.2) / 5, 0, fz + 0.04, 0.16, 2.8, 0.08, wd); // 柱
+    if (c.fine) for (let i = 0; i < 9; i++) g.box(hx - w / 2 + 0.6 + i * 0.32, 1.0, fz + 0.1, 0.06, 1.6, 0.05, wd); // 格子
+    win(c, 0, hx - w / 2 + 2.0, 1.0, fz, 2.8, 1.6, 0.5, 0xd8cfb8);
+    g.box(hx + w / 6, 0, fz + 0.06, 1.8, 2.1, 0.1, 0x3a2a20); g.box(hx + w / 6, 0, fz + 0.7, 2.4, 0.3, 1.0, 0x9a9488); // 引き戸の玄関と踏み石
+    winRow(c, 0, hx - w / 2 + 0.6, hx + w / 2 - 0.6, 3.6, fz - 0.28, 3, 1.2, 1.0, 0.45, 0xd8cfb8);
+    winRow(c, 2, hz - d / 2, hz + d / 2, 1.0, hx + w / 2, 1, 1.4, 1.2, 0.45, 0xd8cfb8); winRow(c, 1, hx - w / 2 + 0.3, hx + w / 2 - 0.3, 3.6, hz - d / 2 + 0.3, 2, 1.2, 1.0, 0.45, 0xd8cfb8);
+    g.box(hx, 0, hz - d / 2 - 0.6, w - 1, 0.45, 1.2, wood); wh = 2.9; roofY = 7.8; // 縁側（裏）
+  } else if (type === 6) { // 平屋（切妻か寄棟。縁側のウッドデッキ）
+    const ww = w + 1.6, H = 3.1, hip = c.rnd() < 0.45, roof = hip ? roofK : roofA;
+    g.box(hx, 0, hz, ww, H, d, wall); if (hip) hipRoof(g, hx, H, hz, ww, d, 1.9, roof, 0.7, 2.6); else g.gable(hx, H, hz, ww, d, 2.1, roof, 'x', wall, 0.6);
+    hwin(c, hx + 0.3, 0.45, fz, 2.2, 1.8, { tb: 1 }); hwin(c, hx + ww / 2 - 1.3, 0.9, fz, 1.2, 1.1, { sb: sbox });
+    hEntry(c, hx - ww / 2 + 1.3, fz, door, roof, ent);
+    if (c.fine) { g.box(hx + 0.3, 0, fz + 0.9, 3.4, 0.45, 1.6, wood); g.box(hx + 0.3, 0.45, fz + 1.7, 3.4, 0.05, 0.06, shadeC(wood, 0.8)); } // ウッドデッキ
+    winRow(c, 1, hx - ww / 2, hx + ww / 2, 0.9, hz - d / 2, 3, 1.4, 1.1); winRow(c, 2, hz - d / 2, hz + d / 2, 0.9, hx + ww / 2, 1, 1.1, 1.0); winRow(c, 3, hz - d / 2, hz + d / 2, 0.9, hx - ww / 2, 1, 0.8, 1.0);
+    if (c.fine && !hip) solar = () => { const over = 0.6, half = d / 2 + over, P = (z: number) => H + 0.1 + 2.1 * (1 - Math.abs(z - hz) / half) + 0.1, z0 = hz + 0.4, z1 = hz + d / 2 - 0.2; c.wb.quad([hx - ww / 2 + 0.8, P(z1), z1], [hx + ww / 2 - 0.8, P(z1), z1], [hx + ww / 2 - 0.8, P(z0), z0], [hx - ww / 2 + 0.8, P(z0), z0], 0x1f2b3c); };
+    hDetail(c, hx, hz, ww, d, H, H + 2.1, solar); g.wallMat = sv0; return false;
+  } else if (type === 8) { // 昭和の木造 2 階建て（瓦の切妻、1 階の前に下屋、鉄の手すりと物干し、小さめのアルミ窓）
+    const H = 5.4, H2 = 2.7;
+    g.box(hx, 0, hz, w, H2 + 0.2, d, wall); g.box(hx + 0.4, H2, hz - 0.4, w - 0.8, H - H2, d - 0.8, wall);
+    g.gable(hx + 0.4, H, hz - 0.4, w - 0.8, d - 0.8, 1.8, roofK, 'x', wall, 0.55);
+    hipRoof(g, hx, H2 + 0.1, hz, w, d, 0.55, roofK, 0.6, 0.6);                                           // 1 階の下屋（まわりのひさし）
+    g.box(hx - w / 4, 0, fz + 0.05, 1.6, 2.0, 0.1, 0x8a8a84); if (c.fine) g.box(hx - w / 4, 0.1, fz + 0.1, 0.05, 1.8, 0.04, 0x5a5e5a); // アルミの引き戸
+    hwin(c, hx + w / 5, 0.7, fz, 2.4, 1.5, { tb: 1 }); hwin(c, hx + w / 5, H2 + 0.6, fz - 0.4, 2.2, 1.4, { tb: -1 });
+    hwin(c, hx - w / 4, H2 + 0.8, fz - 0.4, 1.4, 1.0, { grille: true });
+    if (c.fine) { hBalcony(c, hx + w / 5, H2 + 0.25, fz - 0.4, 2.8, 0.5, 3, wall); g.box(hx + w / 5, H2 + 1.9, fz + 0.35, 3.2, 0.04, 0.04, 0xb8bcc0); // 物干し竿
+      const cols = [0xf6f6f2, 0x6a8ac8, 0xe8a0a8, 0xf2d27a]; for (let j = 0; j < 3; j++) if (dh(hx + g.ox, hz + j, 31) < 0.6) g.box(hx + w / 5 - 1 + j * 0.9, H2 + 1.15, fz + 0.35, 0.6, 0.7, 0.03, cols[j]); }
+    winRow(c, 2, hz - d / 2, hz + d / 2, 0.9, hx + w / 2, 1, 1.0, 1.0); winRow(c, 2, hz - d / 2 + 0.4, hz + d / 2 - 1.2, 3.4, hx + w / 2 - 0.4, 1, 1.0, 1.0); winRow(c, 1, hx - w / 2, hx + w / 2, 0.9, hz - d / 2, 2, 1.2, 1.0);
+    if (c.fine) g.box(hx - w / 2 + 0.2, H2 + 0.5, hz, 0.3, 0.15, 0.3, 0x5a5e62); wh = H2; roofY = H + 1.8;    // 外の配管
+  } else { // 招き屋根（高さの違う片流れを 2 枚。段の所に高窓）
+    const H = 5.6, dF = d * 0.6, dB = d - dF, zF = hz + d / 2 - dF / 2, zB = hz - d / 2 + dB / 2;
+    g.box(hx, 0, hz, w, H, d, wall, 0x8b8f92);
+    shedRoof(g, hx, H, zF, w, dF, 1.7, roofG, 1, 0.45); shedRoof(g, hx, H, zB, w, dB, 0.8, roofG, -1, 0.4);
+    if (c.fine) winD(c, 1, hx, H + 0.9, zB + dB / 2, w - 1.4, 0.6, 0.4);                               // 高窓
+    front2(hx, w, 2.8, roofG, bal === 2 ? 2 : -1); sides(w, 2, 2.8); wh = H; roofY = H + 1.7;
   }
+  hDetail(c, hx, hz, w, d, wh, roofY, solar); g.wallMat = sv0;
+  return garage;
 }
 
+/** 戸建ての区画（4 戸）。v86：塀は 4 通り（ブロック塀・生け垣・アルミのフェンス・塀なし）、カーポート、自転車、門柱 */
 export function modelHouseLot(c: Ctx): void {
   pad(c, 28.4, 28.4, 0xb9b2a4);
   const g = c.g;
   for (const [qx, qz] of [[-7.1, 7.1], [7.1, 7.1], [-7.1, -7.1], [7.1, -7.1]]) {
     const hx = qx + (c.rnd() - 0.5) * 0.8, hz = qz - 1.2;
     const garage = house1(c, hx, hz); // 都市型 3 階建ては車庫が家の中にあるので、外の駐車場は作らない
-    const fz = qz + 6.3;
-    // 塀か生け垣
-    if (c.rnd() < 0.5) { g.box(qx - 3.6, 0, fz, 6.4, 0.95, 0.16, 0xcfcac0); g.box(qx + 5.6, 0, fz, 2.2, 0.95, 0.16, 0xcfcac0); }
-    else { hedge(c, qx - 3.6, fz, 6.4, 0.6, 1.1); hedge(c, qx + 5.6, fz, 2.2, 0.6, 1.1); }
+    const fz = qz + 6.3, fence = c.rnd(), k = (n: number) => dh(qx + g.ox, qz + g.oz, n);
+    // 塀・生け垣・フェンス
+    if (fence < 0.32) { const bc = pick(c, [0xcfcac0, 0xb8b2a6, 0xd8d2c4, 0x9a968c]); g.box(qx - 3.6, 0, fz, 6.4, 0.95, 0.16, bc); g.box(qx + 5.6, 0, fz, 2.2, 0.95, 0.16, bc);
+      if (DETAIL.hi) { g.box(qx - 3.6, 0.95, fz, 6.5, 0.06, 0.22, shadeC(bc, 0.85)); g.box(qx + 5.6, 0.95, fz, 2.3, 0.06, 0.22, shadeC(bc, 0.85)); } } // ブロック塀と笠木
+    else if (fence < 0.62) { hedge(c, qx - 3.6, fz, 6.4, 0.6, 1.1); hedge(c, qx + 5.6, fz, 2.2, 0.6, 1.1); }
+    else if (fence < 0.86) { const fc = pick(c, [0x4a4e52, 0x8a7a6a, 0xb8bcc0]); for (const [x, wd] of [[qx - 3.6, 6.4], [qx + 5.6, 2.2]]) { g.box(x, 0, fz, wd, 0.5, 0.18, 0xcfcac0); g.box(x, 0.5, fz, wd, 0.75, 0.04, fc); if (c.fine) g.box(x, 1.22, fz, wd, 0.05, 0.08, fc); } } // 低いブロックにアルミのフェンス
+    else g.box(qx, 0, fz, 13.6, 0.15, 0.2, 0xbab5aa);                                                       // 塀なし（縁石だけ）
+    if (DETAIL.hi && fence < 0.86) { g.box(qx - 0.25, 0, fz, 0.45, 1.3, 0.45, [0xd8d2c4, 0x8a7d70, 0x5a5e62][Math.floor(k(8) * 3)]); g.box(qx - 0.25, 1.3, fz, 0.55, 0.06, 0.55, 0x6a6e72); } // 門柱
     // 駐車スペース
     const pc = c.rnd() < 0.62, cp = c.rnd() < 0.3;
     slab(c, qx + 3.1, qz + 4.2, 2.9, 4.6, 0xa8a7a2, 0.06); // 駐車スペース（3 階建てでは車庫の前の通路）
     if (pc && !garage) car(c, qx + 3.1, qz + 4.2, false);
-    if (cp && !garage) { g.box(qx + 3.1, 2.25, qz + 4.2, 3.1, 0.1, 5.0, 0xd0d4d6); g.cyl(qx + 1.7, 0, qz + 2.0, 0.06, 2.25, 0x9a9da0, 4); g.cyl(qx + 1.7, 0, qz + 6.4, 0.06, 2.25, 0x9a9da0, 4); }
+    if (cp && !garage) { g.box(qx + 3.1, 2.25, qz + 4.2, 3.1, 0.1, 5.0, k(5) < 0.5 ? 0xd0d4d6 : 0x9fb0b8); g.cyl(qx + 1.7, 0, qz + 2.0, 0.06, 2.25, 0x9a9da0, 4); g.cyl(qx + 1.7, 0, qz + 6.4, 0.06, 2.25, 0x9a9da0, 4); }
+    if (DETAIL.hi && k(6) < 0.5) { const bc = [0x2b2f33, 0x9a3a32, 0x356b8c, 0xdadad6][Math.floor(k(7) * 4)]; for (const z of [2.5, 3.5]) g.box(qx - 0.9, 0, qz + z, 0.05, 0.62, 0.62, 0x1a1a1a); g.box(qx - 0.9, 0.45, qz + 3.0, 0.07, 0.5, 1.0, bc); } // 自転車
     // 庭
     slab(c, qx - 3.3, qz + 4.4, 5.6, 3.4, 0x7fae62, 0.07);
     const r = c.rnd();
@@ -568,28 +659,75 @@ function balconyLife(c: Ctx, x0: number, x1: number, y: number, fz: number, unit
       for (let j = 0; j < 3; j++) g.box(cx - bw * 0.2 + j * bw * 0.22, y + 1.15, fz + depth * 0.55, bw * 0.16, 0.65, 0.03, cols[Math.floor(k(2 + j) * 6)]); } // 洗濯物
     if (k(6) < 0.3) { g.cyl(cx + bw * 0.35, y + 0.02, fz + depth * 0.8, 0.18, 0.3, 0x9a6a4a, 6); g.blob(cx + bw * 0.35, y + 0.55, fz + depth * 0.8, 0.3, 0.3, 0.3, 0x4f8a3c, 5); } } // 鉢植え
 }
+/** 鉄骨の外階段（v86）：x0 から +x へ（dir = -1 なら -x へ）長さ len で y0 から y1 へ上がる。高品質では段を 1 段ずつ */
+function steelStair(c: Ctx, x0: number, z: number, y0: number, y1: number, len: number, w: number, dir: number, col = 0x6b7076): void {
+  const g = c.g, x1 = x0 + dir * len, h = y1 - y0, Q = (a: V, b: V, cc: V, d: V, k: number, sh = 1) => (dir > 0 ? g.quad(a, b, cc, d, k, sh) : g.quad(d, cc, b, a, k, sh));
+  for (const sz of [-1, 1]) { const zz = z + sz * w / 2; Q([x0, y0 - 0.25, zz], [x1, y1 - 0.25, zz], [x1, y1 + 0.05, zz], [x0, y0 + 0.05, zz], col, sz > 0 ? 1 : 0.8); } // ささら桁
+  if (c.fine && DETAIL.hi) { const n = Math.max(3, Math.round(h / 0.2)); for (let i = 0; i < n; i++) g.box(x0 + dir * len * (i + 0.5) / n, y0 + h * i / n, z, len / n + 0.02, 0.05, w - 0.1, 0x8a8f94); }
+  else { Q([x0, y0, z + w / 2], [x1, y1, z + w / 2], [x1, y1, z - w / 2], [x0, y0, z - w / 2], 0x8a8f94); Q([x0, y0 - 0.2, z - w / 2], [x1, y1 - 0.2, z - w / 2], [x1, y1 - 0.2, z + w / 2], [x0, y0 - 0.2, z + w / 2], col, 0.6); }
+  if (c.fine) { const zz = z + w / 2; g.quad(dir > 0 ? [x0, y0 + 0.95, zz] : [x1, y1 + 0.95, zz], dir > 0 ? [x1, y1 + 0.95, zz] : [x0, y0 + 0.95, zz], dir > 0 ? [x1, y1 + 1.0, zz] : [x0, y0 + 1.0, zz], dir > 0 ? [x0, y0 + 1.0, zz] : [x1, y1 + 1.0, zz], col); } // 手すり
+}
+/** 集合住宅（アパート）。v86：4 つの型（RC の 3〜4 階・木造 2 階のハイツと外階段・軽量鉄骨 3 階の片流れ・メゾネットの長屋）。外壁の素材も選ぶ */
 export function modelApartment(c: Ctx): void {
   pad(c, 28.4, 28.4, 0xaaa8a2);
-  const g = c.g, floors = c.rnd() < 0.55 ? 3 : 4, fh = 2.9, H = floors * fh;
-  const wall = pick(c, [0xe6e1d6, 0xd8d2c4, 0xcdd3d6, 0xe9e4da, 0xc9b9a6, 0xdfd7c8]);
-  const panel = pick(c, [0xf4f1ea, 0x9aa7ad, 0x6f7f8a, 0xb08a6a, 0xe7e2d8, 0x8a6f5a]);
-  const w = 23, d = 9.2, bz = -7.2, fz = bz + d / 2, units = 5;
-  g.box(0, 0, bz, w, H, d, wall, 0x9a9c9c);
-  g.box(0, H, bz, w + 0.4, 0.45, d + 0.4, 0xcfcfca, 0x8f9192);                     // パラペット
-  for (let f = 0; f < floors; f++) {
-    const y = f * fh;
-    g.box(0, y + 0.0 + (f ? -0.16 : 0), fz + 0.75, w, 0.16, 1.5, 0xd8d6d0);       // ベランダ床
-    g.box(0, y + 0.05, fz + 1.48, w, 1.05, 0.08, panel);                           // 手すり壁
-    for (let u = 0; u <= units; u++) g.box(-w / 2 + w * u / units, y, fz + 0.75, 0.1, fh - 0.2, 1.5, 0xe9e7e1);
-    winRow(c, 0, -w / 2, w / 2, y + 0.15, fz, units, 2.3, 2.0, 0.5); balconyLife(c, -w / 2, w / 2, y + (f ? 0 : 0.16), fz, units, 1.5);
-    // 北側の外廊下
-    g.box(0, y + (f ? -0.16 : 0), bz - d / 2 - 0.65, w, 0.16, 1.3, 0xd8d6d0);
-    g.box(0, y + 0.05, bz - d / 2 - 1.28, w, 1.1, 0.08, 0xe1dfd8);
-    for (let u = 0; u < units; u++) { const x = -w / 2 + w * (u + 0.3) / units; g.box(x, y + 0.05, bz - d / 2 - 0.06, 0.9, 2.0, 0.08, 0x5a646b); win(c, 1, x + 1.6, y + 1.0, bz - d / 2, 0.9, 0.9, 0.3); }
+  const g = c.g, type = Math.floor(c.rnd() * 4), w = 23, bz = -7.2, sv0 = g.wallMat;
+  if (type === 0) { // RC の 3〜4 階（南にベランダ、北に外廊下、端に階段室）
+    const floors = c.rnd() < 0.55 ? 3 : 4, fh = 2.9, H = floors * fh, d = 9.2, fz = bz + d / 2, units = 5;
+    const m = hmat(c, [30, 30, 40, 0, 0]), wall = pick(c, [0xe6e1d6, 0xd8d2c4, 0xcdd3d6, 0xe9e4da, 0xc9b9a6, 0xdfd7c8]);
+    const panel = pick(c, [0xf4f1ea, 0x9aa7ad, 0x6f7f8a, 0xb08a6a, 0xe7e2d8, 0x8a6f5a]);
+    g.wallMat = m.mat === 9 ? 6 : m.mat; g.box(0, 0, bz, w, H, d, wall, 0x9a9c9c); g.wallMat = sv0;
+    g.box(0, H, bz, w + 0.4, 0.45, d + 0.4, 0xcfcfca, 0x8f9192);                     // パラペット
+    for (let f = 0; f < floors; f++) {
+      const y = f * fh;
+      g.box(0, y + (f ? -0.16 : 0), fz + 0.75, w, 0.16, 1.5, 0xd8d6d0);              // ベランダ床
+      g.box(0, y + 0.05, fz + 1.48, w, 1.05, 0.08, panel);                           // 手すり壁
+      if (c.fine) g.box(0, y + 1.1, fz + 1.48, w + 0.04, 0.06, 0.14, 0xb8bcc0);     // 笠木
+      for (let u = 0; u <= units; u++) g.box(-w / 2 + w * u / units, y, fz + 0.75, 0.1, fh - 0.2, 1.5, 0xe9e7e1);
+      winRow(c, 0, -w / 2, w / 2, y + 0.15, fz, units, 2.3, 2.0, 0.5); balconyLife(c, -w / 2, w / 2, y + (f ? 0 : 0.16), fz, units, 1.5);
+      g.box(0, y + (f ? -0.16 : 0), bz - d / 2 - 0.65, w, 0.16, 1.3, 0xd8d6d0);       // 北側の外廊下
+      g.box(0, y + 0.05, bz - d / 2 - 1.28, w, 1.1, 0.08, 0xe1dfd8);
+      for (let u = 0; u < units; u++) { const x = -w / 2 + w * (u + 0.3) / units; g.box(x, y + 0.05, bz - d / 2 - 0.06, 0.9, 2.0, 0.08, 0x5a646b); win(c, 1, x + 1.6, y + 1.0, bz - d / 2, 0.9, 0.9, 0.3); }
+    }
+    g.box(w / 2 + 1.5, 0, bz - 2.2, 3.0, H + 1.2, 5.0, 0xd0cec8, 0x9a9c9c);          // 階段室
+    winRow(c, 2, bz - 4.2, bz - 0.2, 1.5, w / 2 + 3.0, 1, 0.9, H - 2.5, 0.8);
+    g.cyl(-6, H + 0.45, bz, 1.1, 1.6, 0xe9eef0, 8); g.box(4, H + 0.45, bz + 1, 1.4, 0.8, 0.9, 0xe2e2de); g.box(6, H + 0.45, bz - 1, 1.4, 0.8, 0.9, 0xe2e2de);
+    if (c.fine) for (const sx of [-1, 1]) g.box(sx * (w / 2 + 0.08), 0, fz + 0.1, 0.14, H, 0.14, 0x8a8e92); // 竪どい
+  } else if (type === 1) { // 木造 2 階のハイツ（切妻屋根、北に外廊下と鉄骨の外階段）
+    const fh = 2.8, H = 5.6, d = 8.4, w2 = 20, fz = bz + d / 2, units = 4, m = hmat(c, [55, 45, 0, 0, 0]), roof = pick(c, SLATE);
+    H_WALL = m.wall; g.wallMat = m.mat; g.box(-1.5, 0, bz, w2, H, d, m.wall); g.gable(-1.5, H, bz, w2, d, 1.6, roof, 'x', m.wall, 0.5); g.wallMat = sv0;
+    g.box(-1.5, 0, bz, w2 + 0.08, 0.42, d + 0.08, 0x8f8d86);                      // 基礎
+    for (let f = 0; f < 2; f++) { const y = f * fh;
+      for (let u = 0; u < units; u++) { const x = -1.5 - w2 / 2 + w2 * (u + 0.5) / units;
+        hwin(c, x + 0.6, y + 0.3, fz, 1.8, 1.8, { sb: f === 1 }); win(c, 0, x - 1.5, y + 1.0, fz, 0.8, 1.0, 0.4);
+        if (f === 1) hBalcony(c, x + 0.3, y, fz, 4.2, 0.9, 1, m.wall); else if (c.fine) g.box(x + 0.6, 0, fz + 0.8, 4.0, 0.06, 1.4, 0x7fae62); // 2 階のベランダ、1 階は専用庭
+        g.box(x - 0.6, y + 0.05, bz - d / 2 - 0.06, 0.85, 2.0, 0.08, pick(c, [0x5a646b, 0x8a6448, 0xe9e7e1])); win(c, 1, x + 1.0, y + 1.1, bz - d / 2, 0.8, 0.8, 0.3); } }
+    if (c.fine) for (let u = 1; u < units; u++) g.box(-1.5 - w2 / 2 + w2 * u / units, fh, fz + 0.45, 0.06, 1.6, 0.9, 0xe9e7e1); // ベランダの隔て板
+    g.box(-1.5, fh - 0.16, bz - d / 2 - 0.65, w2, 0.16, 1.3, 0x9a9ea2); g.box(-1.5, fh + 1.0, bz - d / 2 - 1.28, w2, 0.06, 0.06, 0x6b7076); // 2 階の外廊下と手すり
+    if (c.fine) g.box(-1.5, fh, bz - d / 2 - 1.28, w2, 0.95, 0.02, 0x7a7f84);
+    for (let i = 0; i < 5; i++) g.box(-1.5 - w2 / 2 + w2 * i / 4, 0, bz - d / 2 - 1.25, 0.12, fh, 0.12, 0x6b7076); // 廊下の柱
+    steelStair(c, -1.5 + w2 / 2 + 2.6, bz - d / 2 - 0.65, 0, fh, 2.6, 1.0, -1);
+    if (c.fine) { g.box(-1.5 + w2 / 2 + 0.6, 0.9, bz - 1, 0.5, 1.4, 1.6, 0x8a8f94); g.box(-1.5 - w2 / 2 - 0.4, 0, bz + 2, 0.5, 1.2, 2.4, 0xb8bcc0); } // 郵便受けと物置
+  } else if (type === 2) { // 軽量鉄骨の 3 階（片流れ屋根、端に外階段、アルミの手すりのベランダ）
+    const floors = 3, fh = 2.85, H = floors * fh, d = 8.8, w2 = 21, x0 = -1, fz = bz + d / 2, units = 4, m = hmat(c, [0, 60, 0, 40, 0]);
+    H_WALL = m.wall; g.wallMat = m.mat; g.box(x0, 0, bz, w2, H, d, m.wall, 0x8b8f92); shedRoof(g, x0, H, bz, w2, d, 1.0, pick(c, GALV), -1, 0.4); g.wallMat = sv0;
+    for (let f = 0; f < floors; f++) { const y = f * fh;
+      if (f) for (let u = 0; u < units; u++) hBalcony(c, x0 - w2 / 2 + w2 * (u + 0.5) / units, y, fz, w2 / units - 0.15, 1.1, 1 + ((u + f) & 1) * 0, m.wall);
+      winRow(c, 0, x0 - w2 / 2, x0 + w2 / 2, y + 0.2, fz, units, 1.8, 1.9, 0.5);
+      if (f) balconyLife(c, x0 - w2 / 2, x0 + w2 / 2, y, fz, units, 1.1);
+      for (let u = 0; u < units; u++) { const x = x0 - w2 / 2 + w2 * (u + 0.35) / units; g.box(x, y + 0.05, bz - d / 2 - 0.06, 0.85, 2.0, 0.08, 0x4f565c); win(c, 1, x + 1.6, y + 1.1, bz - d / 2, 0.8, 0.8, 0.3); }
+      if (f) { g.box(x0, y - 0.16, bz - d / 2 - 0.6, w2, 0.16, 1.2, 0x9a9ea2); g.box(x0, y, bz - d / 2 - 1.17, w2, 1.05, 0.06, pick(c, [0xd8d6d0, 0x8a9094])); } }
+    steelStair(c, x0 + w2 / 2 + 0.7, bz - d / 2 + 0.5, 0, fh, 3.4, 1.1, 1); steelStair(c, x0 + w2 / 2 + 4.1, bz - d / 2 - 1.0, fh, fh * 2, 3.4, 1.1, -1);
+    g.box(x0 + w2 / 2 + 2.4, fh - 0.16, bz - d / 2 - 0.25, 4.2, 0.16, 2.6, 0x9a9ea2); g.box(x0 + w2 / 2 + 2.4, fh * 2 - 0.16, bz - d / 2 - 0.25, 4.2, 0.16, 2.6, 0x9a9ea2); // 踊り場
+    for (const [sx, sz] of [[0.4, 1.0], [4.4, 1.0], [0.4, -1.5], [4.4, -1.5]]) g.box(x0 + w2 / 2 + sx, 0, bz - d / 2 + sz, 0.14, fh * 2, 0.14, 0x6b7076);
+  } else { // メゾネットの長屋（2 階建てが 4 戸つながり、戸ごとに妻入りの屋根と玄関と小さな庭）
+    const d = 9.0, H = 5.4, units = 4, uw = w / units, fz = bz + d / 2, m = hmat(c, [40, 40, 20, 0, 0]), roof = pick(c, SLATE);
+    for (let u = 0; u < units; u++) { const x = -w / 2 + uw * (u + 0.5), wall = u & 1 ? shadeC(m.wall, 0.92) : m.wall; H_WALL = wall; g.wallMat = m.mat;
+      g.box(x, 0, bz, uw, H, d, wall); g.gable(x, H, bz, uw, d, 1.9, roof, 'z', wall, 0.3); g.wallMat = sv0;
+      hEntry(c, x - uw / 4, fz, pick(c, DOORS), roof, u & 1 ? 2 : 0); hwin(c, x + uw / 5, 0.5, fz, 2.0, 1.8, { sb: true }); hwin(c, x, 3.1, fz, 2.4, 1.3, { sb: true });
+      win(c, 1, x, 1.0, bz - d / 2, 1.6, 1.0, 0.4); win(c, 1, x, 3.5, bz - d / 2, 1.6, 1.0, 0.4);
+      if (c.fine) { g.box(x + uw / 5, 0, fz + 1.6, uw - 1.6, 0.9, 0.12, 0xcfcac0); g.box(x + uw / 5, 0.04, fz + 0.8, uw - 1.6, 0.06, 1.5, 0x7fae62); } } // 小さな庭と塀
+    g.box(0, 0, bz, w + 0.08, 0.42, d + 0.08, 0x8f8d86);
   }
-  g.box(w / 2 + 1.5, 0, bz - 2.2, 3.0, H + 1.2, 5.0, 0xd0cec8, 0x9a9c9c);         // 階段室
-  winRow(c, 2, bz - 4.2, bz - 0.2, 1.5, w / 2 + 3.0, 1, 0.9, H - 2.5, 0.8);
-  g.cyl(-6, H + 0.45, bz, 1.1, 1.6, 0xe9eef0, 8); g.box(4, H + 0.45, bz + 1, 1.4, 0.8, 0.9, 0xe2e2de); g.box(6, H + 0.45, bz - 1, 1.4, 0.8, 0.9, 0xe2e2de);
   // 駐車場
   slab(c, -1.5, 7.4, 22, 9.8, 0x4c4f53, 0.08);
   parkingLines(c, -12, 6.2, 5.2, 5.0, 7);
@@ -601,32 +739,47 @@ export function modelApartment(c: Ctx): void {
   hedge(c, -13.6, -6, 0.7, 14); tree(c, -12.6, 12.4, 0.75); if (c.rnd() < 0.6) tree(c, 12.4, -12.6, 0.7);
 }
 
+/** マンション。v86：3 つの型（タイルと縦のフィン・白い吹付けで横の帯を強調し上の階を段々に下げる・打放しとタイルの 2 棟つなぎ） */
 export function modelMansion(c: Ctx): void {
   pad(c, 28.4, 28.4, 0xb4b1aa);
-  const g = c.g, floors = 8 + Math.floor(c.rnd() * 4), fh = 3.0, H = floors * fh;
-  const tile = pick(c, [0xb7a999, 0x8f7f72, 0xd9d6cf, 0x6f7478, 0xc4b6a2, 0x9c5a44]);
+  const g = c.g, floors = 8 + Math.floor(c.rnd() * 4), fh = 3.0, H = floors * fh, type = Math.floor(c.rnd() * 3), sv0 = g.wallMat;
+  const tile = type === 1 ? pick(c, [0xf2f0ea, 0xe8e4da, 0xdcdad4, 0xece6da]) : pick(c, [0xb7a999, 0x8f7f72, 0xd9d6cf, 0x6f7478, 0xc4b6a2, 0x9c5a44]);
   const fin = pick(c, [0x4a4d52, 0xf0eee8, 0x6b5a4c]);
   const rail = pick(c, [0xa9c3cf, 0xf2f2ee, 0x8fa3ad]);
   const w = 20, d = 13, bz = -4.5, fz = bz + d / 2, units = 4;
-  g.box(0, 0, bz, w, H, d, tile, 0x8e9092);
-  g.box(0, H, bz, w + 0.5, 0.6, d + 0.5, fin, 0x8e9092);
-  for (const x of [-w / 2 - 0.2, 0, w / 2 + 0.2]) g.box(x, 0, fz + 0.9, 0.5, H + 0.6, 1.9, fin);  // 縦のフィン
+  const sb = type === 1 ? Math.min(3, floors - 7) : 0; // 上の何階を下げるか
+  g.wallMat = type === 1 ? 8 : 6;
+  if (type === 2) { g.box(-w / 4, 0, bz, w / 2, H, d, tile, 0x8e9092); g.wallMat = 7; g.box(w / 4, 0, bz, w / 2, H - fh, d, 0xb8b6b0, 0x8e9092); }
+  else { g.box(0, 0, bz, w, H - sb * fh, d, tile, 0x8e9092); if (sb) g.box(0, H - sb * fh, bz - 1.5, w, sb * fh, d - 3, tile, 0x8e9092); }
+  g.wallMat = sv0;
+  const top = (x: number) => (type === 2 && x > 0 ? H - fh : H);
+  if (type === 2) { g.box(-w / 4, H, bz, w / 2 + 0.5, 0.6, d + 0.5, fin, 0x8e9092); g.box(w / 4, H - fh, bz, w / 2 + 0.3, 0.6, d + 0.3, 0xd8d6d0, 0x8e9092); }
+  else { g.box(0, H, bz - (sb ? 1.5 : 0), w + 0.5, 0.6, d + 0.5 - (sb ? 3 : 0), fin, 0x8e9092); }
+  if (type === 0) for (const x of [-w / 2 - 0.2, 0, w / 2 + 0.2]) g.box(x, 0, fz + 0.9, 0.5, H + 0.6, 1.9, fin);  // 縦のフィン
   for (let f = 1; f < floors; f++) {
-    const y = f * fh;
-    g.box(0, y - 0.18, fz + 0.9, w, 0.18, 1.8, 0xdedcd6);
-    g.box(-w / 4, y, fz + 1.76, w / 2 - 0.6, 1.1, 0.07, rail); g.box(w / 4, y, fz + 1.76, w / 2 - 0.6, 1.1, 0.07, rail);
-    winRow(c, 0, -w / 2, w / 2, y + 0.1, fz, units, 2.9, 2.2, 0.5); balconyLife(c, -w / 2 + 0.3, w / 2 - 0.3, y, fz, units, 1.8);
-    winRow(c, 2, bz - d / 2, bz + d / 2, y + 0.9, w / 2, 2, 1.3, 1.3, 0.4); winRow(c, 3, bz - d / 2, bz + d / 2, y + 0.9, -w / 2, 2, 1.3, 1.3, 0.4);
+    const y = f * fh, back = type === 1 && f >= floors - sb ? 3 : 0, fzz = fz - back;
+    if (type === 2 && f >= floors - 1) { g.box(-w / 4, y - 0.18, fzz + 0.9, w / 2, 0.18, 1.8, 0xdedcd6); g.box(-w / 4, y, fzz + 1.76, w / 2 - 0.6, 1.1, 0.07, rail); winRow(c, 0, -w / 2, 0, y + 0.1, fzz, 2, 2.9, 2.2, 0.5); continue; }
+    if (type === 1) { g.box(0, y - 0.22, fzz + 0.95, w + 0.6, 0.22, 1.9, 0xf4f2ec); g.box(0, y, fzz + 1.85, w + 0.6, 0.62, 0.12, 0xf4f2ec); g.box(0, y + 0.62, fzz + 1.85, w + 0.5, 0.5, 0.04, 0xb8c8cc); } // 白い帯（スラブと腰壁）とガラスの手すり
+    else { g.box(0, y - 0.18, fzz + 0.9, w, 0.18, 1.8, 0xdedcd6); g.box(-w / 4, y, fzz + 1.76, w / 2 - 0.6, 1.1, 0.07, rail); g.box(w / 4, y, fzz + 1.76, w / 2 - 0.6, 1.1, 0.07, rail); }
+    if (c.fine) for (let u = 1; u < units; u++) if (u !== 2 || type !== 0) g.box(-w / 2 + w * u / units, y, fzz + 0.9, 0.06, 2.2, 1.7, 0xe9e7e1); // 隔て板
+    winRow(c, 0, -w / 2, w / 2, y + 0.1, fzz, units, 2.9, 2.2, 0.5); balconyLife(c, -w / 2 + 0.3, w / 2 - 0.3, y, fzz, units, 1.8);
+    if (!back && !(type === 2 && f >= floors - 1)) { winRow(c, 2, bz - d / 2, bz + d / 2, y + 0.9, w / 2, 2, 1.3, 1.3, 0.4); winRow(c, 3, bz - d / 2, bz + d / 2, y + 0.9, -w / 2, 2, 1.3, 1.3, 0.4); }
     g.box(0, y - 0.18, bz - d / 2 - 0.8, w, 0.18, 1.6, 0xdedcd6); g.box(0, y, bz - d / 2 - 1.56, w, 1.15, 0.08, 0xe6e3dc);   // 開放廊下
     winRow(c, 1, -w / 2, w / 2, y + 1.1, bz - d / 2, units, 0.9, 0.9, 0.3);
   }
-  g.box(0, 0, bz - d / 2 - 2.6, 5.2, H + 3.2, 3.6, 0xcfcdc7, 0x8e9092);            // エレベーター・階段コア
+  g.wallMat = type === 2 ? 7 : 1; g.box(0, 0, bz - d / 2 - 2.6, 5.2, H + 3.2, 3.6, 0xcfcdc7, 0x8e9092); g.wallMat = sv0; // エレベーター・階段コア
   winRow(c, 1, -2, 2, 3, bz - d / 2 - 4.4, 1, 1.0, H - 4, 0.9);
-  g.box(-5, H + 0.6, bz, 4.5, 2.6, 4.5, 0xcfcdc7, 0x8e9092); g.cyl(4, H + 0.6, bz - 2, 1.3, 2.0, 0xe9eef0, 8); g.cyl(-5, H + 3.2, bz, 0.07, 4.5, 0x8b8f93, 4);
+  const ty = top(-1);
+  g.box(-5, ty + 0.6, bz, 4.5, 2.6, 4.5, 0xcfcdc7, 0x8e9092); g.cyl(-5, ty + 3.2, bz, 0.07, 4.5, 0x8b8f93, 4);
+  if (type === 1) { for (const [dx, dz] of [[-0.9, -0.9], [0.9, -0.9], [-0.9, 0.9], [0.9, 0.9]]) g.box(4 + dx, ty + 0.6, bz - 3 + dz, 0.15, 1.6, 0.15, 0x7a7e82); g.box(4, ty + 2.2, bz - 3, 2.8, 1.8, 2.8, 0xc9ced2); } // 高架水槽
+  else g.cyl(type === 2 ? -6 : 4, ty + 0.6, type === 2 ? bz + 3.5 : bz - 2, 1.3, 2.0, 0xe9eef0, 8);
+  if (c.fine) { const nAC = 6; for (let i = 0; i < nAC; i++) g.box(-8 + i * 1.6, ty + 0.6, bz + 4.5, 1.0, 0.7, 0.7, 0xd9dcdc, 0xb8bcbe); // 屋上の室外機
+    for (const sx of [-1, 1]) g.box(sx * (w / 2 + 0.1), 0, fz + 0.1, 0.16, H, 0.16, 0x8a8e92); } // 竪どい
   // エントランス
-  g.box(0, 0, fz + 2.6, 9, 3.6, 3.4, 0x4f4a45, 0x3f3b37);
+  g.box(0, 0, fz + 2.6, 9, 3.6, 3.4, type === 1 ? 0x8a7a6a : 0x4f4a45, 0x3f3b37);
   win(c, 0, 0, 0.2, fz + 4.3, 5.0, 2.9, 1, 0xd9e6ea);
   g.box(0, 3.6, fz + 4.9, 11, 0.25, 2.4, fin);
+  if (c.fine) { g.box(-3.6, 2.3, fz + 4.32, 1.8, 0.5, 0.06, 0x2a2c2e); g.box(-3.6, 2.4, fz + 4.36, 1.4, 0.08, 0.02, 0xd8c890); for (const x of [-1.6, 1.6]) g.box(x, 3.3, fz + 5.6, 0.3, 0.1, 0.3, 0xf2eedc); } // 館名板とダウンライト
   g.box(-7.4, 0, fz + 3.4, 4.6, 0.7, 2.6, 0x8d8780); bush(c, -8.2, fz + 3.4, 1.0); bush(c, -6.6, fz + 3.5, 0.9);
   g.box(7.4, 0, fz + 3.4, 4.6, 0.7, 2.6, 0x8d8780); bush(c, 8.2, fz + 3.4, 1.0); bush(c, 6.6, fz + 3.5, 0.9);
   tree(c, -11.5, 11.5, 1.0); tree(c, 11.5, 11.5, 0.95); tree(c, -12.2, -12, 0.9);
@@ -676,16 +829,34 @@ export function modelShop(c: Ctx): void {
     const x = -6.6 + k * 13.2, w = 11.6, d = 10.5, bz = 1.2, fz = bz + d / 2, h = 6.4 + c.rnd() * 1.4;
     const wall = pick(c, [0xd7cbb5, 0xb9c4c9, 0xe4dccb, 0x8a9a8f, 0xc9a27c, 0xe8e3d8, 0x9f8f80]);
     const aw = pick(c, [0xb5372c, 0x2f6b4f, 0x27405e, 0xd98a2b, 0x7a2f4a]);
-    g.box(x, 0, bz, w, h, d, wall, 0x8f9192); g.box(x, h, bz, w + 0.2, 0.5, d + 0.2, 0xc9c6bf, 0x8f9192);
+    // v86：店の建物は 4 つの型（RC の店舗併用住宅・看板建築・木造 2 階に下屋・平屋にテントのひさし）
+    const ty = Math.floor(c.rnd() * 4), sv0 = g.wallMat, lab = labels[(i0 + k * 2) % labels.length];
+    if (ty === 0) { g.wallMat = pick(c, [6, 8, 4]); g.box(x, 0, bz, w, h, d, wall, 0x8f9192); g.wallMat = sv0; g.box(x, h, bz, w + 0.2, 0.5, d + 0.2, 0xc9c6bf, 0x8f9192);
+      g.box(x, 2.85, fz + 0.75, w - 0.4, 0.14, 1.5, aw); g.box(x, 2.6, fz + 1.5, w - 0.4, 0.3, 0.06, aw);
+      winRow(c, 0, x - w / 2, x + w / 2, h - 2.6, fz, 2, 1.8, 1.3, 0.6); if (c.fine) for (const sx of [-1, 1]) hBalcony(c, x + sx * w / 4, h - 3.0, fz, 2.6, 0.5, 3, wall);
+      g.box(x - 2, h + 0.5, bz - 1, 1.3, 0.8, 0.9, 0xe2e2de); if (c.rnd() < 0.5) g.cyl(x + 2.5, h + 0.5, bz + 1, 0.8, 1.3, 0xe9eef0, 7);
+    } else if (ty === 1) { // 看板建築：正面だけ高い平らな壁（銅板やモルタル）、奥は切妻
+      const fc = pick(c, [0x5f8a7a, 0xd8d0c0, 0x8a9aa0, 0xc9b49a]); H_WALL = wall; g.box(x, 0, bz - 0.3, w - 0.4, h - 0.8, d - 0.6, wall); g.gable(x, h - 0.8, bz - 0.3, w - 0.4, d - 0.6, 1.8, pick(c, KAWARA), 'z', wall, 0.3);
+      g.wallMat = fc === 0x5f8a7a ? 5 : 8; g.box(x, 0, fz - 0.3, w, h + 1.1, 0.6, fc); g.wallMat = sv0; g.box(x, h + 1.1, fz - 0.3, w + 0.3, 0.3, 0.8, shadeC(fc, 0.8)); // 正面の壁と軒蛇腹
+      if (c.fine) g.box(x, h - 0.2, fz + 0.02, w - 0.6, 0.12, 0.06, shadeC(fc, 0.85));
+      g.box(x, 2.85, fz + 0.75, w - 0.4, 0.14, 1.5, aw); g.box(x, 2.6, fz + 1.5, w - 0.4, 0.3, 0.06, aw);
+      winRow(c, 0, x - w / 2, x + w / 2, h - 2.6, fz, 3, 1.2, 1.4, 0.6);
+    } else if (ty === 2) { // 木造 2 階：店先に瓦の下屋、2 階は窓に手すり
+      const hh = 5.8, kw = pick(c, KAWARA); H_WALL = wall; g.wallMat = pick(c, [8, 10, 9]); g.box(x, 0, bz, w, hh, d, wall); g.gable(x, hh, bz, w, d, 1.9, kw, 'x', wall, 0.5); g.wallMat = sv0;
+      shedRoof(g, x, 2.7, fz + 0.7, w, 1.4, 0.45, kw, 1, 0.25, false, false);
+      winRow(c, 0, x - w / 2, x + w / 2, 3.5, fz, 2, 2.2, 1.3, 0.6); if (c.fine) for (const sx of [-1, 1]) g.box(x + sx * w / 4, 3.5, fz + 0.12, 2.4, 0.7, 0.05, 0x5a5e5a);
+    } else { // 平屋：陸屋根にテントのひさし
+      const hh = 4.4; g.wallMat = pick(c, [8, 4]); g.box(x, 0, bz, w, hh, d, wall, 0x8f9192); g.wallMat = sv0; g.box(x, hh, bz, w + 0.2, 0.4, d + 0.2, shadeC(wall, 0.85), 0x8f9192);
+      g.quad([x - w / 2 + 0.2, 2.5, fz + 1.6], [x + w / 2 - 0.2, 2.5, fz + 1.6], [x + w / 2 - 0.2, 3.4, fz + 0.05], [x - w / 2 + 0.2, 3.4, fz + 0.05], aw); g.quad([x + w / 2 - 0.2, 2.5, fz + 1.6], [x - w / 2 + 0.2, 2.5, fz + 1.6], [x - w / 2 + 0.2, 3.4, fz + 0.05], [x + w / 2 - 0.2, 3.4, fz + 0.05], shadeC(aw, 0.6));
+      g.box(x, 2.25, fz + 1.6, w - 0.4, 0.28, 0.04, aw);
+      g.box(x - 2, hh + 0.4, bz - 1, 1.3, 0.8, 0.9, 0xe2e2de);
+    }
     win(c, 0, x - 1.2, 0.35, fz, 6.4, 2.35, 0.95, 0xcfdde2);
+    if (c.fine) for (let i = 1; i < 4; i++) g.box(x - 1.2 - 3.2 + i * 1.6, 0.35, fz + 0.1, 0.07, 2.35, 0.06, 0x8a9094); // ショーウィンドウの方立て
     g.box(x + 4.0, 0, fz + 0.06, 1.1, 2.2, 0.1, 0x3a3f44);
-    g.box(x, 2.85, fz + 0.75, w - 0.4, 0.14, 1.5, aw); g.box(x, 2.6, fz + 1.5, w - 0.4, 0.3, 0.06, aw);
-    const lab = labels[(i0 + k * 2) % labels.length];
-    sign(c, lab, 0, x, 3.25, fz, 4.4); storefront(c, lab, x, fz, w);
+    sign(c, lab, 0, x, ty === 3 ? 3.5 : 3.25, fz, 4.4); storefront(c, lab, x, fz, w);
     sodeSign(c, lab, x - w / 2 + 0.25, fz + 0.75, 3.4); // 袖看板（道から見える縦の看板。夜は灯る）
-    winRow(c, 0, x - w / 2, x + w / 2, h - 2.6, fz, 2, 1.8, 1.3, 0.6);
     winRow(c, 1, x - w / 2, x + w / 2, 3.6, bz - d / 2, 2, 1.2, 1.1, 0.4);
-    g.box(x - 2, h + 0.5, bz - 1, 1.3, 0.8, 0.9, 0xe2e2de); if (c.rnd() < 0.5) g.cyl(x + 2.5, h + 0.5, bz + 1, 0.8, 1.3, 0xe9eef0, 7);
     if (c.rnd() < 0.8) vending(c, x - w / 2 + 0.8, fz + 0.5);
     if (c.rnd() < 0.5) vending(c, x - w / 2 + 1.9, fz + 0.5);
     for (let b = 0; b < 3; b++) if (c.rnd() < 0.6) g.box(x + 1 + b * 0.7, 0, fz + 2.4, 0.12, 0.95, 1.6, pick(c, [0x2b2f33, 0x9a3a32, 0x356b8c, 0xdadad6])); // 自転車
@@ -697,11 +868,14 @@ export function modelShop(c: Ctx): void {
 
 export function modelBakery(c: Ctx): void {
   pad(c, 28.4, 28.4, 0xb9b3a6);
-  const g = c.g, x = -4.5, bz = 0.5, w = 11, d = 9, fz = bz + d / 2;
-  g.box(x, 0, bz, w, 3.5, d, 0xf0e6d2); g.box(x, 0, bz, w + 0.12, 0.9, d + 0.12, 0x9a5a3c);        // 腰壁はれんが色
-  g.box(x - 1.2, 3.5, bz - 0.6, w - 3.2, 2.6, d - 2.2, 0xf0e6d2);
-  g.gable(x - 1.2, 6.1, bz - 0.6, w - 3.2, d - 2.2, 2.0, 0x8a4a34, 'x', 0xf0e6d2);
-  g.box(x + 4.3, 3.5, bz + 0.6, 2.2, 0.25, d - 1, 0x8a4a34);
+  const g = c.g, x = -4.5, bz = 0.5, w = 11, d = 9, fz = bz + d / 2, sv0 = g.wallMat;
+  // v86：壁（塗り壁・板張り・サイディング）と屋根と腰壁の色を店ごとに
+  const [wc, wm] = pick(c, [[0xf0e6d2, 8], [0xf4efe4, 8], [0xe8d8bc, 4], [0x8a6448, 10], [0xdfe6e2, 9]] as [number, number][]), rf = pick(c, [0x8a4a34, 0x3c4046, 0x2f4a3f, 0x6b3a2a]), kz = pick(c, [0x9a5a3c, 0x6b4a32, 0x8a8f94, 0xb08060]);
+  g.wallMat = wm;
+  g.box(x, 0, bz, w, 3.5, d, wc); g.wallMat = sv0; g.box(x, 0, bz, w + 0.12, 0.9, d + 0.12, kz);        // 腰壁はれんが色
+  g.wallMat = wm; g.box(x - 1.2, 3.5, bz - 0.6, w - 3.2, 2.6, d - 2.2, wc);
+  g.gable(x - 1.2, 6.1, bz - 0.6, w - 3.2, d - 2.2, 2.0, rf, 'x', wc); g.wallMat = sv0;
+  g.box(x + 4.3, 3.5, bz + 0.6, 2.2, 0.25, d - 1, rf);
   win(c, 0, x - 1.6, 1.0, fz, 5.2, 1.9, 1, 0xe6dcc0); g.box(x + 3.4, 0, fz + 0.06, 1.2, 2.3, 0.1, 0x6b4226); win(c, 0, x + 3.4, 1.0, fz + 0.07, 0.8, 1.1, 1, 0xe6dcc0);
   for (let i = 0; i < 6; i++) g.box(x - w / 2 + 0.9 + i * 1.84, 2.75 - 0.0, fz + 0.8, 1.84, 0.14, 1.6, i % 2 ? 0xf4efe6 : 0xc94f3a);  // しま模様のひさし
   sign(c, 'パン', 0, x - 1.4, 3.7, fz - 1.4, 3.6);
@@ -719,11 +893,11 @@ export function modelBakery(c: Ctx): void {
 
 export function modelSupermarket(c: Ctx): void {
   pad(c, 58.4, 58.4, 0x4c4f53);
-  const g = c.g, w = 46, d = 26, bz = -14, fz = bz + d / 2, h = 8.5;
-  g.box(-3, 0, bz, w, h, d, 0xeeece6, 0x9b9d9e);
-  g.box(-3, h - 2.6, bz, w + 0.2, 1.6, d + 0.2, 0xc3312b); g.box(-3, h, bz, w + 0.4, 0.5, d + 0.4, 0xd9d6cf, 0x9b9d9e);
+  const g = c.g, w = 46, d = 26, bz = -14, fz = bz + d / 2, h = 8.5, sv0 = g.wallMat, bc = pick(c, [0xc3312b, 0x2a7a3a, 0xe0782a, 0x1f5fb0, 0xc3312b]); // v86：帯の色は店ごと、壁はガルバ
+  g.wallMat = 5; g.box(-3, 0, bz, w, h, d, pick(c, [0xeeece6, 0xe4e2dc, 0xf2efe6]), 0x9b9d9e); g.wallMat = sv0;
+  g.box(-3, h - 2.6, bz, w + 0.2, 1.6, d + 0.2, bc); g.box(-3, h, bz, w + 0.4, 0.5, d + 0.4, 0xd9d6cf, 0x9b9d9e);
   g.box(-3, 0, fz + 1.6, 14, 4.6, 3.2, 0xdfe4e6); win(c, 0, -3, 0.2, fz + 3.2, 12, 3.9, 1, 0xd3e4ea);
-  g.box(-3, 4.6, fz + 2.8, 18, 0.3, 5.6, 0xc3312b);
+  g.box(-3, 4.6, fz + 2.8, 18, 0.3, 5.6, bc);
   sign(c, 'スーパー', 0, -3, 5.2, fz + 0.12, 9);
   winRow(c, 0, -24, -11, 0.6, fz, 3, 3.2, 2.6, 1); winRow(c, 0, 5, 18, 0.6, fz, 3, 3.2, 2.6, 1);
   for (let i = 0; i < 6; i++) g.box(-20 + i * 6.5, h + 0.5, bz - 5, 2.6, 1.3, 1.8, 0xdfe0dc);
@@ -737,7 +911,7 @@ export function modelSupermarket(c: Ctx): void {
   for (const x of [-26.5, 0, 24.5]) { g.cyl(x, 0, 14, 0.12, 8, 0x8b9094, 5); g.box(x, 8, 14, 1.8, 0.2, 0.5, 0xd9d9d6); win(c, 0, x, 7.9, 14.0, 1.2, 0.12, 1, 0xfff2cc); }
   for (const x of [-27, -13, 1, 15]) tree(c, x, 27.6, 0.85);
   for (const z of [-22, -8, 6, 20]) tree(c, -27.6, z, 0.85);
-  g.cyl(26.4, 0, 26.4, 0.25, 9, 0x7d8286, 6); g.box(26.4, 6.2, 26.4, 5.4, 3.0, 0.4, 0xc3312b); sign(c, 'スーパー', 0, 26.4, 6.4, 26.6, 5.2); sign(c, 'スーパー', 1, 26.4, 6.4, 26.2, 5.2);
+  g.cyl(26.4, 0, 26.4, 0.25, 9, 0x7d8286, 6); g.box(26.4, 6.2, 26.4, 5.4, 3.0, 0.4, bc); sign(c, 'スーパー', 0, 26.4, 6.4, 26.6, 5.2); sign(c, 'スーパー', 1, 26.4, 6.4, 26.2, 5.2);
 }
 
 // ---- 市の施設 ----
@@ -924,13 +1098,13 @@ export function modelKoban(c: Ctx): void {
 
 // ---- v5 の施設 ----
 /** 汎用の箱の建物（窓の列・屋上の縁・看板つき）。x,z は中心、正面は +z */
-function block(c: Ctx, x: number, z: number, w: number, d: number, floors: number, wall: number, opts: { fh?: number; roof?: number; label?: string; lit?: number; glass?: number; band?: number } = {}): number {
-  const g = c.g, fh = opts.fh ?? 3.6, h = floors * fh + 0.6;
-  g.box(x, 0, z, w, h, d, wall, opts.roof ?? 0x9b9d9e); g.box(x, h, z, w + 0.3, 0.45, d + 0.3, opts.band ?? 0xd0cdc5, opts.roof ?? 0x9b9d9e);
-  const nw = Math.max(1, Math.floor(w / 3.2)), nd = Math.max(1, Math.floor(d / 3.2));
+function block(c: Ctx, x: number, z: number, w: number, d: number, floors: number, wall: number, opts: { fh?: number; roof?: number; label?: string; lit?: number; glass?: number; band?: number; mat?: number; wide?: boolean } = {}): number {
+  const g = c.g, fh = opts.fh ?? 3.6, h = floors * fh + 0.6, sv = g.wallMat;
+  if (opts.mat) g.wallMat = opts.mat; g.box(x, 0, z, w, h, d, wall, opts.roof ?? 0x9b9d9e); g.wallMat = sv; // v86：mat は外壁の素材、wide は横長の窓 g.box(x, h, z, w + 0.3, 0.45, d + 0.3, opts.band ?? 0xd0cdc5, opts.roof ?? 0x9b9d9e);
+  const nw = Math.max(1, Math.floor(w / (opts.wide ? 4.6 : 3.2))), nd = Math.max(1, Math.floor(d / 3.2)), ww = opts.wide ? 3.8 : 2.0, wy = opts.wide ? 0.85 : 1.0, wh = fh * (opts.wide ? 0.6 : 0.5);
   for (let f = 0; f < floors; f++) {
-    winRow(c, 0, x - w / 2 + 0.6, x + w / 2 - 0.6, f * fh + 1.0, z + d / 2, nw, 2.0, fh * 0.5, opts.lit ?? 0.4, opts.glass);
-    winRow(c, 1, x - w / 2 + 0.6, x + w / 2 - 0.6, f * fh + 1.0, z - d / 2, nw, 2.0, fh * 0.5, (opts.lit ?? 0.4) * 0.7, opts.glass);
+    winRow(c, 0, x - w / 2 + 0.6, x + w / 2 - 0.6, f * fh + wy, z + d / 2, nw, ww, wh, opts.lit ?? 0.4, opts.glass);
+    winRow(c, 1, x - w / 2 + 0.6, x + w / 2 - 0.6, f * fh + wy, z - d / 2, nw, ww, wh, (opts.lit ?? 0.4) * 0.7, opts.glass);
     winRow(c, 2, z - d / 2 + 0.6, z + d / 2 - 0.6, f * fh + 1.0, x + w / 2, nd, 2.0, fh * 0.5, (opts.lit ?? 0.4) * 0.6, opts.glass);
     winRow(c, 3, z - d / 2 + 0.6, z + d / 2 - 0.6, f * fh + 1.0, x - w / 2, nd, 2.0, fh * 0.5, (opts.lit ?? 0.4) * 0.6, opts.glass);
   }
@@ -1562,47 +1736,58 @@ const CO_FACTORY = ['町工場', '精密', '金属', '印刷', '電機', '部品
 /** 小さなオフィス：社名と形をいくつかの型から選ぶ（同じ街並みが続かないように） */
 export function modelOfficeS(c: Ctx): void {
   pad(c, 28.4, 28.4, 0xc8c2b6);
-  const g = c.g, type = Math.floor(c.rnd() * 4), label = pick(c, [...CO_OFFICE]);
+  const g = c.g, type = Math.floor(c.rnd() * 5), label = pick(c, [...CO_OFFICE]), mat = pick(c, [6, 7, 8, 4]), wide = c.rnd() < 0.5; // v86：外壁の素材と窓の形も選ぶ。型 4 は打放しの小さな事務所
   const wall = dull(c, pick(c, [0xc9d1d9, 0xd8d2c4, 0xb9c4cc, 0xe0dcd2, 0x9fb0b8, 0xd9c7a8, 0x8f9fa8]), 0xa9b0b6);
-  if (type === 0) { block(c, 0, -2, 20, 18, 4 + Math.floor(c.rnd() * 3), wall, { fh: 3.6, label, lit: 0.6, glass: 0x6f8fa8 }); g.box(9, 0, 10, 6, 0.1, 4, 0x55585c); }
+  if (type === 0) { block(c, 0, -2, 20, 18, 4 + Math.floor(c.rnd() * 3), wall, { fh: 3.6, label, lit: 0.6, glass: 0x6f8fa8, mat, wide }); g.box(9, 0, 10, 6, 0.1, 4, 0x55585c); }
   else if (type === 1) { // ガラス張りの角ばったビル
     const h = block(c, -2, -3, 16, 16, 6 + Math.floor(c.rnd() * 3), dull(c, 0x6f8fa8, 0x5f7a8a), { fh: 3.5, label, lit: 0.65, glass: 0x4f7a9a, band: 0x2f3a44 });
     g.box(7, 0, 4, 8, 4.4, 10, wall); g.box(-2, h + 0.4, -3, 5, 2, 5, 0x8b9094); parking(c, 6, 11, 14, 5, 3);
   } else if (type === 2) { // 低い横長の事務所と駐車場
-    block(c, -1, -6, 24, 12, 2 + Math.floor(c.rnd() * 2), wall, { fh: 3.6, label, lit: 0.5, glass: 0x7f9aac, band: pick(c, [0x2b5ea8, 0x2f6b4f, 0xc3312b, 0x6b4226]) });
+    block(c, -1, -6, 24, 12, 2 + Math.floor(c.rnd() * 2), wall, { fh: 3.6, label, lit: 0.5, glass: 0x7f9aac, band: pick(c, [0x2b5ea8, 0x2f6b4f, 0xc3312b, 0x6b4226]), mat: mat === 7 ? 8 : mat, wide: true });
     parking(c, 0, 8, 24, 9, 6);
+  } else if (type === 4) { // 打放しの 3 階建ての事務所（正面はガラスの吹き抜け、木の庇）
+    const h = block(c, -1, -3, 18, 15, 3, 0xb8b6b0, { fh: 3.4, label, lit: 0.6, glass: 0x6f8fa8, mat: 7, band: 0xa8a6a0 });
+    win(c, 0, -6, 0.3, 4.52, 5.0, h - 1.4, 0.7, 0x6f8fa8); g.surfv = 10; g.box(-6, 3.2, 5.4, 6.4, 0.25, 1.8, 0x8a6448); g.surfv = 0; if (c.fine) for (let i = 0; i < 4; i++) g.box(-8.5 + i * 1.66, 0.3, 4.62, 0.08, h - 1.4, 0.08, 0x3a3e42);
+    tree(c, 9, 9, 0.85); tree(c, -11, 10, 0.75); parking(c, 6, 10.5, 14, 5, 3);
   } else { // 古い雑居ビル
-    const h = block(c, -3, -2, 14, 20, 5 + Math.floor(c.rnd() * 3), dull(c, 0xcfc6b4, 0xb8ae9a), { fh: 3.3, label, lit: 0.5, glass: 0x8fa3ad });
+    const h = block(c, -3, -2, 14, 20, 5 + Math.floor(c.rnd() * 3), dull(c, pick(c, [0xcfc6b4, 0xa88a72, 0xd8d0c0]), 0xb8ae9a), { fh: 3.3, label, lit: 0.5, glass: 0x8fa3ad, mat: 6 });
     for (let f = 1; f < 5; f++) g.box(4.5, f * 3.3, -2, 1.2, 0.15, 16, 0x8b8f93); g.box(-3, h + 0.4, 2, 3, 2.4, 3, 0xe9eef0); tree(c, 9, 9, 0.8);
   }
 }
 export function modelOfficeM(c: Ctx): void {
   pad(c, 28.4, 28.4, 0xc8c2b6);
   const g = c.g, type = Math.floor(c.rnd() * 3), label = pick(c, [...CO_OFFICE]);
-  if (type === 0) { const h = block(c, 0, -1, 22, 20, 11 + Math.floor(c.rnd() * 5), dull(c, 0x8fa9b8, 0x7a8f9c), { fh: 3.8, label, lit: 0.65, glass: 0x5f86a3, band: 0x4a5560 }); g.box(0, h + 0.4, -1, 8, 2.6, 8, 0x8b9094); }
+  if (type === 0) { const h = block(c, 0, -1, 22, 20, 11 + Math.floor(c.rnd() * 5), dull(c, 0x8fa9b8, 0x7a8f9c), { fh: 3.8, label, lit: 0.65, glass: 0x5f86a3, band: 0x4a5560, mat: c.rnd() < 0.5 ? 6 : 1, wide: c.rnd() < 0.5 }); g.box(0, h + 0.4, -1, 8, 2.6, 8, 0x8b9094); }
   else if (type === 1) { // 低層部と細い塔
     g.box(0, 0, 1, 24, 7, 22, dull(c, 0xd8d2c4, 0xb9b3a6), 0x9b9d9e);
     const h = block(c, -2, -2, 15, 15, 14 + Math.floor(c.rnd() * 6), dull(c, pick(c, [0x5f7a8a, 0x8a9aa6, 0xb9a88f]), 0x7a8f9c), { fh: 3.6, label, lit: 0.65, glass: 0x4f7a9a, band: 0x2f3a44 });
     g.box(-2, h + 0.4, -2, 0.3, 8, 0.3, 0xd9d9d6);
   } else { // 段々の白いビル
     const fl = 9 + Math.floor(c.rnd() * 4);
-    block(c, 0, 0, 24, 22, Math.floor(fl / 2), dull(c, 0xeceae4, 0xc9c6bf), { fh: 3.6, lit: 0.6, glass: 0x6f8fa8 });
-    block(c, -2, -2, 18, 16, fl, dull(c, 0xeceae4, 0xc9c6bf), { fh: 3.6, label, lit: 0.6, glass: 0x6f8fa8, band: pick(c, [0x2b5ea8, 0xc3312b, 0x2f6b4f]) });
+    block(c, 0, 0, 24, 22, Math.floor(fl / 2), dull(c, 0xeceae4, 0xc9c6bf), { fh: 3.6, lit: 0.6, glass: 0x6f8fa8, mat: 8 });
+    block(c, -2, -2, 18, 16, fl, dull(c, 0xeceae4, 0xc9c6bf), { fh: 3.6, label, lit: 0.6, glass: 0x6f8fa8, band: pick(c, [0x2b5ea8, 0xc3312b, 0x2f6b4f]), mat: 8, wide: true });
   }
 }
 /** 町工場：のこぎり屋根・かまぼこ屋根・2 階建ての事務所つきなど */
 export function modelSmallFactory(c: Ctx): void {
   pad(c, 28.4, 28.4, 0x8a8f94);
-  const g = c.g, wall = dull(c, pick(c, [0xd8dcd8, 0xe4ded2, 0xc9d1d9, 0xb9c4b0]), 0xbcbfbc), type = Math.floor(c.rnd() * 3), label = pick(c, [...CO_FACTORY]);
-  if (type === 0) { g.box(-2, 0, -3, 20, 6.5, 16, wall, 0x9b9d9e); g.gable(-2, 6.5, -3, 20, 16, 2, pick(c, [0x6f8a9a, 0x8a5a4a, 0x5a6f5a]), 'x', wall, 0.3); g.cyl(9, 0, -8, 0.9, 12, 0xc9c2b4, 8); }
+  const g = c.g, wall = dull(c, pick(c, [0xd8dcd8, 0xe4ded2, 0xc9d1d9, 0xb9c4b0, 0x8a9aa4, 0x6f7f8a]), 0xbcbfbc), type = Math.floor(c.rnd() * 3), label = pick(c, [...CO_FACTORY]), sv0 = g.wallMat;
+  g.wallMat = 5; // v86：工場の壁はガルバの波板。正面に大きなシャッター・高窓・換気扇、屋根に換気筒
+  const front = (x: number, fz: number, sw: number, hh: number) => { g.box(x, 0, fz + 0.06, sw, hh, 0.1, 0x8a9094); if (c.fine) { for (let i = 1; i < 8; i++) g.box(x, i * hh / 8, fz + 0.12, sw - 0.1, 0.04, 0.04, 0x6b7076); g.box(x, hh, fz + 0.2, sw + 0.4, 0.4, 0.4, 0x7a8086); } };
+  if (type === 0) { g.box(-2, 0, -3, 20, 6.5, 16, wall, 0x9b9d9e); g.wallMat = sv0; g.gable(-2, 6.5, -3, 20, 16, 2, pick(c, [0x6f8a9a, 0x8a5a4a, 0x5a6f5a]), 'x', wall, 0.3); g.cyl(9, 0, -8, 0.9, 12, 0xc9c2b4, 8);
+    front(-6, 5, 5.0, 4.4); winRow(c, 0, -1, 7, 4.8, 5, 3, 1.4, 0.9, 0.4); g.box(5.5, 0, 5.06, 0.9, 2.1, 0.1, 0x5a646b);
+    if (c.fine) for (const x of [-8, 0, 6]) { g.cyl(x, 8.3, -3, 0.35, 0.6, 0x9aa0a4, 6); g.cyl(x, 8.9, -3, 0.5, 0.18, 0x9aa0a4, 6); } } // 換気筒
   else if (type === 1) { // のこぎり屋根
-    g.box(-2, 0, -3, 22, 5.5, 18, wall, 0x9b9d9e);
+    g.box(-2, 0, -3, 22, 5.5, 18, wall, 0x9b9d9e); g.wallMat = sv0;
     for (let i = 0; i < 4; i++) { g.box(-2, 5.5 + 1.2, -10 + i * 4.6, 22, 2.4, 0.3, 0x9fb8c8); g.gable(-2, 5.5, -9.5 + i * 4.6, 22, 3.8, 2.2, 0x7a7f84, 'x', wall, 0.1); }
+    front(-7, 6, 5.0, 4.2); winRow(c, 0, -3, 8, 1.2, 6, 3, 1.6, 1.1, 0.5);
   } else { // 工場と 2 階建ての事務所
-    g.box(-4, 0, -4, 16, 7, 16, wall, 0x9b9d9e); g.box(-4, 7, -4, 16.3, 0.4, 16.3, 0x8b9094);
-    block(c, 8, 4, 8, 8, 2, dull(c, 0xeceae4, 0xc9c6bf), { fh: 3.2, lit: 0.6 });
-    g.box(-4, 0, 4.1, 6, 4.6, 0.12, 0x6b7076);
+    g.box(-4, 0, -4, 16, 7, 16, wall, 0x9b9d9e); g.wallMat = sv0; g.box(-4, 7, -4, 16.3, 0.4, 16.3, 0x8b9094);
+    block(c, 8, 4, 8, 8, 2, dull(c, 0xeceae4, 0xc9c6bf), { fh: 3.2, lit: 0.6, mat: 8 });
+    front(-4, 4, 6, 4.6); winRow(c, 0, -10, 2, 5.6, 4, 4, 1.2, 0.8, 0.4);
   }
+  g.wallMat = sv0;
+  if (c.fine) { g.box(-10, 0, 9, 2.4, 1.2, 1.2, 0x4f7a9a); g.box(-7.4, 0, 9.5, 1.2, 0.15, 1.0, 0x8a6448); g.box(-7.4, 0.15, 9.5, 1.0, 0.6, 0.8, 0xa07a58); g.box(-12, 0, 2, 0.5, 2.2, 3.0, 0x6b7076); } // 部品の箱・パレット・ボンベ置き場
   sign(c, label, 0, -2, 2.8, type === 2 ? 4.06 : type === 1 ? 6.04 : 5.04, 3.2);
   g.box(8, 0.3, 9, 2.2, 2.4, 4.6, 0xf2f2ee); if (c.rnd() < 0.5) g.box(4, 0, 11, 3, 1.2, 2, 0x5a7a9a);
 }
@@ -2359,6 +2544,10 @@ export const MODEL: Record<Kind, (c: Ctx) => void> = {
   kodomoMirai: modelKodomoMirai, ecoCenter: modelEcoCenter, kankoDmo: modelKankoDmo, incubator: modelIncubator, bosaiCenter: modelBosaiCenter, dxCenter: modelDxCenter,
   weddingHall: modelWeddingHall, jidokan: modelJidokan, kidsPark: modelKidsPark, amusementPark: modelAmusementPark, megaPark: modelMegaPark, pool: modelPool, athletics: modelAthletics, rugby: modelRugby, pachinko: modelPachinko, boatRace: modelBoatRace, keirin: modelKeirin, japaneseGarden: modelJapaneseGarden, giantRobot: modelGiantRobot, robotFactory: modelRobotFactory, casino: modelCasino, outletMall: modelOutletMall, skiResort: modelSkiResort, esportsArena: modelEsportsArena, skyscraper: modelSkyscraper,
 };
+/** v86：よく建つ公共施設の外壁の素材（保育園・幼稚園は塗り壁、消防署はタイル、交番・診療所は窯業サイディング）。形は変えない */
+for (const [k, mat] of [['nursery', 8], ['nurseryS', 8], ['nurseryL', 8], ['kindergarten', 8], ['fire', 6], ['fireS', 6], ['fireL', 6], ['koban', 4], ['clinic', 4]] as [Kind, number][]) {
+  const f = MODEL[k]; if (f) MODEL[k] = (c) => { const s = c.g.wallMat; c.g.wallMat = mat; try { f(c); } finally { c.g.wallMat = s; } };
+}
 export const MODEL_H: Record<Kind, number> = {
   megaFloat: 42, undergroundCity: 6, skyGarden: 112, verticalFarm: 48, orbitalHotel: 49, moonBase: 8, aiDataCity: 22, robotDistrict: 18, metaverseHall: 14,
   jizodo: 5, hokora: 4, mosque: 28, synagogue: 11, hinduTemple: 18, monastery: 18, shinshukyo: 28, chonaikaikan: 7, shobodan: 17, koshuToilet: 4, bosaiMusen: 14,
