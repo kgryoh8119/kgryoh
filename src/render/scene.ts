@@ -997,7 +997,7 @@ export class View {
     this.roadTiles = []; this.roadW = []; this.pedTiles = [];
     const hA = (wx: number, wz: number) => heightAt(m, wx, wz);
     if (REAL) {
-      const r = realRoads(s, m), rm = new THREE.Mesh(r.geo.build(true), this.matRoad); rm.receiveShadow = true; rm.frustumCulled = false;
+      const r = realRoads(s, m, this.fine()), rm = new THREE.Mesh(r.geo.build(true), this.matRoad); rm.receiveShadow = true; rm.frustumCulled = false;
       this.scene.add(rm); this.groups.roads.push(rm); for (const v of r.lamps) lampPos.push(v);
     }
     this.tunnelSet = new Set(s.tunnel ?? []);
