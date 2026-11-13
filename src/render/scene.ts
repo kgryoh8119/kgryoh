@@ -585,7 +585,8 @@ export class View {
     const om = new THREE.Mesh(outer.build(), this.matTerrain); om.receiveShadow = true; this.scene.add(om);
     const wd = (H - RY + 0.2) * TILE + (sea ? far : 60), wg = new THREE.PlaneGeometry(far * 2 + MAPW, wd); wg.rotateX(-Math.PI / 2);
     const water = new THREE.Mesh(wg, this.matWater); water.position.set(MAPW / 2, -1.55, (RY - 0.2) * TILE + wd / 2); this.scene.add(water);
-    { const pg = new THREE.CircleGeometry(2.35 * TILE, 40); pg.rotateX(-Math.PI / 2); const pond = new THREE.Mesh(pg, this.matWater); pond.position.set(44.5 * TILE, -0.7, 50.5 * TILE); this.scene.add(pond); } // 南原のため池
+    { const pg = new THREE.CircleGeometry(2.35 * TILE, 40); pg.rotateX(-Math.PI / 2); const pond = new THREE.Mesh(pg, this.matWater); pond.position.set(44.5 * TILE, -0.7, 50.5 * TILE); this.scene.add(pond);
+      if (W > 76) { const p2 = new THREE.Mesh(new THREE.CircleGeometry(2.75 * TILE, 40).rotateX(-Math.PI / 2), this.matWater); p2.position.set(112.5 * TILE, -0.7, 72.5 * TILE); this.scene.add(p2); } } // 南原のため池（v87：新田のため池も）
   }
 
   // ---- v70：田んぼ（田園・山あい・盆地の空き地）。季節で水→緑→金→刈り跡と色が変わる ----
@@ -689,7 +690,7 @@ export class View {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = idx(x, y), dug = m.dug?.[i], wet = m.wet?.[i];
       if (!dug && !wet) { // 地形の水面（大河・湖・島の海）。南の川とため池は別に描く
-        if (!m.water[i] || REAL || tId === 'coast' || y >= H - 4 || Math.hypot(x + 0.5 - 44.5, y + 0.5 - 50.5) < 2.1 || (m.base && !m.base.water[i])) continue;
+        if (!m.water[i] || REAL || tId === 'coast' || y >= H - 4 || Math.hypot(x + 0.5 - 44.5, y + 0.5 - 50.5) < 2.1 || (W > 76 && Math.hypot(x + 0.5 - 112.5, y + 0.5 - 72.5) < 2.5) || (m.base && !m.base.water[i])) continue;
         { const Y = -1.44; wg.quad([x * TILE, Y, (y + 1) * TILE], [(x + 1) * TILE, Y, (y + 1) * TILE], [(x + 1) * TILE, Y, y * TILE], [x * TILE, Y, y * TILE], 0x3f7fa6); } continue; // 外の海（-1.55 / -1.62）と重なる所で面がちらつかないよう、高さを離す
       }
       const S = W + 1, hs = [m.heights[y * S + x], m.heights[y * S + x + 1], m.heights[(y + 1) * S + x], m.heights[(y + 1) * S + x + 1]];

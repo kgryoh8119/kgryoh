@@ -4,7 +4,7 @@ const { browser, page, errors } = await open(1280, 800, process.env.MAP ?? 'sumi
 page.setDefaultTimeout(900000); await page.waitForTimeout(1500);
 const t = await page.evaluate(() => { const S = window.__sumu, g = S.game, s = g.state, v = S.view; s.tutorial.done = true; s.goalPick = false; S.fixedQuality = true; v.setQuality('high');
   const md = document.getElementById('modal'); if (md) md.style.display = 'none'; document.getElementById('app').classList.add('photo'); v.clockRun = false; v.weatherForce = 'clear'; v.hour = 10.5; S.ui.refresh();
-  const st = s.buildings.find(b => b.kind === 'station'); return { st: (st.y + 5) * S.W + st.x + 2, mid: Math.floor(S.H / 2) * S.W + Math.floor(S.W / 2), W: S.W, H: S.H }; });
+  const st = s.buildings.find(b => b.kind === 'station'); return { st: (st.y + 5) * S.W + st.x + 2, mid: Math.floor(s.road.length / S.W / 2) * S.W + Math.floor(S.W / 2), W: S.W, H: s.road.length / S.W }; });
 await page.waitForTimeout(7000);
 // [中心, 距離, 見下ろす角, 向き]
 const V = [[t.mid, 4300, 1.05, 0], [t.st + 3 * t.W, 26, 0.2, 2.2], [t.st, 60, 0.45, 0.6]], out = process.env.OUT ?? 'shots';
