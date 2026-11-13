@@ -26,13 +26,13 @@ if (WHAT.includes('xing') && info.cross >= 0) {
 }
 if (WHAT.includes('ped')) {
   await page.evaluate(() => { const v = window.__sumu.view; const P = v.peds; const a = P.find(a => a.L && !a.lead) ?? P[0]; v.focus(a.cur, 20); });
-  await page.waitForTimeout(500); await page.click('[data-act="cam"][data-arg="ground"]'); await page.waitForTimeout(1200);
+  await page.waitForTimeout(500); await page.evaluate(() => window.__sumu.view.setMode('ground')); await page.waitForTimeout(1200);
   await page.evaluate(() => { const v = window.__sumu.view; let best = 0, bd = 1e9; const m = new v.tmpM.constructor(), e = m.elements;
     for (let k = 0; k < Math.min(v.pedP.mesh.count, 200); k++) { v.pedP.mesh.getMatrixAt(k, m); const d = Math.hypot(e[12] - v.ground.x, e[14] - v.ground.z); if (d < bd) { bd = d; best = k; } }
     v.pedP.mesh.getMatrixAt(best, m); const px = e[12], pz = e[14], fx = e[8], fz = e[10], L = Math.hypot(fx, fz) || 1, d = 6;
     v.ground.x = px + (fx / L) * d * 0.7 + (fz / L) * d * 0.7; v.ground.z = pz + (fz / L) * d * 0.7 - (fx / L) * d * 0.7; v.ground.yaw = Math.atan2(px - v.ground.x, pz - v.ground.z); v.ground.pitch = -0.08; });
   await shot('ped');
-  await page.click('[data-act="cam"][data-arg="orbit"]').catch(() => {});
+  await page.evaluate(() => window.__sumu.view.setMode('orbit'));
 }
 if (WHAT.includes('train') && info.trains > 0) {
   await page.evaluate(() => { const S = window.__sumu, v = S.view, t = v.trains[0]; const P = v.railPaths[t.path]; let j = 0; while (j < P.d.length - 1 && P.d[j] < t.d) j++;
