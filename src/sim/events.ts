@@ -3,7 +3,8 @@ import { noteDisaster } from './politics';
 import { DEFS, P, isShop, isRes, isCity, fam, W, H, SCALE, diffOf, hasOp, SPORTS } from './config';
 import { DISTRICTS } from './types';
 import { REAL, onMapChange } from './real';
-import { getMap, idx, buildable } from './map';
+import { getMap, idx, buildable, isCastaway } from './map';
+import { foodSelf } from './isle';
 import { addTeam } from './step';
 import { modAdd, modMul, staffReq, accessTile, recompute, floodRisk, sumHH, designCap } from './core';
 import { rngNext } from './rng';
@@ -473,6 +474,26 @@ export const EVENTS: EventDef[] = [
     options: [
       { label: '見舞金と、ブルーシート・修理の支援', cost: 800, desc: '800 万円。支持率が上がります。', effects: [{ t: 'cash', v: -800, label: '竜巻の見舞金' }, { t: 'approval', v: 0.02 }] },
       { label: '道路の片付けだけ行う', cost: 200, desc: '200 万円。支持率が下がります。', effects: [{ t: 'cash', v: -200, label: '竜巻の片付け' }, { t: 'approval', v: -0.02 }] },
+    ],
+  },
+  // v88：無人島の孤立のリスク（台風で定期船が止まる・燃料の船が遅れる）
+  {
+    id: 'isleTyphoon', title: '台風で定期船が止まった', prob: 0.25, cooldown: 10, minStreak: 0, expire: 1,
+    cond: s => { const m = s.month % 12; if (!isCastaway(s.seed) || s.stats.pop < 1 || m < 7 || m > 9 || !s.buildings.some(b => b.kind === 'pier' || b.kind === 'port')) return null; const f = foodSelf(s);
+      return { target: -1, detail: `海が荒れて、2 か月のあいだ定期船が来ません。島の食べ物の自給率は ${Math.round(f.self * 100)}% です。${f.self < 0.8 ? '足りない分は、晴れ間に割高な船で運ぶことになります。' : '島で採れる食べ物で、なんとかしのげそうです。'}新しい開拓者も来られません。` }; },
+    hit: s => { s.modifiers.push({ key: 'shipStop', op: 'add', v: 1, until: s.month + 2, cost: 0, src: '台風で定期船が欠航' }, { key: 'inflow', op: 'mul', v: 0.2, until: s.month + 2, cost: 0, src: '台風で定期船が欠航' }); return ''; },
+    options: [
+      { label: 'ヘリで急病人と物資を運ぶ', cost: 900, desc: '900 万円。島の人の不安が和らぎ、支持率が少し上がります。', effects: [{ t: 'cash', v: -900, label: '物資のヘリ輸送' }, { t: 'approval', v: 0.015 }, { t: 'sat', who: [0, 1, 2, 3, 4], v: 0.01, months: 2 }] },
+      { label: '島の備蓄と助け合いでしのぐ', cost: 0, desc: '費用なし。2 か月、暮らしの満足が下がります。', effects: [{ t: 'sat', who: [0, 1, 2, 3, 4], v: -0.02, months: 2 }] },
+    ],
+  },
+  {
+    id: 'isleFuel', title: '発電機の燃料の船が遅れている', prob: 0.04, cooldown: 18, minStreak: 0, expire: 2,
+    cond: s => (isCastaway(s.seed) && s.stats.pop > 0 && s.buildings.some(b => b.kind === 'dieselGen' && b.status === 'operating') ? { target: -1, detail: '軽油を運ぶ船の都合がつかず、ディーゼル発電機を止めながら使っています。3 か月、電気の力が 2 割下がります。太陽光や風力があれば、燃料に頼らずに済みます。' } : null),
+    hit: s => { s.modifiers.push({ key: 'powerCap', op: 'mul', v: 0.8, until: s.month + 3, cost: 0, src: '燃料の船の遅れ' }); return ''; },
+    options: [
+      { label: 'チャーター船で燃料を急いで運ぶ', cost: 700, desc: '700 万円。3 か月、電気の力が元に戻ります。', effects: [{ t: 'cash', v: -700, label: '燃料のチャーター船' }, { t: 'mod', key: 'powerCap', op: 'mul', v: 1.25, months: 3 }] },
+      { label: '節電でしのぐ', cost: 0, desc: '費用なし。3 か月、満足が少し下がります。', effects: [{ t: 'sat', who: [0, 1, 2, 3, 4], v: -0.012, months: 3 }] },
     ],
   },
   {
