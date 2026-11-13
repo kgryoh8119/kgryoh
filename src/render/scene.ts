@@ -2762,7 +2762,7 @@ export class View {
       w.x += (-Math.sin(w.yaw) * fwd + Math.cos(w.yaw) * right) * sp; w.z += (-Math.cos(w.yaw) * fwd - Math.sin(w.yaw) * right) * sp;
       w.yaw += turn * dt * 1.4; w.dist *= Math.exp(zoom * dt * 1.4);
       w.x = Math.max(-200, Math.min(MAPW + 200, w.x)); w.z = Math.max(-100, Math.min(MAPH + 100, w.z));
-      w.dist = Math.max(45, Math.min(REAL ? 5200 : 2600, w.dist)); w.pitch = Math.max(0.16, Math.min(1.5, w.pitch));
+      w.dist = Math.max(45, Math.min(REAL ? 5200 : Math.round(2600 * Math.max(1, W / 76)), w.dist)); /* v87：広げた住野市（128 列）は全体が入るまで引ける */ w.pitch = Math.max(0.16, Math.min(1.5, w.pitch));
       const a = 1 - Math.exp(-dt * 10);
       this.target.x += (w.x - this.target.x) * a; this.target.z += (w.z - this.target.z) * a; this.dist += (w.dist - this.dist) * a; this.yaw += (w.yaw - this.yaw) * a; this.pitch += (w.pitch - this.pitch) * a;
       this.target.y = heightAt(m, Math.max(0, Math.min(MAPW, this.target.x)), Math.max(0, Math.min(MAPH, this.target.z)));
@@ -3124,7 +3124,7 @@ export class View {
     { const bo = this.blackout(s), popK = 0.95 + 0.35 * Math.min(1, (s.stats?.pop ?? 0) / 40000); this.matWinA.emissiveIntensity *= (1 - 0.9 * bo) * popK * (0.97 + 0.03 * Math.sin(performance.now() / 700)); this.matLamp.opacity *= 1 - bo; this.matVend.opacity *= 1 - bo; this.fx.clock(this.hour % 24, this.calM); this.fx.update(dt, this.camera, this.night, bo); }
     this.camera.position.add(this.fx.shakeOffset());
     this.moveTsunami(s, dt);
-    { const fog = this.scene.fog as THREE.Fog, pr = Math.max(this.weather.rain, this.weather.snow * 1.1); if (!REAL) { fog.near = this.fogBase.near; fog.far = this.fogBase.far; } fog.near *= 1 - 0.6 * pr; fog.far *= 1 - 0.5 * pr; } // 雨や雪の日は遠くがかすむ
+    { const fog = this.scene.fog as THREE.Fog, pr = Math.max(this.weather.rain, this.weather.snow * 1.1); if (!REAL) { const ex = this.mode === 'orbit' ? Math.max(0, this.dist - 1500) : 0; fog.near = this.fogBase.near + ex; fog.far = this.fogBase.far + ex * 2; } /* v87：広い地図を引いて見るときは、霞を遠ざける */ fog.near *= 1 - 0.6 * pr; fog.far *= 1 - 0.5 * pr; } // 雨や雪の日は遠くがかすむ
     if (this.fogDay) { const fog = this.scene.fog as THREE.Fog, k = this.hour >= 4 && this.hour < 10 ? 1 - Math.max(0, (this.hour - 8) / 2) : 0; if (k > 0) { fog.near *= 1 - 0.85 * k; fog.far *= 1 - 0.78 * k; } } // 朝霧
     PEOPLE_TIME.value = (PEOPLE_TIME.value + Math.min(dt, 0.1)) % 3600; // 立っている人の身ぶり
     this.updatePaddy(s, dt);

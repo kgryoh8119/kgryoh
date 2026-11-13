@@ -304,7 +304,7 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
       // レールと枕木。踏切の中は道路の舗装の上に、レールの間を板（ゴムの踏板）で埋める
       for (const o of offs) {
         if (cr) band(o, 3.6, 0.28, 0x6a6862);
-        for (const r of [-0.72, 0.72]) { band(o + r, 0.18, 0.45, cr ? 0x3c3a37 : 0x5b4c40); if (detail >= 1) band(o + r, 0.065, 0.457, 0xc2c6c9); } // レールの側面は錆色、頭は車輪で磨かれて光る
+        for (const r of [-0.535, 0.535]) { /* v87：軌間 1,067mm（在来線の狭軌。前は 1.44m で標準軌の幅だった） */ band(o + r, 0.18, 0.45, cr ? 0x3c3a37 : 0x5b4c40); if (detail >= 1) band(o + r, 0.065, 0.457, 0xc2c6c9); } // レールの側面は錆色、頭は車輪で磨かれて光る
         if (!cr) { const ns = detail >= 2 ? 4 : 2, hwS = detail >= 2 ? 0.11 : 0.2;
           for (let q = 0; q < ns; q++) { const t = (q + 0.5) / ns;
             const sx = x0 + (x1 - x0) * t, sz = z0 + (z1 - z0) * t, sy = y0 + (y1 - y0) * t, nx = -(az + bz) / 2, nz = (ax + bx) / 2, tx2 = (ax + bx) / 2 * hwS, tz2 = (az + bz) / 2 * hwS, sc = 0.9 + hash(j * 4 + q, P.b, 7) * 0.16;
