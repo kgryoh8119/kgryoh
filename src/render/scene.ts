@@ -109,7 +109,9 @@ import { buildRailPaths, drawRailPaths, railAt, SHIN_LINES, shinDeckY, RAIL_LM, 
 import { Landmarks, type LmItem } from './landmarks';
 import { roadKitMat, roadTile, face, RK } from './roadkit';
 import { drawPowerLines, drawUtilities, kyodokoTiles, infraKey, pipeReach, pipeOverlay } from './infra'; // v87
-import TRAIN from '../assets/train.json';
+import { makeTrains, TRAIN_PART as TK_PART, FAMS, CAR_DIM, famColor, type TrainFam } from './trainkit'; // v88
+/** 列車 1 編成の走り（v88：速さ v・止まる位置 stopAt・ドア・車種 fam） */
+type Tr = { path: number; dir: 1 | -1; d: number; trail: number[]; wait: number; stopped: number; v: number; stopAt: number; stopSt: number; door: number; fam: TrainFam };
 import { makeVeh, makeTrain, VEH_MODELS, carColor, TRAIN_PART } from './vehgen';
 import VEH from '../assets/vehicles.json';
 import CLOUDS from '../assets/clouds.json';
@@ -1791,8 +1793,11 @@ export class View {
 
   // ------------------------------------------------------------ 車と歩行者（演出。人口とは別）
   // ------------------------------------------------------------ まちづくり版の列車（線路の上を走る演出。計算とは別）
-  private trains: { path: number; dir: 1 | -1; d: number; trail: number[]; wait: number; stopped: number }[] = [];
-  private trainMid!: THREE.InstancedMesh; private trainPan!: THREE.InstancedMesh; private trainEnd!: THREE.InstancedMesh; private trainCars: THREE.InstancedMesh | null = null; private tKind: number[] = []; private tmpC = new THREE.Color();
+  private trains: Tr[] = [];
+  /** v88：列車の車種ごとの InstancedMesh（trainkit.ts の車種名と sl）。品質が変わると作り直す */
+  private tIM: Record<string, THREE.InstancedMesh> | null = null; private tQ = ''; private tmpC = new THREE.Color();
+  /** 乗る電車（0 番の編成の先頭車）の位置。走っていなければ count 0 */
+  private rideTrain = { count: 0, m: new THREE.Matrix4(), getMatrixAt(_i: number, m: THREE.Matrix4) { m.copy(this.m); } };
   /** 線の端の区画で、次に進む線を選ぶ（まっすぐ続く向きを優先）。なければ -1 */
   private nextPath(at: number, from: number, hx: number, hz: number): [number, 1 | -1] | null {
     const opts: [number, 1 | -1, number][] = [];
@@ -1810,57 +1815,54 @@ export class View {
     const pick = ok.length > 1 && ok[1][2] > ok[0][2] - 0.25 && Math.random() < 0.5 ? ok[1] : ok[0];
     return [pick[0], pick[1]];
   }
-  private spawnOne(): { path: number; dir: 1 | -1; d: number; trail: number[]; wait: number; stopped: number } | null {
-    const P = this.railPaths; if (!P.length) return null;
+  private spawnOne(): Omit<Tr, 'fam'> | null {
+    const P = this.railPaths; if (!P.length) return null; const z = { trail: [] as number[], wait: 0, stopped: -1, v: 18, stopAt: NaN, stopSt: -1, door: 0 };
     // 市外から入ってくる線があれば、そこから
     const ins: [number, 1 | -1][] = []; P.forEach((p, k) => { if (p.extA) ins.push([k, 1]); if (p.extB) ins.push([k, -1]); });
-    if (ins.length) { const [k, dir] = ins[(Math.random() * ins.length) | 0]; return { path: k, dir, d: dir === 1 ? 0 : P[k].len, trail: [], wait: 0, stopped: -1 }; }
-    const k = (Math.random() * P.length) | 0; return { path: k, dir: 1, d: Math.random() * P[k].len, trail: [], wait: 0, stopped: -1 };
+    if (ins.length) { const [k, dir] = ins[(Math.random() * ins.length) | 0]; return { path: k, dir, d: dir === 1 ? 0 : P[k].len, ...z }; }
+    const k = (Math.random() * P.length) | 0; return { path: k, dir: 1, d: Math.random() * P[k].len, ...z };
   }
-  /** 列車：1 編成 4 両。最大 12 編成（複線では上りと下りがすれ違う）。夜は窓とライトが光る。観光 SL の機関区があれば 1 編成は蒸気機関車 */
-  private trainLoco!: THREE.InstancedMesh; private trainExp!: THREE.InstancedMesh;
+  /** 列車：1 編成 2〜4 両。最大 12 編成（複線では上りと下りがすれ違う）。夜は窓とライトが光る。観光 SL の機関区があれば 1 編成は蒸気機関車。
+   * v88：車種は編成の番号で決まる（3 本に 1 本は特急、6 本に 1 本は近郊形、5 本以上なら 1 本は貨物、単線の支線は気動車、モノレール・新交通の線はそれぞれの車両） */
   private trainPax!: THREE.InstancedMesh; private paxM = new THREE.Matrix4(); private paxL = new THREE.Matrix4();
   private trainWin: THREE.InstancedMesh | null = null; private trainLamp: THREE.InstancedMesh | null = null; private slTrain = -1; expEvery = 3; private slPuff = 0;
+  private buildTrainMeshes(): void {
+    if (this.tIM) { const mats = new Set<THREE.Material>(); for (const im of Object.values(this.tIM)) { this.scene.remove(im); im.geometry.dispose(); mats.add(im.material as THREE.Material); im.dispose(); } for (const m of mats) m.dispose(); }
+    const MX = 12 * 4, q = this.quality === 'high' && !this.lite ? 2 : this.quality === 'mid' ? 1 : 0, T = makeTrains(q === 2 ? 10 : 8, q), IM: Record<string, THREE.InstancedMesh> = {};
+    const tm = tint0(new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.4, metalness: 0.32 }));
+    const add = (k: string, geo: THREE.BufferGeometry, mat: THREE.Material, n: number, shadow: boolean) => { const im = new THREE.InstancedMesh(geo, mat, n); im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.frustumCulled = false; im.castShadow = shadow; im.count = 0; im.visible = false; im.setColorAt(0, new THREE.Color(0xffffff)); this.scene.add(im); IM[k] = im; };
+    for (const [k, m] of Object.entries(T)) { const g = new Geo(); carMesh(g, m, 0, 0, 0, (t) => TK_PART[t]); add(k, g.build(), tm, MX, k[0] !== 'o' && !this.lite); }
+    // 蒸気機関車（Blender の形。1 編成に 1 両）
+    { const g = new Geo(), PC = [0x1c1c1e, 0xb02a22, 0x3a4a52, 0xfff2c8, 0xc9a24a, 0x2a2622, 0x6a6a6a]; carMesh(g, VM2.loco, 0, 0, 0, (t) => PC[t]); add('sl', g.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.35 }), 2, true); }
+    this.tIM = IM; this.tQ = this.quality + (this.lite ? 'L' : '');
+    if (this.trainWin) return;
+    // 窓の帯（夜に灯る）。車種ごとに大きさを合わせる（行列で伸び縮み）
+    const wg = new THREE.BoxGeometry(2.96, 0.95, 17.2); wg.translate(0, 2.65, 0);
+    this.trainWin = new THREE.InstancedMesh(wg, new THREE.MeshBasicMaterial({ color: 0xfff1cc, transparent: true, opacity: 0, depthWrite: false }), MX);
+    this.trainWin.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.trainWin.frustumCulled = false; this.scene.add(this.trainWin);
+    // v87：窓ぎわの乗客（立ち客の上半身と頭）。混むほど多く、ぎっしり並ぶ。1 両の片側に最大 12 人
+    { const g = new Geo(); g.box(0, 2.2, 0, 0.03, 0.52, 0.5, 0xffffff); g.box(0, 2.74, 0, 0.03, 0.3, 0.27, 0x3a302a);
+      this.trainPax = new THREE.InstancedMesh(g.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }), MX * 24); this.trainPax.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.trainPax.frustumCulled = false; this.trainPax.castShadow = false; this.trainPax.count = 0; this.trainPax.setColorAt(0, new THREE.Color()); this.scene.add(this.trainPax); }
+    // 前照灯（白）と尾灯（赤）。v88：前面の灯具の大きさに合わせて小さく
+    const lg = new THREE.BoxGeometry(0.36, 0.18, 0.08);
+    this.trainLamp = new THREE.InstancedMesh(lg, new THREE.MeshBasicMaterial({ color: 0xffffff }), 12 * 4);
+    this.trainLamp.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.trainLamp.frustumCulled = false; this.trainLamp.setColorAt(0, new THREE.Color(0xffffff)); this.scene.add(this.trainLamp);
+  }
   private spawnTrains(s: GameState): void {
-    const MX = 12 * 4;
-    if (!this.trainCars) {
-      // 車両は Blender の通勤電車（tools/blender_train.py → src/assets/train.json）。白い所に路線の色が掛かる
-      const geo = (() => { const g = new Geo(), PC = [0xffffff, 0x26313a, 0xc9cdd2, 0x2a2a2c, 0x9aa0a6, 0x16181c, 0x3a3a3c]; carMesh(g, (TRAIN as unknown as Record<string, CarMesh>).car, 0, 0, 0, (t) => PC[t]); return g.build(); })();
-      this.trainCars = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.45, metalness: 0.25 }), MX);
-      this.trainCars.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.trainCars.frustumCulled = false; this.trainCars.castShadow = true; this.scene.add(this.trainCars);
-      // 蒸気機関車（1 編成に 1 両）と特急電車（両端が丸い車両。路線の色の代わりに白・クリーム系）
-      { const g = new Geo(), PC = [0x1c1c1e, 0xb02a22, 0x3a4a52, 0xfff2c8, 0xc9a24a, 0x2a2622, 0x6a6a6a]; carMesh(g, VM2.loco, 0, 0, 0, (t) => PC[t]);
-        this.trainLoco = new THREE.InstancedMesh(g.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.35 }), 12); }
-      { const g = new Geo(), PC = [0xffffff, 0x26313a, 0xc9cdd2, 0x2a2a2c, 0xd04a2a, 0x16181c]; carMesh(g, VM2.express, 0, 0, 0, (t) => PC[t]);
-        this.trainExp = new THREE.InstancedMesh(g.build(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.4, metalness: 0.2 }), MX); this.trainExp.setColorAt(0, new THREE.Color(0xffffff)); }
-      for (const im of [this.trainLoco, this.trainExp]) { im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.frustumCulled = false; im.castShadow = true; this.scene.add(im); }
-      this.trainCars.setColorAt(0, new THREE.Color(0xffffff));
-      // v86：通勤形の新しい車体（中間車・パンタグラフ車・先頭車）。帯の色だけ編成ごとに変わる。窓・ドア・屋根の機器・台車・前面窓つき（vehgen.ts）
-      { const T = makeTrain(this.quality === 'high' ? 10 : 8), tm = tint0(new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.4, metalness: 0.3 }));
-        const mk2 = (m: CarMesh) => { const g = new Geo(); carMesh(g, m, 0, 0, 0, (t) => TRAIN_PART[t]); const im = new THREE.InstancedMesh(g.build(), tm, MX); im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.frustumCulled = false; im.castShadow = true; im.setColorAt(0, new THREE.Color(0xffffff)); this.scene.add(im); return im; };
-        this.trainMid = mk2(T.mid); this.trainPan = mk2(T.pan); this.trainEnd = mk2(T.end); }
-      // 窓の帯（夜に灯る）
-      const wg = new THREE.BoxGeometry(2.96, 0.95, 17.2); wg.translate(0, 2.65, 0);
-      this.trainWin = new THREE.InstancedMesh(wg, new THREE.MeshBasicMaterial({ color: 0xfff1cc, transparent: true, opacity: 0, depthWrite: false }), MX);
-      this.trainWin.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.trainWin.frustumCulled = false; this.scene.add(this.trainWin);
-      // v87：窓ぎわの乗客（立ち客の上半身と頭）。混むほど多く、ぎっしり並ぶ。1 両の片側に最大 12 人
-      { const g = new Geo(); g.box(0, 2.2, 0, 0.06, 0.52, 0.5, 0xffffff); g.box(0, 2.74, 0, 0.06, 0.3, 0.27, 0x3a302a);
-        this.trainPax = new THREE.InstancedMesh(g.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }), MX * 24); this.trainPax.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.trainPax.frustumCulled = false; this.trainPax.castShadow = false; this.trainPax.count = 0; this.trainPax.setColorAt(0, new THREE.Color()); this.scene.add(this.trainPax); }
-      // 前照灯（白）と尾灯（赤）
-      const lg = new THREE.BoxGeometry(0.55, 0.32, 0.12);
-      this.trainLamp = new THREE.InstancedMesh(lg, new THREE.MeshBasicMaterial({ color: 0xffffff }), 12 * 4);
-      this.trainLamp.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.trainLamp.frustumCulled = false; this.trainLamp.setColorAt(0, new THREE.Color(0xffffff)); this.scene.add(this.trainLamp);
-    }
+    if (!this.tIM || this.tQ !== this.quality + (this.lite ? 'L' : '')) this.buildTrainMeshes();
     const total = this.railPaths.reduce((a, p) => a + p.len, 0);
     const n = !this.railPaths.length ? 0 : Math.min(12, Math.max(2, Math.round(total / 1100)));
     this.trains = [];
-    for (let k = 0; k < n; k++) { const t = this.spawnOne(); if (t) { const P = this.railPaths[t.path]; t.d = (k + Math.random() * 0.6) / n * P.len; t.dir = k % 2 ? -1 : 1; this.trains.push(t); } }
-    // 他の線とつながっていない線（乗り換え駅で終わる支線・地下鉄）にも 1 編成ずつ走らせる
+    for (let k = 0; k < n; k++) { const t = this.spawnOne(); if (t) { const P = this.railPaths[t.path]; t.d = (k + Math.random() * 0.6) / n * P.len; t.dir = k % 2 ? -1 : 1; this.trains.push({ ...t, fam: 'commuter' }); } }
+    // 他の線とつながっていない線（乗り換え駅で終わる支線・地下鉄）にも 1 編成ずつ走らせる。単線なら気動車
+    const branch = new Set<number>();
     this.railPaths.forEach((P, k) => { if (this.trains.length >= 12 || P.extA || P.extB || this.trains.some(t => t.path === k)) return;
       const lonely = !this.railPaths.some((Q, j) => j !== k && (Q.a === P.a || Q.b === P.a || Q.a === P.b || Q.b === P.b)); if (!lonely) return;
-      this.trains.push({ path: k, dir: 1, d: P.len * 0.3, trail: [], wait: 0, stopped: -1 }); });
-    this.trainCars.count = this.trainWin!.count = this.trainExp.count = this.trains.length * 4; this.trainLoco.count = Math.min(12, this.trains.length); this.trainLamp!.count = this.trains.length * 4; this.tKind = this.trains.map(() => -1);
+      if (!P.lv.some(v => v >= 2)) branch.add(this.trains.length);
+      this.trains.push({ path: k, dir: 1, d: P.len * 0.3, trail: [], wait: 0, stopped: -1, v: 0, stopAt: NaN, stopSt: -1, door: 0, fam: 'commuter' }); });
     this.slTrain = s.buildings.some(b => b.kind === 'slDepot' && b.status === 'operating') && this.trains.length > 1 ? this.trains.length - 1 : -1; // SL は最後の編成（乗る電車は 0 番のふつうの電車）
+    const nT = this.trains.length;
+    this.trains.forEach((t, k) => { t.fam = k === this.slTrain ? 'sl' : branch.has(k) ? 'diesel' : k % this.expEvery === this.expEvery - 1 ? 'express' : k === 4 && nT >= 5 ? 'freight' : k % 6 === 3 ? 'kinko' : 'commuter'; });
   }
   /** 運行時間：1〜5 時は終電後で走らない。5〜6 時と 23 時以降は半分。SL は 3〜11 月の 9〜16 時半だけ（冬は運休） */
   private trainLive(k: number): boolean {
@@ -1870,7 +1872,7 @@ export class View {
     return k < Math.ceil(nNorm * lvl);
   }
   private moveTrains(s: GameState, dt: number): void {
-    if (!this.trainCars || this.trainKey !== this.sigRoad) { this.trainKey = this.sigRoad; this.spawnTrains(s); }
+    if (!this.tIM || this.trainKey !== this.sigRoad || this.tQ !== this.quality + (this.lite ? 'L' : '')) { this.trainKey = this.sigRoad; this.spawnTrains(s); }
     const up = new THREE.Vector3(0, 1, 0);
     const stations = s.buildings.filter(b => b.kind === 'station' && b.status === 'operating');
     const live = (k: number) => this.trainLive(k), slOn = this.trainLive(this.slTrain);
@@ -1883,76 +1885,79 @@ export class View {
     const nearStation = (i: number) => { const x = i % W, y = (i / W) | 0; return stations.findIndex(b => x >= b.x - 1 && x <= b.x + b.w && y >= b.y - 1 && y <= b.y + b.h); };
     // v87：車内の混み具合：駅の混雑率（sim の stationStats）のいちばん高い駅を基準に、朝夕に多く夜は少ない
     const ssx = this.stStats(s), worst = ssx.reduce((m, x) => Math.max(m, x.crowd), 0), hr0 = this.hour, rsh = Math.min(1, this.rush()), dayK = hr0 < 5 || hr0 >= 23 ? 0.12 : 0.25 + 0.75 * rsh;
-    const paxLook = stationLook(worst ? worst : 60), PC = [0xf4f4f2, 0x2a3442, 0x4a5a78, 0xd8d2c4, 0x7a8a9a, 0xa83a3a, 0x3a5a3a, 0xe8e0d0];
-    let np = 0; const paxCap = this.quality === 'low' || this.lite ? 6 : 12;
+    const paxLook = stationLook(worst ? worst : 60), PC = [0xa8a8a6, 0x1c232c, 0x323c50, 0x8e8a80, 0x525c68, 0x702828, 0x283c28, 0x9a948a]; // 窓ごしなので暗めの服
+    let np = 0, nw = 0, nl = 0; const paxCap = this.quality === 'low' || this.lite ? 6 : 12, IM = this.tIM!, cnt: Record<string, number> = {}; for (const key in IM) cnt[key] = 0;
+    const put = (key: string, m: THREE.Matrix4, col?: number) => { const im = IM[key], i = cnt[key]; if (!im || i >= im.instanceMatrix.count) return; im.setMatrixAt(i, m); if (col !== undefined) im.setColorAt(i, this.tmpC.setHex(col)); cnt[key] = i + 1; };
+    const winM = new THREE.Matrix4(); this.rideTrain.count = 0;
     this.trains.forEach((tr, k) => {
       let P = this.railPaths[tr.path];
       if (!P) { const t = this.spawnOne(); if (!t) return; Object.assign(tr, t); P = this.railPaths[tr.path]; }
-      if (tr.wait > 0) tr.wait -= dt;
+      const kd = P.kind ?? 0, fam: TrainFam = kd === 1 ? 'mono' : kd === 2 ? 'agt' : tr.fam, F = FAMS[fam], nC = F.cars.length, GAP = 0.55;
+      const lenT = F.dim.reduce((a, d) => a + 2 * CAR_DIM[d].HL + GAP, 0), vmax = kd === 2 ? 14 : kd === 1 ? 17 : fam === 'express' ? 24 : fam === 'freight' ? 21 : 20, ACC = 1.0, DEC = 1.1;
+      if (tr.wait > 0) { tr.wait -= dt; tr.v = 0; if (tr.wait <= 0) tr.door = 0; }
       else {
-        tr.d += dt * 20 * tr.dir;
-        // 駅の横では止まる
-        const [hx0, , hz0] = railAt(P, tr.d), ti = Math.floor(hz0 / TILE) * W + Math.floor(hx0 / TILE), st = ti >= 0 && ti < W * H ? nearStation(ti) : -1;
-        if (st >= 0 && st !== tr.stopped) { tr.stopped = st; tr.wait = 7; if (live(k)) { this.stFill.set(stations[st].id, this.stLeft.get(stations[st].id) ?? 0.15); this.stArr.set(stations[st].id, this.lifeT); this.sfx('trainStop', hx0, 0, hz0); } } // 乗客が乗る
+        // v88：駅の手前から減速して、編成がホームの中ほどに収まる所で止まる（加速・減速はなめらかに）。貨物は通過
+        if (F.stop && Number.isNaN(tr.stopAt)) {
+          const stAt = (o: number) => { const [x, , z] = railAt(P, tr.d + tr.dir * o), ti = Math.floor(z / TILE) * W + Math.floor(x / TILE); return ti >= 0 && ti < W * H ? nearStation(ti) : -1; };
+          const look = tr.v * tr.v / (2 * DEC) + 6, st = stAt(look);
+          if (st >= 0 && st !== tr.stopped) { let e = look; while (e < look + 240 && stAt(e + 6) === st) e += 6; tr.stopAt = tr.d + tr.dir * Math.max(look, Math.min(e, (look + e) / 2 + lenT / 2 - 4)); tr.stopSt = st; }
+        }
+        let vt = vmax;
+        if (!Number.isNaN(tr.stopAt)) { const rem = (tr.stopAt - tr.d) * tr.dir; vt = Math.min(vmax, Math.sqrt(2 * DEC * Math.max(0, rem)) + 0.4);
+          if (rem <= 0.3) { const st = tr.stopSt; tr.stopAt = NaN; tr.v = 0; vt = 0; if (st >= 0 && st < stations.length) { tr.stopped = st; tr.wait = 8; tr.door = 1; if (live(k)) { this.stFill.set(stations[st].id, this.stLeft.get(stations[st].id) ?? 0.15); this.stArr.set(stations[st].id, this.lifeT); const [hx0, , hz0] = railAt(P, tr.d); this.sfx('trainStop', hx0, 0, hz0); } } } } // 乗客が乗る
+        tr.v = tr.v < vt ? Math.min(vt, tr.v + ACC * dt) : vt;
+        tr.d += dt * tr.v * tr.dir;
         if (tr.d < 0 || tr.d > P.len) {
-          const atEnd = tr.d > P.len, ext = atEnd ? P.extB : P.extA, node = atEnd ? P.b : P.a;
+          const atEnd = tr.d > P.len, ext = atEnd ? P.extB : P.extA, node = atEnd ? P.b : P.a; tr.stopAt = NaN;
           const [, , , yaw] = railAt(P, atEnd ? P.len : 0), hx = Math.sin(yaw) * tr.dir, hz = Math.cos(yaw) * tr.dir;
           const nx = ext ? null : this.nextPath(node, tr.path, hx, hz);
           if (nx) { const over = atEnd ? tr.d - P.len : -tr.d; tr.path = nx[0]; tr.dir = nx[1]; P = this.railPaths[tr.path]; tr.d = tr.dir === 1 ? over : P.len - over; }
           else if (ext) { const t = this.spawnOne(); if (t) Object.assign(tr, t); P = this.railPaths[tr.path]; } // 市外へ出た列車は、別の入口から入ってくる
-          else { tr.dir = tr.dir === 1 ? -1 : 1; tr.d = Math.max(0, Math.min(P.len, tr.d)); tr.trail = []; tr.wait = 8; } // 行き止まりで折り返す
+          else { tr.dir = tr.dir === 1 ? -1 : 1; tr.d = Math.max(0, Math.min(P.len, tr.d)); tr.trail = []; tr.wait = 8; tr.v = 0; } // 行き止まりで折り返す
         }
       }
       // 複線は進む向きの左側の線路を走る（日本は左側通行）。モノレール・新交通は 2 本の軌道
-      const kd = P.kind ?? 0, nP = P.d.length, at = (d: number) => P.lv[Math.max(0, Math.min(nP - 1, Math.round(d / (P.len || 1) * (nP - 1))))] ?? 1;
-      const lane = (d: number) => (at(d) >= 2 ? (kd === 1 ? 2.4 : kd === 2 ? 2.1 : 2.2) * (at(d) === 3 ? 1 : 1) : 0) * -tr.dir;
+      const nP = P.d.length, at = (d: number) => P.lv[Math.max(0, Math.min(nP - 1, Math.round(d / (P.len || 1) * (nP - 1))))] ?? 1;
+      const lane = (d: number) => (at(d) >= 2 ? (kd === 1 ? 2.4 : kd === 2 ? 2.1 : 2.2) : 0) * -tr.dir;
       const [rx, py0, rz, ryaw] = railAt(P, tr.d), ln = lane(tr.d), px = rx - Math.cos(ryaw) * ln, pz = rz + Math.sin(ryaw) * ln, py = py0 + 0.4;
       const tl = tr.trail, last = tl.length;
       if (!last || Math.hypot(tl[last - 3] - px, tl[last - 1] - pz) > 1) { tl.push(px, py, pz); if (tl.length > 3 * 110) tl.splice(0, 3); }
-      const sl = k === this.slTrain, sp = kd === 2 ? 9.4 : kd === 1 ? 15.6 : 20.5;
-      let headX = 0, headY = 0, headZ = 0, headYaw = 0, tailX = 0, tailY = 0, tailZ = 0, tailYaw = 0;
-      for (let c = 0; c < 4; c++) {
-        const cl = sl && c === 0 ? 12.5 : sp; // SL の機関車は短い
-        let want = (sl && c > 0 ? 13.2 + (c - 1) * sp : c * sp) + cl / 2 - 0.75, j = tl.length - 3, acc = 0, qx = px, qy = py, qz = pz, yaw = 0;
+      if (!live(k)) return; // 走っていない時間は見せない（車両基地・駅に入っている）
+      const sl = fam === 'sl', doors = F.door && tr.door && tr.wait > 1.2 && tr.wait < 7.0;
+      let headX = 0, headY = 0, headZ = 0, headYaw = 0, tailX = 0, tailY = 0, tailZ = 0, tailYaw = 0, hd = CAR_DIM[F.dim[0]], td = CAR_DIM[F.dim[nC - 1]], acc0 = 0;
+      for (let c = 0; c < nC; c++) {
+        const D = CAR_DIM[F.dim[c]], cl = 2 * D.HL;
+        let want = acc0 + cl / 2 - 0.75, j = tl.length - 3, acc = 0, qx = px, qy = py, qz = pz, yaw = 0; acc0 += cl + GAP;
         while (j >= 3) { const dx = tl[j] - tl[j - 3], dz = tl[j + 2] - tl[j - 1], L = Math.hypot(dx, dz); if (acc + L >= want) { const t = (want - acc) / (L || 1); qx = tl[j] - dx * t; qy = tl[j + 1] - (tl[j + 1] - tl[j - 2]) * t; qz = tl[j + 2] - dz * t; yaw = Math.atan2(dx, dz); break; } acc += L; j -= 3; }
         if (j < 3) { const dd = tr.d - tr.dir * want, [bx, by, bz, yw] = railAt(P, dd), l2 = lane(dd); qx = bx - Math.cos(yw) * l2; qy = by + 0.4; qz = bz + Math.sin(yw) * l2; yaw = yw + (tr.dir === 1 ? 0 : Math.PI); }
-        this.tmpQ.setFromAxisAngle(up, yaw); this.tmpV.set(qx, qy + (kd === 1 ? -1.3 : kd === 2 ? -0.1 : 0), qz);
-        if (kd) this.tmpS.set(kd === 1 ? 1.05 : 0.85, kd === 1 ? 1.0 : 0.85, kd === 1 ? 0.76 : 0.45);
-        else if (sl) this.tmpS.set(c === 0 ? 1.0 : 1.0, c === 0 ? 1.12 : 0.95, c === 0 ? 0.62 : 1);
-        if (!live(k)) this.tmpS.set(0, 0, 0); // 走っていない時間は見せない（車両基地・駅に入っている）
-        this.tmpM.compose(this.tmpV, this.tmpQ, this.tmpS); this.tmpS.set(1, 1, 1);
-        const exp = !sl && !kd && k % this.expEvery === this.expEvery - 1; // 3 本に 1 本は特急
-        if (sl && c === 0) { this.tmpS.set(live(k) ? 1 : 0, live(k) ? 1 : 0, live(k) ? 1 : 0); const lm = new THREE.Matrix4().compose(this.tmpV, this.tmpQ, this.tmpS); this.tmpS.set(1, 1, 1); this.trainLoco.setMatrixAt(k, lm); }
-        else if (c === 0 && k < 12) this.trainLoco.setMatrixAt(k, this.ZERO);
-        this.trainExp.setMatrixAt(k * 4 + c, exp ? this.tmpM : this.ZERO); if (exp) this.trainExp.setColorAt(k * 4 + c, this.tmpC.setHex([0xf6f6f2, 0xf2ead6, 0xe8eef4][k % 3]));
-        // v86：通勤形は新しい車体（先頭車は前面窓つき、後ろの先頭車は向きを逆に）。モノレール・新交通・SL の客車は従来の形
-        const std = !sl && !kd && !exp && live(k);
-        this.trainMid.setMatrixAt(k * 4 + c, std && c === 2 ? this.tmpM : this.ZERO); this.trainPan.setMatrixAt(k * 4 + c, std && c === 1 ? this.tmpM : this.ZERO);
-        if (std && (c === 0 || c === 3)) { this.tmpQ.setFromAxisAngle(up, yaw + (c === 3 ? Math.PI : 0)); this.tmpM2.compose(this.tmpV, this.tmpQ, this.tmpS1); this.trainEnd.setMatrixAt(k * 4 + c, this.tmpM2); } else this.trainEnd.setMatrixAt(k * 4 + c, this.ZERO);
-        if (std) { const bc = this.tmpC.setHex([0x2f6fb5, 0x1f8a5a, 0xd9622b, 0xc8283c, 0x6a3fa0, 0x1a9ad6][k % 6]); this.trainMid.setColorAt(k * 4 + c, bc); this.trainPan.setColorAt(k * 4 + c, bc); this.trainEnd.setColorAt(k * 4 + c, bc); }
-        if ((std || exp) && live(k)) { // 窓の乗客：両側に、混むほど多く（超満員では窓いっぱい）
-          const m = Math.min(paxCap, Math.round(paxLook.pax * dayK * (0.75 + 0.5 * ((k * 0.37) % 1)))); this.tmpQ.setFromAxisAngle(up, yaw); this.paxM.compose(this.tmpV, this.tmpQ, this.tmpS1);
-          for (const sd of [-1, 1]) for (let q = 0; q < m && np < this.trainPax.instanceMatrix.count; q++) { const hz = (q * 0.618 + k * 0.13 + c * 0.29 + (sd > 0 ? 0.5 : 0)) % 1, zz = -7.6 + 15.2 * (m > 1 ? (q + 0.5 * hz) / m : hz);
-            this.paxL.makeTranslation(sd * 1.5, (hz - 0.5) * 0.12, zz); this.tmpM2.multiplyMatrices(this.paxM, this.paxL); this.trainPax.setMatrixAt(np, this.tmpM2); this.trainPax.setColorAt(np, this.tmpC.setHex(PC[(q * 3 + k + c) % PC.length])); np++; } }
-        this.trainCars!.setMatrixAt(k * 4 + c, (sl && c === 0) || exp || std ? this.ZERO : this.tmpM); this.trainWin!.setMatrixAt(k * 4 + c, sl && c === 0 ? this.tmpM.clone().scale(this.tmpV.set(0.001, 0.001, 0.001)) : this.tmpM);
-        this.trainCars!.setColorAt(k * 4 + c, this.tmpC.setHex(sl ? (c === 0 ? 0x1c1c1e : 0x6b3a22) : kd === 1 ? 0xf2f2ee : kd === 2 ? 0xe8f1f6 : [0xe6e8ea, 0x2f6fb5, 0xd9dde0, 0x1f8a5a, 0xf2f2f2, 0xd9622b][k % 6]));
-        const half = (kd === 1 ? 0.76 : kd === 2 ? 0.45 : sl && c === 0 ? 0.62 : 1) * 9.5, fx = Math.sin(yaw), fz = Math.cos(yaw);
-        if (c === 0) { headX = qx + fx * (half + 0.05); headY = qy + (kd === 1 ? 0.2 : kd === 2 ? 0.7 : 1.4); headZ = qz + fz * (half + 0.05); headYaw = yaw; }
-        if (c === 3) { tailX = qx - fx * (half + 0.05); tailY = qy + (kd === 1 ? 0.2 : kd === 2 ? 0.7 : 1.4); tailZ = qz - fz * (half + 0.05); tailYaw = yaw; }
+        qy += kd === 1 ? -1.3 : kd === 2 ? -0.1 : 0;
+        this.tmpQ.setFromAxisAngle(up, yaw + (F.flip[c] ? Math.PI : 0)); this.tmpV.set(qx, qy, qz);
+        if (sl && c === 0) this.tmpS.set(1.0, 1.12, 0.62); // Blender の蒸気機関車は長さを詰める
+        this.tmpM.compose(this.tmpV, this.tmpQ, sl && c === 0 ? this.tmpS : this.tmpS1); this.tmpS.set(1, 1, 1);
+        put(F.cars[c], this.tmpM, famColor(fam, k, c));
+        if (k === 0 && c === 0) { this.rideTrain.m.copy(this.tmpM); this.rideTrain.count = 1; }
+        if (doors) put(F.door!, this.tmpM); // 停車中はドアが開く
+        if (D.win && nw < this.trainWin!.instanceMatrix.count) { winM.makeScale(D.HW / 1.45, D.winH / 0.95, (cl - 2.6) / 17.2).setPosition(0, D.win - 2.65 * D.winH / 0.95, 0); this.tmpM2.multiplyMatrices(this.tmpM, winM); this.trainWin!.setMatrixAt(nw++, this.tmpM2); }
+        if (F.pax) { // 窓の乗客：両側に、混むほど多く（超満員では窓いっぱい）。窓の高さに合わせ、ガラスのすぐ外に暗めの色で
+          const m = Math.min(paxCap, Math.round(paxLook.pax * dayK * (0.75 + 0.5 * ((k * 0.37) % 1)) * (cl / 19.5))), zr = cl / 2 - 1.6; this.tmpQ.setFromAxisAngle(up, yaw); this.paxM.compose(this.tmpV, this.tmpQ, this.tmpS1);
+          for (const sd of [-1, 1]) for (let q = 0; q < m && np < this.trainPax.instanceMatrix.count; q++) { const hz = (q * 0.618 + k * 0.13 + c * 0.29 + (sd > 0 ? 0.5 : 0)) % 1, zz = -zr + 2 * zr * (m > 1 ? (q + 0.5 * hz) / m : hz);
+            this.paxL.makeTranslation(sd * (D.HW + 0.04), D.win - 2.7 + (hz - 0.5) * 0.12, zz); this.tmpM2.multiplyMatrices(this.paxM, this.paxL); this.trainPax.setMatrixAt(np, this.tmpM2); this.trainPax.setColorAt(np, this.tmpC.setHex(PC[(q * 3 + k + c) % PC.length])); np++; } }
+        const fx = Math.sin(yaw), fz = Math.cos(yaw);
+        if (c === 0) { headX = qx + fx * (D.HL + 0.12); headY = qy + D.lamp; headZ = qz + fz * (D.HL + 0.12); headYaw = yaw; }
+        if (c === nC - 1) { tailX = qx - fx * (D.HL + 0.12); tailY = qy + D.lamp; tailZ = qz - fz * (D.HL + 0.12); tailYaw = yaw; }
       }
-      // 前照灯 2 つ（白）と尾灯 2 つ（赤）
-      for (let q = 0; q < 4; q++) { const head = q < 2, side = q % 2 ? 0.9 : -0.9, yw = head ? headYaw : tailYaw, cx = (head ? headX : tailX) + Math.cos(yw) * side, cz = (head ? headZ : tailZ) - Math.sin(yw) * side;
-        this.tmpQ.setFromAxisAngle(up, yw); this.tmpV.set(cx, head ? headY : tailY, cz); this.tmpM.compose(this.tmpV, this.tmpQ, live(k) ? this.tmpS : this.tmpV.clone().set(0, 0, 0)); this.trainLamp!.setMatrixAt(k * 4 + q, this.tmpM);
-        this.trainLamp!.setColorAt(k * 4 + q, this.tmpC.setHex(head ? (sl ? 0xffe9a8 : 0xffffff) : 0xff2a1a)); }
+      // 前照灯 2 つ（白）と尾灯 2 つ（赤）。貨物の最後尾は反射板の代わりに赤い標識灯
+      for (let q = 0; q < 4; q++) { const head = q < 2, D = head ? hd : td, side = (q % 2 ? 1 : -1) * (head ? D.lx : D.lx + 0.34), yw = head ? headYaw : tailYaw, cx = (head ? headX : tailX) + Math.cos(yw) * side, cz = (head ? headZ : tailZ) - Math.sin(yw) * side;
+        if (head && sl) { if (q === 1) continue; } // SL は前照灯が 1 つ（真ん中）
+        this.tmpQ.setFromAxisAngle(up, yw); this.tmpV.set(cx, head ? headY : tailY, cz); this.tmpM.compose(this.tmpV, this.tmpQ, this.tmpS1); this.trainLamp!.setMatrixAt(nl, this.tmpM);
+        this.trainLamp!.setColorAt(nl++, this.tmpC.setHex(head ? (sl ? 0xffe9a8 : 0xffffff) : 0xff2a1a)); }
       // 蒸気機関車の煙
-      if (sl && slOn && tr.wait <= 0) { this.slPuff -= dt; if (this.slPuff <= 0) { this.slPuff = 0.22; this.fx.burst(headX - Math.sin(headYaw) * 3, headY + 4.6, headZ - Math.cos(headYaw) * 3, 'smoke', 1, 1.5); } }
+      if (sl && slOn && tr.wait <= 0) { this.slPuff -= dt; if (this.slPuff <= 0) { this.slPuff = 0.22; this.fx.burst(headX - Math.sin(headYaw) * 3, headY + 3.4, headZ - Math.cos(headYaw) * 3, 'smoke', 1, 1.5); } }
     });
+    for (const key in IM) { const im = IM[key]; im.count = cnt[key]; im.visible = cnt[key] > 0; if (im.visible) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; } }
     this.trainPax.count = np; if (np) { this.trainPax.instanceMatrix.needsUpdate = true; if (this.trainPax.instanceColor) this.trainPax.instanceColor.needsUpdate = true; }
-    this.trainCars!.instanceMatrix.needsUpdate = true; if (this.trainCars!.instanceColor) this.trainCars!.instanceColor.needsUpdate = true;
-    for (const im of [this.trainMid, this.trainPan, this.trainEnd]) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
-    this.trainLoco.instanceMatrix.needsUpdate = true; this.trainExp.instanceMatrix.needsUpdate = true; if (this.trainExp.instanceColor) this.trainExp.instanceColor.needsUpdate = true;
-    this.trainWin!.instanceMatrix.needsUpdate = true; (this.trainWin!.material as THREE.MeshBasicMaterial).opacity = Math.min(0.92, NIGHT_U.value * 1.3);
-    this.trainLamp!.instanceMatrix.needsUpdate = true; if (this.trainLamp!.instanceColor) this.trainLamp!.instanceColor.needsUpdate = true;
+    this.trainWin!.count = nw; this.trainWin!.instanceMatrix.needsUpdate = true; (this.trainWin!.material as THREE.MeshBasicMaterial).opacity = Math.min(0.92, NIGHT_U.value * 1.3);
+    this.trainLamp!.count = nl; this.trainLamp!.instanceMatrix.needsUpdate = true; if (this.trainLamp!.instanceColor) this.trainLamp!.instanceColor.needsUpdate = true;
   }
   /** 遮断機：列車が下りていれば下ろし（水平）、いなければ上げる（垂直） */
   private moveGates(dt: number): void {
@@ -2999,7 +3004,7 @@ export class View {
   ride: 'train' | 'bus' | null = null; private rideFwd = new THREE.Vector3(0, 0, 1);
   private updateRide(): void {
     if (!this.ride) { if (this.headSpot) this.headSpot.intensity = 0; return; }
-    const im = this.ride === 'train' ? this.trainCars : this.buses;
+    const im = this.ride === 'train' ? this.rideTrain : this.buses;
     if (!im || im.count < 1 || this.mode !== 'orbit') { this.ride = null; return; }
     const m4 = new THREE.Matrix4(), pos = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
     im.getMatrixAt(0, m4); m4.decompose(pos, q, sc);
