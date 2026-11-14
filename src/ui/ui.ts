@@ -141,7 +141,7 @@ export class UI {
 
   constructor(game: Game, view: View) {
     this.game = game; this.view = view;
-    game.onMonth.push(() => { const rd = this.game.reportDue; if (rd && !this.game.auto) { this.game.reportDue = null; const rep = annualReport(this.game.state, rd.from, rd.to, rd.title); if (rep.rows.length) { this.reportOpen = rep; this.renderModal(); } } if (this.ix?.trial) { this.ix.trial = null; this.ix.confirm = false; } this.ptrial = null; });
+    game.onMonth.push(() => { const rd = this.game.reportDue; if (rd && !this.game.auto) { this.game.reportDue = null; const rep = annualReport(this.game.state, rd.from, rd.to, rd.title); if (rep.rows.length) { this.reportOpen = rep; this.renderModal(); } } if (this.ix?.trial) { this.ix.trial = null; this.ix.confirm = false; } if (this.ix?.open === 'result') this.ix.open = null; this.ptrial = null; });
     game.onMonth.push(() => { if (this.game.auto) { const last = this.game.autoLog.filter(n => n.month === this.game.state.month); if (last.length) this.toast(`オート：${last[last.length - 1].text}${last.length > 1 ? `（ほか ${last.length - 1} 件）` : ''}`); } });
     game.onSave.push(() => { const f = this.game.saveFail; this.renderSaveMark(); if (f && f.where === '自動保存') this.toast('自動保存に失敗しました。上の「未保存」からファイルに保存できます', true); if (this.menu) this.renderModal(); });
     game.onChange.push(() => { this.flushNotes(); if (this.job && this.game.rev !== this.job.rev) { this.cancelForecast(); this.toast('街が変わったため、計算中の試算を中止しました。もう一度「試算する」を押してください'); } this.refresh(); });
