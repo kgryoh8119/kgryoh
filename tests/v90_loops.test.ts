@@ -1,7 +1,7 @@
 // v90：3 つのゲームループ（駅前再開発・老朽インフラ・産業と暮らし）の回帰テスト。
 // 「実際の選択で、指標と結果が変わる」ことを、同じ状態の複製で選択だけを変えて確かめる（できごとは起こさない forecast の回し方）。
 import { describe, it, expect } from 'vitest';
-import { newGame, stepMonth, dispatch, loopIndicators, loopOptions, LOOPS, INDICATORS, siteNear, validateState, allIssues, forecast, serialize, deserialize } from '../src/sim/index';
+import { newGame, stepMonth, dispatch, loopIndicators, loopOptions, LOOPS, INDICATORS, siteNear, validateState, allIssues, forecast, serialize, deserialize, renewCostOf } from '../src/sim/index';
 import type { GameState, Action } from '../src/sim/types';
 
 const go = (s: GameState, n: number) => { let inH = 0; for (let i = 0; i < n; i++) { stepMonth(s, { forecast: true }); inH += s.loopLog?.inHH ?? 0; } return inH; };
@@ -120,5 +120,69 @@ describe('v90 ループ 1：駅前再開発', () => {
     const is = allIssues(s).filter(i => i.loop === 'station');
     expect(is.length).toBeGreaterThan(0);
     expect(is.some(i => i.options.some(o => o.act === 'loop' && o.arg === 'station'))).toBe(true);
+  });
+});
+
+describe('v90 ループ 2：老朽インフラ', () => {
+  const water = (s: GameState) => s.buildings.find(b => b.kind === 'water')!;
+  const renewCost = (s: GameState) => renewCostOf(water(s));
+  it('更新中は実効容量が下がり、終わると戻る（老朽度は 0 に）', () => {
+    const s = newGame(); stepMonth(s);
+    const ren = loopOptions(s, 'aging', { expect: false }).find(o => o.id === 'renew')!;
+    expect(ren.action).toEqual({ type: 'renew', id: water(s).id });
+    const a = structuredClone(s), b = structuredClone(s);
+    act(a, ren.action); go(a, 1); go(b, 1);
+    expect(loopIndicators(a).lifeline).toBeLessThan(loopIndicators(b).lifeline);
+    go(a, 10); go(b, 10);
+    expect(water(a).age).toBeLessThan(5);
+    expect(loopIndicators(a).lifeline).toBeGreaterThan(loopIndicators(b).lifeline);
+  });
+  it('水道の更新を先送りすると、4 年後の更新費の見通しと災害時の想定損失が、更新した場合より大きい', () => {
+    const s = newGame(); stepMonth(s);
+    const a = structuredClone(s), b = structuredClone(s);
+    act(a, { type: 'policy', id: 'deferRenew', on: true });
+    act(b, { type: 'renew', id: water(b).id });
+    go(a, 48); go(b, 48);
+    const A = loopIndicators(a), B = loopIndicators(b);
+    expect(A.renewal60).toBeGreaterThan(B.renewal60);
+    expect(A.disasterLoss).toBeGreaterThan(B.disasterLoss);
+    expect(A.lifeline).toBeLessThan(B.lifeline);
+  });
+  it('先送りした施設ほど更新費が高い（老朽度 80 を超えると割増し、100 で 1.6 倍）', () => {
+    const s = newGame(), w = water(s), base = renewCost(s);
+    w.age = 79; expect(renewCost(s)).toBe(base);
+    w.age = 90; expect(renewCost(s)).toBe(Math.round(base * 1.3));
+    w.age = 100; expect(renewCost(s)).toBe(Math.round(base * 1.6));
+    s.cash = 1e6; w.age = 95; const c0 = s.cash; act(s, { type: 'renew', id: w.id }); expect(c0 - s.cash).toBe(Math.round(base * 1.45));
+  });
+  it('先送りは毎月の支出を減らし、長寿命化は毎月の費用がかかるが傷みを遅くする', () => {
+    const s = newGame(); stepMonth(s);
+    const a = structuredClone(s), b = structuredClone(s), c = structuredClone(s);
+    act(a, { type: 'policy', id: 'deferRenew', on: true }); act(b, { type: 'policy', id: 'longLife', on: true });
+    go(a, 12); go(b, 12); go(c, 12);
+    const pol = (x: GameState) => x.ledger[x.ledger.length - 1].policy;
+    expect(pol(a)).toBeLessThan(pol(c)); expect(pol(b)).toBeGreaterThan(pol(c));
+    expect(water(a).age).toBeGreaterThan(water(c).age); expect(water(b).age).toBeLessThan(water(c).age);
+  });
+  it('水道料金の改定は収入になるが、単身・高齢の世帯の満足が下がる', () => {
+    const s = newGame(); stepMonth(s);
+    const a = structuredClone(s), b = structuredClone(s);
+    act(a, { type: 'policy', id: 'waterRate', on: true }); go(a, 3); go(b, 3);
+    const A = loopIndicators(a), B = loopIndicators(b);
+    expect(A.waterBill).toBeGreaterThan(B.waterBill);
+    expect(a.ledger[a.ledger.length - 1].operating).toBeGreaterThan(b.ledger[b.ledger.length - 1].operating);
+    expect(A.satSenior).toBeLessThan(B.satSenior); expect(A.satSingle).toBeLessThan(B.satSingle);
+  });
+  it('市債で更新費を用意すると、残高が増える', () => {
+    const s = newGame(); stepMonth(s);
+    const o = loopOptions(s, 'aging', { expect: false }).find(x => x.id === 'borrow')!;
+    const a = structuredClone(s); act(a, o.action);
+    expect(loopIndicators(a).debt).toBeGreaterThan(loopIndicators(s).debt);
+  });
+  it('老朽の課題に「維持・更新・先送りを比べる」が出る', () => {
+    const s = newGame(); water(s).age = 85; stepMonth(s, { forecast: true });
+    const i = allIssues(s).find(x => x.key === 'aging')!;
+    expect(i.loop).toBe('aging');
+    expect(i.options.some(o => o.act === 'loop' && o.label.includes('先送り'))).toBe(true);
   });
 });
