@@ -2,7 +2,7 @@
 import { MAPS, mapEntry, saveMapId, TERRAINS, type MapEntry } from '../sim/index';
 import { loadCareer, terrainOpen, takeRun } from '../career';
 import { saveKey } from '../game';
-import { listStored, putStored, loadMap, embedded } from '../maps/store';
+import { listStored, putStored, loadMap, embedded, lastMapFail, setMapProgress } from '../maps/store';
 import { importCollected, isCollected } from '../mapgen/importer';
 
 export interface Choice { id: string; raw: any | null; save?: string; terrain?: string; contest?: number }
@@ -46,7 +46,7 @@ export function chooseMap(): Promise<Choice> {
       const customs = stored.filter(s => !mapEntry(s.id));
       el.innerHTML = `<div class="tin">
         <header class="tlogo"><h1>スムシティ</h1><p>日本の街の首長になって、保育・交通・水道・財政をやりくりする街づくり</p></header>
-        ${msg ? `<p class="tmsg" role="status">${msg}</p>` : ''}
+        ${msg ? `<p class="tmsg" role="status">${msg}</p>` : ''}${retry && !busy ? `<div class="btnrow"><button class="btn primary" data-t="retry">もう一度読み込む</button></div>` : ''}
         ${pick ? `<section class="tpick"><h2>${run ? `🗳 ${esc(run.from)}の市長から、新しい街へ立候補` : '地形を選ぶ（架空の街）'}</h2>
           <p class="note">市長の経歴：最高 Lv${career.lv}・これまでの街 ${career.cities.length}${run ? `・経験を活かして、市長ポイント ${run.carry} から始まります` : ''}。経歴のレベルが上がると、選べる地形が増えます。</p>
           <div class="tgrid">${TERRAINS.map(t => { const open = terrainOpen(career, t.id); return `<button class="tcard ${open ? '' : 'lock'}" data-t="terrain" data-id="${pick}" data-tr="${t.id}" ${open && !busy ? '' : 'disabled'}><b>${open ? '' : '🔒 '}${t.name}</b><small>${t.desc}</small><em>${open ? `${t.city}の市長として始める` : `市長の経歴 Lv${t.lv} で選べます`}</em></button>`; }).join('')}</div>
@@ -71,13 +71,23 @@ export function chooseMap(): Promise<Choice> {
     const done = (c: Choice) => { el.remove(); resolve(c); };
     /** 地図のデータを用意する（同梱 → 取り込み済み の順） */
     const loadRaw = loadMap;
+    /** 読み込みに失敗した原因を、利用者にわかる言葉で */
+    const failText = (id: string) => {
+      const f = lastMapFail, nm = esc(mapEntry(id.replace(/-d$/, ''))?.name ?? id);
+      const why = !f ? '地図データが見つかりませんでした。' : f.kind === 'file' ? 'このページをファイルとして直接開いているため、地図データ（maps フォルダ）を読めません。地図を同梱した単体版（sumucity-standalone.html）を開くか、サーバー経由（npm run dev など）で開いてください。'
+        : f.kind === 'offline' ? 'ネットワークにつながっていません。つながってから「もう一度読み込む」を押してください（単体版 sumucity-standalone.html ならオフラインでも遊べます）。'
+        : f.kind === 'http' ? `サーバーが地図データを返しませんでした（HTTP ${f.status}）。maps フォルダがページと同じ場所にあるか確認してください。`
+        : f.kind === 'parse' ? '地図データが壊れているようです。ファイルを入れ直してください。' : '通信に失敗しました。回線の状態を確かめて、もう一度お試しください。';
+      return `「${nm}」の地図データを読めませんでした。${why}`;
+    };
+    let retry: { id: string; save?: string } | null = null;
     const go = async (id: string, save?: string) => {
-      busy = true; msg = '地図を読み込んでいます…'; render();
-      const raw = await loadRaw(id);
+      busy = true; retry = null; msg = '地図を読み込んでいます…'; render();
+      setMapProgress((got, total) => { const m = el.querySelector('.tmsg'); if (m) m.textContent = `地図を読み込んでいます… ${(got / 1e6).toFixed(1)}${total ? ' / ' + (total / 1e6).toFixed(1) : ''} MB`; });
+      let raw: any;
+      try { raw = await loadRaw(id); } finally { setMapProgress(null); }
       if (raw === undefined) {
-        busy = false;
-        msg = `「${esc(mapEntry(id.replace(/-d$/, ''))?.name ?? id)}」の地図データを読めませんでした。${mapEntry(id)?.kind === 'bundled' ? 'このページを単体のファイルとして開いている場合は、同じフォルダの maps/' + id + '.json を「データを取り込む」で選んでください。' : ''}`;
-        if (mapEntry(id)?.kind === 'bundled') { const e = mapEntry(id)!; (e as any).kind = 'collect'; }
+        busy = false; msg = failText(id); retry = { id, save };
         render(); return;
       }
       done({ id, raw, save });
@@ -109,10 +119,11 @@ export function chooseMap(): Promise<Choice> {
     el.addEventListener('click', ev => {
       const b = (ev.target as HTMLElement).closest('button[data-t]') as HTMLElement | null;
       if (!b || busy) return;
-      const id = b.dataset.id!;
+      const id = b.dataset.id ?? '';
       if (b.dataset.t === 'start' && mapEntry(id)?.kind === 'builtin') { pick = id; render(); el.querySelector('.tpick')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; } // v88：地形の選択は一覧の上に出るので、そこへ画面を送る（押しても何も起きないように見えていた）
       if (b.dataset.t === 'contest') { const w = contestWeek(); busy = true; msg = '大会の街を準備しています…'; render(); loadRaw(id).then(raw => done({ id, raw: raw ?? null, terrain: contestTerrain(w).id, contest: w })); return; }
       if (b.dataset.t === 'terrain') { const t = b.dataset.tr!; busy = true; msg = '街を準備しています…'; render(); loadRaw(id).then(raw => done({ id, raw: raw ?? null, terrain: t })); return; }
+      if (b.dataset.t === 'retry') { if (retry) go(retry.id, retry.save); return; }
       if (b.dataset.t === 'pickclose') { pick = ''; render(); return; }
       if (b.dataset.t === 'start') go(id);
       else if (b.dataset.t === 'cont') { let t: string | null = null; try { t = localStorage.getItem(saveKey(id)); } catch { /* 読めない */ } go(id, t ?? undefined); }

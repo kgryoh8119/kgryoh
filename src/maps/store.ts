@@ -32,17 +32,32 @@ export async function deleteStored(id: string): Promise<void> {
 
 /** その地図がページに埋め込まれているか（単体ファイル版・公開版）。v81：追加の実在マップも、埋め込んであれば取り込みなしで遊べる */
 export const embedded = (id: string): boolean => typeof document !== 'undefined' && !!document.getElementById('sumu-map-' + id);
-/** 同梱の地図を読む（ページと同じ場所の maps/<id>.json）。読めなければ null */
+/** 直前の読み込みの失敗の原因（タイトル画面の案内に使う）。'file' file:// で分割版を開いている／'offline' ネットワークなし／'http' サーバーが返さなかった／'net' 通信の失敗／'parse' データが壊れている */
+export type MapFail = { kind: 'file' | 'offline' | 'http' | 'net' | 'parse'; status?: number } | null;
+export let lastMapFail: MapFail = null;
+/** 読み込みの進み具合（バイト数。合計が分からなければ total は 0）。タイトル画面の「読み込み中」の表示に使う */
+export let onMapProgress: ((got: number, total: number) => void) | null = null;
+export const setMapProgress = (f: typeof onMapProgress) => { onMapProgress = f; };
+/** 同梱の地図を読む（ページと同じ場所の maps/<id>.json）。読めなければ null（原因は lastMapFail）。
+ *  単体ファイル版では、地図を選んだときに初めて埋め込みの JSON を解析する（起動時には解析しない） */
 export async function fetchBundled(id: string): Promise<any | null> {
-  // 単体ファイル版：ページに埋め込んだ地図を先に探す（ファイルを直接開くと fetch できないため）
+  lastMapFail = null;
   const emb = document.getElementById('sumu-map-' + id);
   if (emb?.textContent) { try { const m = JSON.parse(emb.textContent); if (m && m.format === 'sumucity-realmap') return m; } catch { /* 壊れていれば読みに行く */ } }
   try {
     const r = await fetch(`maps/${id}.json`);
-    if (!r.ok) return null;
-    const m = await r.json();
-    return m && m.format === 'sumucity-realmap' ? m : null;
-  } catch { return null; }
+    if (!r.ok) { lastMapFail = { kind: 'http', status: r.status }; return null; }
+    let text: string;
+    const total = Number(r.headers.get('content-length') ?? 0);
+    if (r.body && onMapProgress) {
+      const rd = r.body.getReader(), parts: Uint8Array[] = []; let got = 0;
+      for (;;) { const { done, value } = await rd.read(); if (done) break; parts.push(value); got += value.length; onMapProgress(got, total); }
+      text = new TextDecoder().decode(await new Blob(parts as BlobPart[]).arrayBuffer());
+    } else text = await r.text();
+    let m: any; try { m = JSON.parse(text); } catch { lastMapFail = { kind: 'parse' }; return null; }
+    if (m && m.format === 'sumucity-realmap') return m;
+    lastMapFail = { kind: 'parse' }; return null;
+  } catch { lastMapFail = { kind: location.protocol === 'file:' ? 'file' : navigator.onLine === false ? 'offline' : 'net' }; return null; }
 }
 
 /** 地図のデータを用意する：同梱 → このブラウザに取り込み済み の順。ID の末尾が -d ならまちづくり版をその場で作る。
