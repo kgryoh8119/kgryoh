@@ -155,6 +155,8 @@ export function validateState(s: unknown): string | null {
   if (!finIn(s.cash, 0, 1e12)) return '資金が不正です（0 以上の有限の数）';
   if (!finIn(s.inflowFactor, 0, 10)) return '転入の係数が不正です';
   if (!intIn(s.nextId, 1, 1e9) || !intIn(s.roadVersion, 0, 1e12) || !intIn(s.bVersion, 0, 1e12)) return '内部の番号が不正です';
+  // v90：施策の記録（ないのは古いセーブ。形が崩れていれば記録だけ捨てる。街の計算には使わない）
+  if (s.decisions !== undefined && (!Array.isArray(s.decisions) || s.decisions.length > 200 || !s.decisions.every((d: unknown) => isObj(d) && isInt(d.month) && isStr(d.label, 200) && isObj(d.before) && Array.isArray(d.results) && Array.isArray(d.checkAt)))) delete s.decisions;
   // ---- 地図 ----
   { const okH = s.terraH === undefined || (Array.isArray(s.terraH) && s.terraH.length === (W + 1) * (H + 1) && s.terraH.every((v: unknown) => finIn(v, -100, 100)));
     const okT = s.terraT === undefined || (Array.isArray(s.terraT) && s.terraT.length === N && s.terraT.every((v: unknown) => intIn(v, 0, 8)));

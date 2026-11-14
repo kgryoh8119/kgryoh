@@ -394,6 +394,8 @@ export interface GameState {
   news?: { m: number; t: string; at?: number }[]; newsSeen?: number;
   /** プロスポーツチーム（古いセーブにはない） */
   teams?: Team[];
+  /** v90：施策の予測と結果の記録（古いものから捨てる。街の計算には使わない）。古いセーブにはない */
+  decisions?: import('./report').Decision[];
 }
 
 export interface Goal { id: string; base: number; target: number; diff: number }
