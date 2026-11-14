@@ -1,4 +1,5 @@
 // プレイヤーの操作。全て dispatch() を通し、直列化できる Action として記録・再生できる。
+import { officeDeny } from './authority';
 import { LV_CAP, lvK, maxLv, stageName, NIMBY, AIR_ROUTES, W, H, P, DEFS, POLICIES, GOALS, VISIONS, isRes, isShop, isCity, isBiz, lvOf, diffOf, DIFFS, SPORTS, bondCap, SCALE, policyCost } from './config';
 import { getMap, baseMap, syncTerrain, idx, inMap, buildable, landReason, NEIGH, ropewayTop, isCastaway } from './map';
 import { recompute, roadInfo, accessTile, invalidateCaches, modMul, modAdd, repairState } from './core';
@@ -824,6 +825,7 @@ function apply(s: GameState, a: Action): Result {
       return { ok: true, msg: `一時借入を ${man(amt)} 返しました${tempDebt(s) > 0 ? `（残り ${man(tempDebt(s))}）` : '（完済）'}` };
     }
     case 'borrow': {
+      { const no = officeDeny('bond'); if (no) return { ok: false, msg: no }; } // v90：役による権限
       const debt = s.loans.filter(l => l.kind === 'bond').reduce((x, l) => x + l.remaining, 0);
       if (s.fiscal?.status === 'rebuild') return { ok: false, msg: '財政再生団体のため、国の同意なしに市債を発行できません（財政再生計画で借金を減らしています）' };
       if (debt + a.amount > bondCap(s)) return { ok: false, msg: `市債の残高上限（${man(bondCap(s))}。人口に合わせて広がります${s.fiscal?.status === 'early' ? '。早期健全化団体のため 6 割に絞られています' : ''}）を超えます` };
@@ -877,6 +879,7 @@ function apply(s: GameState, a: Action): Result {
       return { ok: true, msg: `${DEFS[b.kind].name}の用地を買収して撤去しました（${man(cost)}）。${hh >= 0.5 ? `住んでいた ${Math.round(hh)} 世帯は転居しました。` : ''}跡地は空き地（用途の指定なし）です`, cost };
     }
     case 'tax': {
+      { const no = officeDeny('tax'); if (no) return { ok: false, msg: no }; }
       const t = s.tax, old = t[a.key];
       if (a.key === 'stay') { t.stay = a.v ? 1 : 0; if (t.stay !== old) s.modifiers.push({ key: 'approval', op: 'add', v: t.stay ? -0.01 : 0.005, until: s.month + 6, cost: 0, src: '宿泊税の見直し' }); s.acts['tax:stay'] = s.month; return { ok: true, msg: t.stay ? '宿泊税を設けました（市内のホテルに泊まる人から 1 泊 200 円）' : '宿泊税をやめました' }; }
       const last = s.acts['tax:' + a.key];

@@ -80,3 +80,21 @@ describe('v90 合併 → 広域連合', () => {
     expect(m.src).toContain('広域連合');
   });
 });
+
+describe('v90 行政権限', () => {
+  it('5 つの行動種別と主体', async () => {
+    const { actKind, authorityLabel, officeOf, OFFICE } = await import('../src/sim/authority');
+    expect(actKind('school')).toBe('direct');
+    expect(actKind('elderly')).toBe('subsidy');
+    expect(actKind('factory')).toBe('invite');
+    expect(actKind('police')).toBe('consult');
+    expect(authorityLabel('police').actor).toContain('都道府県警察');
+    expect(actKind('keirin')).toBe('joint');
+    expect(officeOf('大田区長', '東京都 大田区')).toBe('tokuku');
+    expect(officeOf('福岡市長', '福岡県 福岡市 城南区')).toBe('mayor');
+    expect(officeOf('時津町長')).toBe('town');
+    expect(officeOf('中区長', '神奈川県 横浜市 中区')).toBe('gyoseiku');
+    expect(OFFICE.tokuku.famActor!.fire!.actor).toContain('東京消防庁');
+    expect(OFFICE.gyoseiku.deny!.tax).toBeTruthy();
+  });
+});

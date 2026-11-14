@@ -319,8 +319,8 @@ export const DEFS: Record<Kind, Def> = {
     ...city('basin', 'safety'), name: '雨水調整池', note: '大雨のときに水をためる池。同じ地区の浸水の被害が小さくなります。', lvMax: 0,
     w: 2, h: 2, cost: 12000, months: 12, upkeep: 30, capacity: 1, capUnit: '地区', ageRate: 0.08, renewCost: 4000, renewMonths: 4, renewFactor: 0.5,
   },
-  koban: { ...req('safety', 'safety', '県（警察）'), name: '交番', note: '警察は県の所管です。市は用地を用意して設置を要望できます（協議）。周りの治安の満足が上がります。', w: 1, h: 1, cost: 500, months: 8, capacity: 5000, capUnit: '人（受け持ちの人口）', reach: 22 },
-  police: { ...req('safety', 'safety', '県（警察）'), name: '警察署', note: '県が設置します。市は用地を提供して要望します（協議）。広い範囲の治安を支えます。', w: 2, h: 2, cost: 4000, months: 24, capacity: 30000, capUnit: '人（受け持ちの人口）', reach: 70, jobs: 120, use: 20 },
+  koban: { ...req('safety', 'safety', '都道府県警察'), name: '交番', note: '警察は都道府県警察の所管です（東京は警視庁）。市は用地を用意して設置を要望できます（協議）。周りの治安の満足が上がります。', w: 1, h: 1, cost: 500, months: 8, capacity: 5000, capUnit: '人（受け持ちの人口）', reach: 22 },
+  police: { ...req('safety', 'safety', '都道府県警察'), name: '警察署', note: '都道府県警察が設置します（東京は警視庁）。市は用地を提供して要望します（協議）。広い範囲の治安を支えます。', w: 2, h: 2, cost: 4000, months: 24, capacity: 30000, capUnit: '人（受け持ちの人口）', reach: 70, jobs: 120, use: 20 },
   // ---- 水道・電気・ガス・ごみ ----
   waterS: {
     ...city('water', 'infra'), name: '配水池・小規模浄水場', owner: '市（水道事業）', note: '小さな浄水・配水の拠点。新しい住宅地の水をまかないます。', lvMax: 2,

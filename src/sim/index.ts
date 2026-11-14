@@ -28,6 +28,7 @@ export * from './admin';
 export * from './big';
 export * from './threats';
 export * from './macro';
+export * from './authority';
 export { monthlyIssues, allIssues, careCause, ISSUE_W } from './issues';
 export type { Issue, IssueOption } from './issues';
 export * from './isle';
