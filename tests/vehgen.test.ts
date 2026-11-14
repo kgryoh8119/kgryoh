@@ -25,11 +25,15 @@ describe('車の形', () => {
 });
 
 describe('v88：働く車と二輪', () => {
-  it('18 種類あり、面の番号・種類・寸法が正しく、前照灯の位置が車の長さの中にある', () => {
-    const V = makeWork(14), lo = makeWork(8); expect(WORK_MODELS.length).toBe(18); expect(WORK_HL.length).toBe(WORK_MODELS.length);
+  it('20 種類あり、面の番号・種類・寸法が正しく、前照灯の位置が車の長さの中にある', () => {
+    const V = makeWork(14), lo = makeWork(8); expect(WORK_MODELS.length).toBe(20); expect(WORK_HL.length).toBe(WORK_MODELS.length);
     WORK_MODELS.forEach((n, k) => { const m = V[n]; expect(m.F.length).toBeGreaterThan(40); expect(m.F.length).toBeLessThan(1600); expect(lo[n].F.length).toBeLessThanOrEqual(m.F.length);
       for (const f of m.F) { expect(f.slice(0, 3).every(i => i >= 0 && i < m.V.length)).toBe(true); expect(f[3]).toBeGreaterThanOrEqual(0); expect(f[3]).toBeLessThan(CAR_PART.length); }
       const [x, y, z] = bounds(m); expect(x[1] - x[0]).toBeLessThan(3.3); expect(y[1] - y[0]).toBeLessThan(11); expect(z[0]).toBeGreaterThanOrEqual(-0.01); expect(z[1]).toBeLessThan(4); expect(WORK_HL[k]).toBeLessThan(y[1] + 0.6); });
+  });
+  it('v89：配達員の自転車とスクーターは、背中の保温バッグ（車ごとの色）が乗る人の頭より後ろにある', () => {
+    const V = makeWork(14); for (const n of ['delibike', 'delimoto'] as const) { const m = V[n], bag = m.F.filter(f => f[3] === 0).flatMap(f => f.slice(0, 3).map(i => m.V[i]));
+      expect(bag.length).toBeGreaterThan(0); expect(Math.min(...bag.map(p => p[1]))).toBeLessThan(-0.3); expect(Math.max(...bag.map(p => p[2]))).toBeGreaterThan(1.3); }
   });
 });
 

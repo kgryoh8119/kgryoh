@@ -116,10 +116,10 @@ function rider(M: CarMesh, yh: number, zh: number, yg: number, zg: number, hx: n
   for (const sx of [-1, 1]) { limb(M, [sx * 0.14, yt - 0.02, zt - 0.05], [sx * hx, yg, zg], 0.04, c); limb(M, [sx * 0.11, yh, zh], [sx * 0.15, yh + 0.3, zh - 0.12], 0.06, 2); limb(M, [sx * 0.15, yh + 0.3, zh - 0.12], [sx * 0.15, yf, zf], 0.05, 2); }
 }
 /** v88：働く車と二輪（scene.ts で 20 番からの形。並び順は WORK_MODELS） */
-export const WORK_MODELS = ['dump', 'mixer', 'tanker', 'crane', 'parcel', 'tow', 'kitchen', 'welfare', 'kyoshu', 'ladder', 'rescue', 'moto', 'whitebike', 'roadbike', 'mamachari', 'kick', 'postbike', 'carrier'] as const;
+export const WORK_MODELS = ['dump', 'mixer', 'tanker', 'crane', 'parcel', 'tow', 'kitchen', 'welfare', 'kyoshu', 'ladder', 'rescue', 'moto', 'whitebike', 'roadbike', 'mamachari', 'kick', 'postbike', 'carrier', 'delibike', 'delimoto'] as const;
 export type WorkModel = typeof WORK_MODELS[number];
 /** 前照灯の前後位置（車の中心から。scene.ts の車間と灯りの位置） */
-export const WORK_HL = [3.6, 3.7, 3.6, 3.7, 2.6, 3.0, 1.8, 2.45, 2.2, 4.8, 3.7, 0.9, 0.9, 0.85, 0.9, 0.5, 0.9, 3.8];
+export const WORK_HL = [3.6, 3.7, 3.6, 3.7, 2.6, 3.0, 1.8, 2.45, 2.2, 4.8, 3.7, 0.9, 0.9, 0.85, 0.9, 0.5, 0.9, 3.8, 0.9, 0.9];
 /** N：タイヤの角数（品質で 8 / 10 / 14） */
 export function makeWork(N = 14): Record<WorkModel, CarMesh> {
   const n8 = Math.max(8, N - 2), n6 = Math.max(8, N - 4), dn = N >= 12 ? 12 : 8;
@@ -189,7 +189,21 @@ export function makeWork(N = 14): Record<WorkModel, CarMesh> {
   // キャリアカー：運転台と、2 段の荷台（銀の枠）
   const carrier = mesh(); chassis(carrier, 1.15, -6.5, 3.6, 2.7, 0, [-5.5, -4.4, 2.6]); box(carrier, -1.15, 1.15, -6.5, 1.6, 0.95, 1.08, 16); for (const sx of [-1, 1]) { limb(carrier, [sx * 1.1, -6.4, 3.0], [sx * 1.1, 2.9, 3.2], 0.06, 16); for (const y of [-6.2, -3.6, -1.0, 1.4]) limb(carrier, [sx * 1.1, y, 1.05], [sx * 1.1, y, 3.1], 0.05, 16); }
   box(carrier, -1.1, 1.1, -6.4, 2.9, 3.0, 3.08, 16);
-  return { dump, mixer, tanker, crane, parcel, tow, kitchen, welfare, kyoshu, ladder, rescue, moto, whitebike: wb, roadbike: rb, mamachari: mm, kick, postbike: post, carrier };
+  // v89：フードデリバリーの配達員。背中に四角い大きな保温バッグ（車ごとの色＝面の種類 0。無地に暗い帯、肩ひも）。文字やロゴは描かない
+  const bag = (M: CarMesh, y0: number, y1: number, z0: number, z1: number, ys: number, zs: number) => { box(M, -0.22, 0.22, y0, y1, z0, z1, 0); box(M, -0.225, 0.225, y0 - 0.005, y1 + 0.005, z1 - 0.06, z1 - 0.03, 2); box(M, -0.18, 0.18, y0 - 0.01, y0, z0 + 0.06, z1 - 0.12, 7);
+    for (const sx of [-1, 1]) limb(M, [sx * 0.13, y1, z1 - 0.05], [sx * 0.12, ys, zs], 0.022, 1); };
+  // 自転車（街乗りの細い枠、やや前傾。服は暗い色）
+  const db = mesh(); for (const y of [-0.52, 0.52]) for (const sx of [-1, 1]) wheel(db, 0, y, 0.33, 0.03, n6, sx, 1);
+  limb(db, [0, -0.52, 0.33], [0, -0.1, 0.62], 0.014, 2); limb(db, [0, -0.1, 0.62], [0, 0.42, 0.78], 0.016, 2); limb(db, [0, 0.52, 0.33], [0, 0.42, 0.86], 0.014, 2); limb(db, [0, -0.52, 0.33], [0, -0.05, 0.33], 0.013, 2); limb(db, [0, -0.05, 0.33], [0, -0.1, 0.62], 0.015, 2);
+  box(db, -0.24, 0.24, 0.4, 0.44, 0.86, 0.9, 2); box(db, -0.06, 0.06, -0.2, 0.0, 0.88, 0.92, 2); end(db, -0.04, 0.04, 0.53, 0.78, 0.84, 3, 1); end(db, -0.04, 0.04, -0.6, 0.52, 0.57, 4, -1);
+  rider(db, -0.15, 0.95, 0.45, 0.9, 0.24, 0.0, 0.35, 0.45, 11, 1); bag(db, -0.5, -0.17, 1.0, 1.46, -0.05, 1.42);
+  // スクーター（灰の車体、黒いヘルメット、服はバッグと同じ色）
+  const dm = mesh(); for (const y of [-0.62, 0.6]) for (const sx of [-1, 1]) wheel(dm, 0, y, 0.24, 0.12, n8, sx, 15);
+  box(dm, -0.2, 0.2, -0.75, 0.4, 0.26, 0.58, 16); frus(dm, [-0.17, 0.17, 0.38, 0.72], 0.3, [-0.15, 0.15, 0.5, 0.64], 1.12, 16); limb(dm, [0, 0.6, 0.4], [0, 0.56, 0.82], 0.03, 2);
+  box(dm, -0.33, 0.33, 0.54, 0.6, 1.07, 1.12, 2); end(dm, -0.1, 0.1, 0.725, 0.78, 0.98, 3, 1); end(dm, -0.1, 0.1, -0.76, 0.46, 0.56, 4, -1); box(dm, -0.15, 0.15, -0.72, -0.05, 0.58, 0.68, 2);
+  for (const sx of [-1, 1]) { limb(dm, [sx * 0.13, -0.15, 0.8], [sx * 0.17, 0.3, 0.7], 0.06, 11); limb(dm, [sx * 0.17, 0.3, 0.7], [sx * 0.17, 0.42, 0.3], 0.055, 11); limb(dm, [sx * 0.14, -0.08, 1.2], [sx * 0.3, 0.5, 1.1], 0.045, 0); }
+  limb(dm, [0, -0.3, 0.78], [0, -0.1, 1.38], 0.13, 0); box(dm, -0.1, 0.1, -0.2, 0.0, 1.38, 1.5, 12); box(dm, -0.14, 0.14, -0.25, 0.06, 1.48, 1.7, 1); bag(dm, -0.66, -0.3, 0.9, 1.4, -0.12, 1.36);
+  return { dump, mixer, tanker, crane, parcel, tow, kitchen, welfare, kyoshu, ladder, rescue, moto, whitebike: wb, roadbike: rb, mamachari: mm, kick, postbike: post, carrier, delibike: db, delimoto: dm };
 }
 
 /** 車の部位の色（面の種類 0〜16）。0 は車ごとの色 */

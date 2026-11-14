@@ -106,6 +106,8 @@ export interface RoadTileArgs {
   kerbless: boolean; stone: boolean; wide: boolean; ak: number;
   hA: (x: number, z: number) => number; mark: (x0: number, z0: number, x1: number, z1: number, color: number) => void;
   sig: boolean; fine: boolean; hi: boolean; conn: (x: number, y: number) => number; lamps: number[];
+  /** v89：信号の灯の一覧（x, y, z, 表の向き nx, nz, 種類 0 青・1 黄・2 赤・3 歩行者の赤・4 歩行者の青, 青になる軸 0 東西・1 南北）。点灯は scene が周期に合わせて描く */
+  sigs?: number[];
 }
 /** 1 区画の路面標示（中央線・車線境界線・外側線・停止線・横断歩道・止まれ・矢印・ダイヤマーク・速度・導流帯）と、
  *  縁石・側溝とグレーチング・植樹帯・ガードパイプ・信号機（車両用・歩行者用）・標識（止まれ・制限速度・案内・横断歩道）・行き止まりの車止め。
@@ -235,9 +237,10 @@ export function roadTile(o: RoadTileArgs): void {
     g.box(px - Lx * reach / 2, hy + 5.6, pz - Lz * reach / 2, ew ? 0.12 : reach, 0.12, ew ? reach : 0.12, 0x8b9094);
     // 灯器（横長の薄い LED 型）：左（柱の側）から青・黄・赤。表は近づく車の向き（+dx, +dz）
     g.box(hx, hy + 5.15, hz, ew ? 0.28 : 1.25, 0.42, ew ? 1.25 : 0.28, 0x5d636a);
-    for (let k = 0; k < 3; k++) { const u = (1 - k) * 0.4; g.box(hx + Lx * u + dx * 0.15, hy + 5.21, hz + Lz * u + dz * 0.15, ew ? 0.05 : 0.3, 0.3, ew ? 0.3 : 0.05, [0x1f9a78, 0xa88a2a, 0xa8302a][k]); }
+    for (let k = 0; k < 3; k++) { const u = (1 - k) * 0.4; g.box(hx + Lx * u + dx * 0.15, hy + 5.21, hz + Lz * u + dz * 0.15, ew ? 0.05 : 0.3, 0.3, ew ? 0.3 : 0.05, 0x23272b); o.sigs?.push(hx + Lx * u + dx * 0.19, hy + 5.21, hz + Lz * u + dz * 0.19, dx, dz, k, ew ? 0 : 1); } // v89：灯そのものは scene の信号灯（点灯が切り替わる）
     // 歩行者用（横断歩道の向こうへ向ける）
-    if (xw) for (const [nx, nz] of [[-Lx, -Lz], [dx, dz]]) { const bx = px + nx * 0.3, bz = pz + nz * 0.3; g.box(bx, hy + 2.3, bz, nx ? 0.25 : 0.42, 0.85, nz ? 0.25 : 0.42, 0x5d636a); g.box(bx + nx * 0.13, hy + 2.75, bz + nz * 0.13, nx ? 0.03 : 0.3, 0.3, nz ? 0.03 : 0.3, 0xa8302a); g.box(bx + nx * 0.13, hy + 2.38, bz + nz * 0.13, nx ? 0.03 : 0.3, 0.3, nz ? 0.03 : 0.3, 0x2a6e5a); }
+    if (xw) for (const [nx, nz] of [[-Lx, -Lz], [dx, dz]]) { const bx = px + nx * 0.3, bz = pz + nz * 0.3; g.box(bx, hy + 2.3, bz, nx ? 0.25 : 0.42, 0.85, nz ? 0.25 : 0.42, 0x5d636a); g.box(bx + nx * 0.13, hy + 2.75, bz + nz * 0.13, nx ? 0.03 : 0.3, 0.3, nz ? 0.03 : 0.3, 0x23272b); g.box(bx + nx * 0.13, hy + 2.38, bz + nz * 0.13, nx ? 0.03 : 0.3, 0.3, nz ? 0.03 : 0.3, 0x23272b);
+      o.sigs?.push(bx + nx * 0.16, hy + 2.75, bz + nz * 0.16, nx, nz, 3, nx ? 0 : 1, bx + nx * 0.16, hy + 2.38, bz + nz * 0.16, nx, nz, 4, nx ? 0 : 1); } // 横断歩道を渡る人の進む向き＝表の向きの軸
   }
   // --- 標識：生活道路の止まれ（止まれの側の角）、信号のない横断歩道の標識
   if (fine && junction) for (const [dx, dz] of arms) {
