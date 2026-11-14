@@ -1017,13 +1017,13 @@ function apply(s: GameState, a: Action): Result {
       for (const m of c.mods) s.modifiers.push({ key: m.key, op: m.op, v: m.v, until: m.months < 0 ? -1 : s.month + m.months, cost: m.cost ?? 0, src: c.name });
       s.acts[c.id] = s.month;
       if (c.id === 'festival') s.celeb = { kind: 'festival', month: s.month, label: '市民まつり' };
-      if (c.cat === '広域' && c.id !== 'merge') for (const n of s.neighbors) n.rel = Math.min(1, Math.round((n.rel + 0.06) * 1000) / 1000); // 協力すると隣町との関係が良くなる
+      if (c.cat === '広域') for (const n of s.neighbors) n.rel = Math.min(1, Math.round((n.rel + 0.06) * 1000) / 1000); // 協力すると隣町との関係が良くなる
       if (c.id === 'youtube') {
         // 乱数で結果が変わる（当たれば知名度・支持率・転入、外れると炎上）
         if (rngNext(s) < 0.8) { s.modifiers.push({ key: 'approval', op: 'add', v: 0.02, until: s.month + 6, cost: 0, src: c.name }, { key: 'fame', op: 'add', v: 3, until: s.month + 12, cost: 0, src: c.name }, { key: 'inflow', op: 'mul', v: 1.03, until: s.month + 6, cost: 0, src: c.name }); return { ok: true, msg: '市長の出演回は再生 50 万回を超え、「住んでみたい」というコメントが相次ぎました。6 か月、支持率と転入が上がり、知名度も上がります', cost: c.cost }; }
         s.modifiers.push({ key: 'approval', op: 'add', v: -0.025, until: s.month + 4, cost: 0, src: '市長の発言が炎上' }); return { ok: true, msg: '発言の一部が切り取られて広まり、炎上してしまいました。4 か月、支持率が下がります（謝罪と説明で収まりつつあります）', cost: c.cost };
       }
-      if (c.id === 'merge') { const n = mergePartner(s); s.neighbors = s.neighbors.filter(o => o !== n); return { ok: true, msg: `${n.name}と合併しました（${man(c.cost)}）。交付金と補助が増え、知名度が上がりました。しばらく支持率が下がります`, cost: c.cost }; }
+      if (c.id === 'merge') { const n = mergePartner(s); return { ok: true, msg: `${n.name}と広域連合をつくりました（${man(c.cost)}）。ごみ処理・消防・水道を共同で運営し、費用を分担します。区域と人口は変わりません`, cost: c.cost }; }
       return { ok: true, msg: `${c.name}を行いました（${man(c.cost)}）。${c.result}`, cost: c.cost };
     }
     case 'sandboxPlace': {
@@ -1121,8 +1121,8 @@ export function upgradeBlock(s: GameState, b: Building): string | null {
 
 /** 市長の取り組み（視察・交流・まつり・誘致・防災）。効果は期限つきの係数 */
 export interface CivicDef { id: string; name: string; cat: string; cost: number; cool: number; once?: boolean; desc: string; result: string; mods: { key: string; op: 'mul' | 'add'; v: number; months: number; cost?: number }[]; need?: (s: GameState) => string | null }
-/** 合併の相手（関係がいちばん良い、いちばん小さな隣町） */
-export const mergePartner = (s: GameState) => [...(s.neighbors ?? [])].sort((a, b) => a.pop - b.pop)[0];
+/** 広域連合の相手（関係がいちばん良い隣町）。v89 までは合併の相手（いちばん小さな隣町） */
+export const mergePartner = (s: GameState) => [...(s.neighbors ?? [])].sort((a, b) => (b.rel ?? 0.5) - (a.rel ?? 0.5) || a.pop - b.pop)[0];
 export const CIVIC: CivicDef[] = [
   { id: 'marathon', cat: '交流', name: '市民マラソンの開催', cost: 1500, cool: 12, desc: '駅前から川沿いを走るフルマラソンとファンランを開きます。市外から 1 万人のランナーと応援が来て、3 か月、来訪者が 1.15 倍、知名度が上がり、6 か月、満足と支持率が少し上がります。当日は道路を止めるので、ひと月だけ渋滞の苦情も出ます。', result: '来訪者・知名度・満足・支持率が上がります', mods: [{ key: 'visitors', op: 'mul', v: 1.15, months: 3 }, { key: 'fame', op: 'add', v: 3, months: 24 }, { key: 'sat:all', op: 'add', v: 0.008, months: 6 }, { key: 'approval', op: 'add', v: 0.015, months: 6 }, { key: 'peakTrips', op: 'mul', v: 1.05, months: 1 }], need: s => s.stats.pop < 6000 * SCALE ? `人口 ${(6000 * SCALE).toLocaleString()} 人以上で開けます` : null },
   { id: 'youtube', cat: '交流', name: '市長が YouTube に出演する', cost: 30, cool: 6, desc: '人気の動画チャンネルに出て、街の魅力や施策を話します。うまくいけば知名度と支持率が上がりますが、発言が切り取られて炎上することもあります（2 割）。', result: '', mods: [] },
@@ -1137,7 +1137,7 @@ export const CIVIC: CivicDef[] = [
   { id: 'drill', cat: '防災', name: '総合防災訓練', cost: 150, cool: 12, desc: '学校や自治会と避難訓練を行います。24 か月、災害への備えが 15% 上がります。', result: '災害への備えが上がります', mods: [{ key: 'prep', op: 'mul', v: 1.15, months: 24 }, { key: 'approval', op: 'add', v: 0.01, months: 6 }] },
   { id: 'patrol', cat: '防災', name: '防犯パトロールと防犯カメラ', cost: 400, cool: 12, desc: '自治会のパトロールを支援し、通学路に防犯カメラを付けます。24 か月、治安が良くなります（月 30 万円）。', result: '24 か月、犯罪が減ります', mods: [{ key: 'safety', op: 'add', v: 0.3, months: 24, cost: 30 }] },
   { id: 'kumiai', cat: '広域', name: '一部事務組合に加わる（ごみ処理・消防の共同運営）', cost: 1500, cool: 0, once: true, desc: '隣の市町と組合をつくり、清掃工場と消防を共同で運営します。ごみ処理の能力が 1,500 世帯分増え、消防の到達範囲が 15% 広がり、災害への備えも上がります（ずっと。負担金 月 120 万円）。', result: 'ごみ処理と消防が強まりました', mods: [{ key: 'wasteCap', op: 'add', v: 1500, months: -1, cost: 120 }, { key: 'fireRange', op: 'mul', v: 1.15, months: -1 }, { key: 'prep', op: 'mul', v: 1.05, months: -1 }], need: s => (s.month < 12 ? '任期が始まって 12 か月たってから話し合えます' : null) },
-  { id: 'merge', cat: '広域', name: '隣町との合併', cost: 3000, cool: 0, once: true, desc: 'いちばん小さな隣町と合併します。国の特例で交付金が 10 年、8% 増え、合併特例債で施設の建設に 15% の補助がつきます（5 年）。街の名前が知られ、転入も 5% 増えますが、住民の反発で 12 か月、支持率が下がります。隣町は一覧から消えます（旧町の地域は地図に描きません）。', result: '合併しました', mods: [{ key: 'transfer', op: 'mul', v: 1.08, months: 120 }, { key: 'grant:kids', op: 'add', v: 0.15, months: 60 }, { key: 'grant:edu', op: 'add', v: 0.15, months: 60 }, { key: 'grant:infra', op: 'add', v: 0.15, months: 60 }, { key: 'grant:safety', op: 'add', v: 0.15, months: 60 }, { key: 'fame', op: 'add', v: 4, months: -1 }, { key: 'inflow', op: 'mul', v: 1.05, months: -1 }, { key: 'approval', op: 'add', v: -0.05, months: 12 }], need: s => { const n = mergePartner(s); if (!n) return '合併できる隣町がありません'; if (s.month < 24) return '合併の協議には時間がかかります（24 か月目から）'; if ((n.rel ?? 0.5) < 0.55) return `${n.name}との関係がまだ十分ではありません（いま ${Math.round((n.rel ?? 0.5) * 100)}%、55% 以上が必要。広域連携や災害の応援で良くなります）`; return null; } },
+  { id: 'merge', cat: '広域', name: '広域連合の設立（ごみ・消防・水道の共同化）', cost: 3000, cool: 0, once: true, desc: '一部事務組合の次の段階として、関係の良い隣町と広域連合をつくり、ごみ処理・消防・水道を共同で運営し、図書館・体育館などを相互に使えるようにします。ごみ処理の能力が 1,000 世帯分、浄水の融通で水の供給が 1 割増え、消防の到達範囲が 10% 広がり、維持費と事務の費用が 2% 下がります（ずっと。負担金 月 150 万円）。協議と住民への説明に手間がかかり、6 か月、支持率が少し下がります。区域と人口は変わりません（合併ではありません）。', result: '広域連合をつくりました。共同処理の能力と費用の分担が始まります', mods: [{ key: 'wasteCap', op: 'add', v: 1000, months: -1, cost: 150 }, { key: 'waterCap', op: 'mul', v: 1.1, months: -1 }, { key: 'fireRange', op: 'mul', v: 1.1, months: -1 }, { key: 'prices', op: 'mul', v: 0.98, months: -1 }, { key: 'prep', op: 'mul', v: 1.05, months: -1 }, { key: 'approval', op: 'add', v: -0.01, months: 6 }], need: s => { if (s.acts.kumiai === undefined) return '先に一部事務組合に加わってください（共同化は段階的に進めます）'; const n = mergePartner(s); if (!n) return '連携できる隣町がありません'; if (s.month < 24) return '広域連合の協議には時間がかかります（24 か月目から）'; if ((n.rel ?? 0.5) < 0.55) return `${n.name}との関係がまだ十分ではありません（いま ${Math.round((n.rel ?? 0.5) * 100)}%、55% 以上が必要。広域連携や災害の応援で良くなります）`; return null; } },
   { id: 'pact', cat: '広域', name: '隣町と広域連携（ごみ・消防の相互応援）', cost: 0, cool: 36, desc: '隣の市町と協定を結び、ごみ処理と消防を応援し合います。36 か月、ごみ処理の能力が増え、災害への備えが上がります（負担金 月 60 万円）。', result: 'ごみ処理と災害への備えが 36 か月、強まります', mods: [{ key: 'wasteCap', op: 'add', v: 800, months: 36, cost: 60 }, { key: 'prep', op: 'mul', v: 1.1, months: 36 }] },
 ];
 

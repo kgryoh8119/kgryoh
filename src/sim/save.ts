@@ -13,6 +13,8 @@ import { mapEntry } from '../maps/registry';
 export const SAVE_FORMAT = 'sumucity-save';
 /** 保存形式の版。v87 で 2（住野市の地図が 128×112 に）。1 の保存データも読み、住野市なら広げる */
 export const SAVE_VERSION = 2;
+/** v89 までの「隣町との合併」の効果の表示名（modifiers.src）と、v90 の読み替え */
+const MERGE_OLD_SRC = '隣町との合併', MERGE_NEW_SRC = '広域連合（旧：隣町との合併の特例）';
 
 /** 再計算で作り直せる値は保存しない（データを小さくするため） */
 const DERIVED = new Set(['acc', 'connected', 'effCap', 'used', 'revenue', 'shopP', 'sv', 'sat', 'unmet']);
@@ -76,6 +78,8 @@ export function deserialize(text: string): LoadResult {
   if (s && !REAL && W === FIC_W && H === FIC_H && Array.isArray(s.road) && (s.road.length === FIC_OLD * FIC_OLD || s.road.length === FIC_PREV_W * FIC_PREV_H)) { try { widenFiction(s, s.road.length === FIC_OLD * FIC_OLD ? FIC_OLD : FIC_PREV_W, s.road.length === FIC_OLD * FIC_OLD ? FIC_OLD : FIC_PREV_H); } catch (e) { return { ok: false, error: '古い住野市の保存データを広い地図に広げられませんでした: ' + (e as Error).message }; } }
   // v12 までの住野市は線路を持たない（地形の鉄道用地だった）。北の端の複線として GameState に移す
   if (s && !REAL && Array.isArray(s.road) && s.road.length === W * H && s.rail === undefined) initFictionRail(s);
+  // v90：「隣町との合併」は広域連合に作り替えた。実行済みの街は効果をそのまま引き継ぎ、表示名だけ読み替える
+  if (s && Array.isArray((s as any).modifiers)) for (const m of (s as any).modifiers) if (m && m.src === MERGE_OLD_SRC) m.src = MERGE_NEW_SRC;
   if (s && Array.isArray((s as any).buildings)) { try { repairState(s); } catch { /* 形が違えば下の検査で弾く */ } }
   const bad = validateState(s);
   if (bad) return { ok: false, error: bad };

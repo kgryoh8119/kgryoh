@@ -1416,7 +1416,7 @@ export class UI {
       return `<div class="card"><h3>${c.name}<em>${c.cost ? yenT(c.cost) : '費用なし'}</em></h3><p>${c.desc}</p>${nd ? `<p class="note" style="color:var(--warn)">${nd}</p>` : ''}<div class="btnrow"><button class="btn small ${wait || nd ? '' : 'primary'}" data-act="civic" data-arg="${c.id}" ${wait || nd || c.cost > s.cash ? 'disabled' : ''}>${wait === Infinity ? '実施済み' : wait ? `あと ${wait} か月` : '行う'}</button></div></div>`;
     }).join('')).join('')}</section>`;
     h += `<section><h2>隣の市町 <small>転入・転出や買物を取り合う相手</small></h2><table class="t"><tr><th>市町</th><th>人口</th><th>住みやすさ</th><th>税</th><th>関係</th></tr>${s.neighbors.map(n => `<tr><td>${n.name}<br><small class="note">${n.trait}</small></td><td>${n0(n.pop)}</td><td>${pct(n.appeal)}</td><td>${pct(n.tax)}</td><td>${pct(n.rel)}</td></tr>`).join('')}</table>
-      <p class="note">この市の住みやすさ（満足度 ${pct(st.sat)}）、税、知名度が隣より高いと転入が増え、低いと転出が増えます。隣町の大型店や合併の話などのできごとも起きます。市町はゲーム用の架空のものです。</p></section>`;
+      <p class="note">この市の住みやすさ（満足度 ${pct(st.sat)}）、税、知名度が隣より高いと転入が増え、低いと転出が増えます。隣町の大型店や広域連携の話などのできごとも起きます。市町はゲーム用の架空のものです。</p></section>`;
     return h;
   }
   private pVoice(): string {

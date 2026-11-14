@@ -68,3 +68,15 @@ describe('v90 既存セーブ', () => {
     expect(r.state.stats.access!.reach).toBeGreaterThan(0);
   });
 });
+
+describe('v90 合併 → 広域連合', () => {
+  it('v89 までに合併した街の効果は引き継ぎ、表示名を広域連合に読み替える', () => {
+    const s = newGame({ seed: 5 }); recompute(s);
+    s.modifiers.push({ key: 'transfer', op: 'mul', v: 1.08, until: s.month + 100, cost: 0, src: '隣町との合併' } as any);
+    const r = deserialize(serialize(s));
+    expect(r.ok).toBe(true); if (!r.ok) return;
+    const m = r.state.modifiers.find(x => x.key === 'transfer' && x.v === 1.08)!;
+    expect(m).toBeDefined();
+    expect(m.src).toContain('広域連合');
+  });
+});

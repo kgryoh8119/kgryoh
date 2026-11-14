@@ -431,11 +431,11 @@ export const EVENTS: EventDef[] = [
     ],
   },
   {
-    id: 'neighborMerge', title: '隣町から合併の打診', prob: 0.003, cooldown: 240, minStreak: 0, expire: 4, once: true,
-    cond: s => (s.month >= 36 ? { target: -1, detail: `人口が減っている${s.neighbors[1]?.name ?? '隣町'}から、合併を前提にした協議の申し入れがありました。国の特例で交付金が増えますが、住民の意見は分かれています。` } : null),
+    id: 'neighborMerge', title: '隣町から広域連携の深化の打診', prob: 0.003, cooldown: 240, minStreak: 0, expire: 4, once: true,
+    cond: s => (s.month >= 36 ? { target: -1, detail: `人口が減っている${s.neighbors[1]?.name ?? '隣町'}から、水道と消防の共同化を進めたいという申し入れがありました。費用は分担できますが、協議には手間がかかり、住民の意見も分かれています。` } : null),
     options: [
-      { label: '合併協議を始める', cost: 300, desc: '300 万円。交付金がずっと 4% 増え、知名度が上がります。支持率は一時的に下がります。', effects: [{ t: 'cash', v: -300, label: '合併協議' }, { t: 'mod', key: 'transfer', op: 'mul', v: 1.04, months: -1 }, { t: 'fame', v: 3 }, { t: 'approval', v: -0.03 }] },
-      { label: '広域連携にとどめる', cost: 0, desc: '合併はしませんが、ごみ処理などで協力します。36 か月、ごみ処理の能力が増えます。', effects: [{ t: 'mod', key: 'wasteCap', op: 'add', v: 600, months: 36 }, { t: 'neighbor', v: 0.05 }] },
+      { label: '水道と消防の共同化の協議を始める', cost: 300, desc: '300 万円。ずっと、浄水の融通で水の供給が 5% 増え、消防の到達範囲が 5% 広がり、維持費が 1% 下がります（負担金 月 40 万円）。隣町との関係が良くなり、協議の手間で支持率は一時的に少し下がります。', effects: [{ t: 'cash', v: -300, label: '共同化の協議' }, { t: 'mod', key: 'waterCap', op: 'mul', v: 1.05, months: -1, cost: 40 }, { t: 'mod', key: 'fireRange', op: 'mul', v: 1.05, months: -1 }, { t: 'mod', key: 'prices', op: 'mul', v: 0.99, months: -1 }, { t: 'neighbor', v: 0.05 }, { t: 'approval', v: -0.01 }] },
+      { label: 'ごみ処理の応援にとどめる', cost: 0, desc: '共同化はしませんが、ごみ処理で協力します。36 か月、ごみ処理の能力が増えます。', effects: [{ t: 'mod', key: 'wasteCap', op: 'add', v: 600, months: 36 }, { t: 'neighbor', v: 0.05 }] },
       { label: '断る', cost: 0, desc: '支持率が少し上がりますが、隣町との関係は冷えます。', effects: [{ t: 'approval', v: 0.01 }, { t: 'neighbor', v: -0.1 }] },
     ],
   },
