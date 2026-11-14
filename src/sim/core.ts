@@ -842,7 +842,8 @@ export function recompute(s: GameState, lite = false): void {
     }
     tr *= fm; sk *= fm * (1 + 0.3 * Math.max(0, s.econ?.cycle ?? 0));
     const base = popNow * 0.018, total = base + tr + sk + stu;
-    const acc = accessOf(s, popNow, total, s.stats?.aging ?? 0.28);
+    const agingNow = popNow > 0 ? res.reduce((x, r) => x + r.hh![4], 0) * P.persons[4] / popNow : 0.28; // 今月の世帯から（保存して開き直しても同じ値になるように）
+    const acc = accessOf(s, popNow, total, agingNow);
     st.access = acc;
     st.foreign = { total: Math.round(total), trainee: Math.round(tr), skilled: Math.round(sk), student: Math.round(stu), support: Math.round((0.5 * acc.access + 0.5 * acc.lang) * 100) / 100 };
   }
