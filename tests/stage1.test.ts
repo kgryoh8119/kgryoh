@@ -143,7 +143,7 @@ describe('B. 計画案は全件が通ったときだけ確定', () => {
     const r = g.commitDraft(); expect(r.ok).toBe(true); expect(g.draft).toBeNull();
     expect(g.state.cash).toBeCloseTo(cash0 - sum.cost, 9);                 // 二重に引かれない
     expect(g.state.buildings.filter(b => b.kind === 'nursery' && b.x === 14 && b.y === 16).length).toBe(1);
-    const strip = (t: string) => t.replace(/"(roadVersion|bVersion)":\d+/g, '');
+    const strip = (t: string) => t.replace(/"(roadVersion|bVersion)":\d+/g, '').replace(/,"decisions":\[.*\]\}$/, '}'); // v90：確定した計画案は施策の記録（decisions）に 1 件残る。街の計算には使わない
     expect(strip(snap(g.state))).toBe(strip(planned));                     // 試算で見ていた状態と同じものが本番になる
     const text = serialize(g.state), back = deserialize(text); expect(back.ok).toBe(true);
     if (back.ok) { expect(back.state.cash).toBe(g.state.cash); expect(serialize(back.state)).toBe(text); const x = structuredClone(g.state), y = back.state; for (let i = 0; i < 3; i++) { stepMonth(x); stepMonth(y); } expect(serialize(y)).toBe(serialize(x)); }
