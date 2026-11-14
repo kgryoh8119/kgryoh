@@ -2,7 +2,7 @@
 import { MAPS, mapEntry, saveMapId, TERRAINS, type MapEntry } from '../sim/index';
 import { loadCareer, terrainOpen, takeRun } from '../career';
 import { saveKey } from '../game';
-import { listStored, putStored, loadMap, embedded, lastMapFail, setMapProgress } from '../maps/store';
+import { listStored, putStored, loadMap, embedded, fetchManifest, lastMapFail, setMapProgress } from '../maps/store';
 import { importCollected, isCollected } from '../mapgen/importer';
 
 export interface Choice { id: string; raw: any | null; save?: string; terrain?: string; contest?: number }
@@ -21,13 +21,14 @@ export function chooseMap(): Promise<Choice> {
     const el = document.createElement('div'); el.id = 'title'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'スムシティ 地図を選ぶ');
     app.appendChild(el);
     document.getElementById('loading')?.setAttribute('hidden', '');
+    let served = new Set<string>(); // 分割版：サーバーの maps/ にある地図
     let stored: { id: string; name: string; area: string; importedAt: string }[] = [];
     let msg = '', busy = false, help = '', pick = '';
     const career = loadCareer(), run = takeRun();
     if (run) pick = 'sumino';
 
     const card = (e: MapEntry | null, s?: typeof stored[number]) => {
-      const id = e?.id ?? s!.id, have = e?.kind !== 'collect' || stored.some(x => x.id === id) || embedded(id), save = hasSave(id), real = e?.kind !== 'builtin', saveD = real && hasSave(id + '-d');
+      const id = e?.id ?? s!.id, have = e?.kind !== 'collect' || stored.some(x => x.id === id) || embedded(id) || served.has(id), save = hasSave(id), real = e?.kind !== 'builtin', saveD = real && hasSave(id + '-d');
       const name = e?.name ?? s!.name, area = e?.area ?? s!.area;
       const status = e?.kind === 'builtin' ? '架空の街' : e?.kind === 'bundled' ? '実在の地図・同梱' : have ? '実在の地図・このブラウザに取り込み済み' : '実在の地図・データを取り込むと遊べます';
       const badge = e?.kind === 'builtin' ? '' : e?.tier === 'plus' ? '<span class="mbadge plus">追加マップ</span>' : e ? '<span class="mbadge">無料</span>' : '';
@@ -53,7 +54,7 @@ export function chooseMap(): Promise<Choice> {
           ${run ? '' : `<div class="contest"><b>🏁 今週の大会</b><small>${contestTerrain(contestWeek()).name}（${contestTerrain(contestWeek()).city}）・みんな同じ地図、同じ条件。10 年でどこまで育てられるか。成績はこのページを共有した人どうしで比べます。</small><button class="btn primary" data-t="contest" data-id="${pick}" ${busy ? 'disabled' : ''}>大会に出る</button></div><div class="btnrow"><button class="btn" data-t="pickclose">地図の一覧に戻る</button></div>`}</section>` : ''}
         ${career.cities.length ? `<details class="tcareer"><summary>市長の経歴（${career.cities.length} の街）</summary><table class="t">${career.cities.slice().reverse().map(c => `<tr><td>${esc(c.name)}</td><td>${esc(c.terrain)}</td><td>${c.years} 年目</td><td>人口 ${c.pop.toLocaleString()}</td><td>Lv${c.lv}</td><td>${c.rank ? `全国 ${c.rank} 位` : ''}</td></tr>`).join('')}</table></details>` : ''}
         ${(() => { // v75：実在の街を主役に。すぐ遊べる実在の街 → 架空の街 → データを取り込むと遊べる街 の順
-          const got = (e: { id: string }) => stored.some(x => x.id === e.id) || embedded(e.id), haveReal = MAPS.filter(e => e.kind === 'bundled' || (e.kind === 'collect' && got(e))), need = MAPS.filter(e => e.kind === 'collect' && !got(e)), fict = MAPS.filter(e => e.kind === 'builtin');
+          const got = (e: { id: string }) => stored.some(x => x.id === e.id) || embedded(e.id) || served.has(e.id), haveReal = MAPS.filter(e => e.kind === 'bundled' || (e.kind === 'collect' && got(e))), need = MAPS.filter(e => e.kind === 'collect' && !got(e)), fict = MAPS.filter(e => e.kind === 'builtin');
           return `<section class="thero"><h2>実在の街で、市長になる</h2>
             <p class="hsub">駅・線路・川・道路は本物の配置です。知っている街の保育・渋滞・水道・財政を、あなたの手で立て直してください。</p>
             <div class="mgrid mreal">${haveReal.map(e => card(e)).join('')}${customs.map(s => card(null, s)).join('')}</div></section>
@@ -139,7 +140,7 @@ export function chooseMap(): Promise<Choice> {
         go(id, text);
       }
     });
-    listStored().then(s => { stored = s; render(); });
+    Promise.all([listStored(), fetchManifest()]).then(([s, m]) => { stored = s; served = m; render(); });
     render();
   });
 }

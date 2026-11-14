@@ -12,7 +12,9 @@ fs.writeFileSync(out, [title, font, style, app.trim(), script].join('\n'));
 console.log(out, (fs.statSync(out).size / 1024).toFixed(0) + ' kB');
 
 // 単体で開ける版（ダブルクリックで遊べる）：同梱の地図をページに埋め込む
-const maps = fs.existsSync(`${dir}/maps`) ? fs.readdirSync(`${dir}/maps`).filter(f => f.endsWith('.json')) : [];
+const maps = fs.existsSync(`${dir}/maps`) ? fs.readdirSync(`${dir}/maps`).filter(f => f.endsWith('.json') && f !== 'manifest.json') : [];
+// 分割版（dist/index.html ＋ dist/maps/）：サーバーに置いた地図の一覧。タイトル画面が、地図そのものを読まずに「遊べる地図」を知るために使う
+if (maps.length) fs.writeFileSync(`${dir}/maps/manifest.json`, JSON.stringify({ maps: maps.map(f => ({ id: f.replace(/\.json$/, ''), bytes: fs.statSync(`${dir}/maps/${f}`).size })) }));
 const emb = maps.map(f => `<script type="application/json" id="sumu-map-${f.replace(/\.json$/, '')}">${fs.readFileSync(`${dir}/maps/${f}`, 'utf8').replace(/</g, '\\u003c')}</script>`).join('\n');
 const full = html.replace('</body>', emb + '\n</body>');
 fs.writeFileSync(`${dir}/sumucity-standalone.html`, full);

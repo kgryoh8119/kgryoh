@@ -38,6 +38,10 @@ export let lastMapFail: MapFail = null;
 /** 読み込みの進み具合（バイト数。合計が分からなければ total は 0）。タイトル画面の「読み込み中」の表示に使う */
 export let onMapProgress: ((got: number, total: number) => void) | null = null;
 export const setMapProgress = (f: typeof onMapProgress) => { onMapProgress = f; };
+/** 分割版：サーバーに置いた地図の一覧（maps/manifest.json。ビルドが作る。数十バイトで、地図そのものは読まない）。無ければ空 */
+export async function fetchManifest(): Promise<Set<string>> {
+  try { const r = await fetch('maps/manifest.json'); if (!r.ok) return new Set(); const j = await r.json(); return new Set(Array.isArray(j.maps) ? j.maps.map((m: any) => String(m.id)) : []); } catch { return new Set(); }
+}
 /** 同梱の地図を読む（ページと同じ場所の maps/<id>.json）。読めなければ null（原因は lastMapFail）。
  *  単体ファイル版では、地図を選んだときに初めて埋め込みの JSON を解析する（起動時には解析しない） */
 export async function fetchBundled(id: string): Promise<any | null> {
