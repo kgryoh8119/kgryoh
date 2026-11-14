@@ -249,8 +249,11 @@ export interface Stats {
   cremCap?: number; cremShort?: number;
   /** 高齢化率（高齢世帯の人 ÷ 人口） */
   aging?: number;
-  /** 外国人住民（技能実習生・特定技能や永住の世帯・留学生・不法滞在の推計）と、支援の水準（0〜1） */
-  foreign?: { total: number; trainee: number; skilled: number; student: number; undoc: number; support: number };
+  /** 外国人住民の推計（技能実習生・特定技能や永住の世帯・留学生。働き手・学ぶ人として）と、支援の水準（0〜1。access と lang の平均）。
+   *  v89 までの undoc（不法滞在の推計）は v90 で廃止（読み込みは無視） */
+  foreign?: { total: number; trainee: number; skilled: number; student: number; support: number; undoc?: number };
+  /** v90：行政サービスへのアクセス・言語の支援・情報が届きにくい住民への到達・採用の定着の倍率・届きにくい住民の割合 */
+  access?: { access: number; lang: number; reach: number; retain: number; hard: number };
   /** ふるさと納税：寄付（万円/月）・返礼品と経費・市民がほかの市へ寄付して減った住民税 */
   furusato?: { gift: number; cost: number; loss: number };
   /** 迷惑施設の近くに住む世帯 */

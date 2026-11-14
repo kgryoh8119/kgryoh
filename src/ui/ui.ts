@@ -17,6 +17,9 @@ import {
   LEVELS, MEDALS, RANK_CATS, N_CITIES, mayorDiff, MAYOR_DIFF, levelOf, blockRect, blockName, annexable, BX, BY,
   planStreet, planRailKind, rerunRules, RERUN, monthlyIssues, allIssues, type Issue, WIN_VOTE, voteText, fiscalWatch, RAILKIND_NAME, modAdd, THREATS, SECTORS, sectorOf, industryBalance, rateAdd, type Macro, REAL, MAP_ID, mapEntry, baseEntry, TILE, monthlyBudget, pledgeStatus, GOALS, VISIONS, CAT_NAMES, BUILD_KINDS, fam, lvOf, LV_CAP, SV_NAMES, goalProgress, visionProgress, electionOutlook, upgradeCost, buildCost, CIVIC, isBiz, NEIGHBOR_SEED, DIFFS, diffOf, rerunCheck, teamCheck, teamVenue, SPORTS, upkeepOf, staffReq, designCap, sumHH, roadCapacity, checkPlace, lineTiles, rectTiles, planRoad, planTunnel, planBridge, planOverpass, planFootbridge, planCanal, planBusStop, planLevee, planArea, planTerra, planWiden, planFlyover, TERRA_NAMES, planUnroad, planRepair, planZone, planRail, planRailGrade, planUnrail, fiscalCrisis, tempDebt, ledgerGap, stationUpCheck, shinCheck, eventDef, forecastAsync, modMul,
   stationStats, FREQS, DOOR_COST, SUBWAY_COST, BIDS, bidChance, STYLES_M, REC_PLANS, hasOp, terrainOf, isCastaway, missionsFor, calMonth, POSTS, candidates, execOf, landOf, landPrices, routeStats, FREQ, MAX_ROUTES, citsOf, CIT_N, voteForecast, FACTIONS, PLANS, LOBBY_COST, SPEECH_COST, ADS_COST, monthsToElection, campaignOpen, PRESS, grantChance, PETITION_COST, GRANTS, GRANT_COOL, APPLY_COST, FESTS, pyramid, projection,
+  authorityLabel, currentOffice,
+  dataSource,
+  riskOutlook,
 } from '../sim/index';
 import type { GameState, Building, Kind, Zone, Layer, ForecastSet, Action, TilePlan, Cat, TerraOp, MissionDef } from '../sim/index';
 import { sound } from '../audio/sound';
@@ -148,7 +151,8 @@ export class UI {
       document.querySelector('#top .plate')!.innerHTML = `<b>${e?.name ?? REAL.name}</b><span>${REAL.deformed ? 'まちづくり版' : e?.area ?? 'スムシティ・実在都市'}</span>`;
       $('gl').setAttribute('aria-label', `${e?.name ?? REAL.name}周辺の 3D 地図`);
       const cr = document.createElement('div'); cr.id = 'credit';
-      cr.innerHTML = '地図 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors（ODbL）・標高 <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>';
+      const ds = dataSource(); cr.title = ds.note; // v90：実データと推計の区別
+      cr.innerHTML = '地図 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors（ODbL）・標高 <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>' + (ds.date ? `（${ds.date} 取得）` : '') + '・数値はゲームの推計';
       $('app').appendChild(cr);
     } else if (game.state.cityName && game.state.cityName !== '住野市') {
       const t = terrainOf(game.state.seed);
@@ -885,10 +889,14 @@ export class UI {
     <section><h2>ふるさと納税 <small>月あたり</small></h2>
       <div class="rows"><span>市への寄付</span><b>${yenT(fz.gift)}</b><span>返礼品と経費（5 割）</span><b>${yenT(fz.cost)}</b><span>市民がよその市へ寄付（住民税が減る）</span><b>${yenT(fz.loss)}</b><span>差し引き</span><b style="color:${col(fz.gift - fz.cost - fz.loss < 0, false)}">${yenT(fz.gift - fz.cost - fz.loss)}</b></div>
       <p class="note">田んぼ・畑・ビール工場・漁港・温泉などが返礼品になります。知名度が高いほど寄付が集まります（施策「ふるさと納税の PR」で 1.6 倍）。</p></section>
-    ${fr ? `<section><h2>外国人住民 <small>推計</small></h2>
+    ${fr ? `<section><h2>外国人住民と、相談・情報の届きやすさ <small>推計</small></h2>
       <div class="rows"><span>外国人住民</span><b>${n0(fr.total)}<i>人</i></b><span>人口に占める割合</span><b>${(fr.total / Math.max(1, st.pop) * 100).toFixed(1)}<i>%</i></b><span>技能実習生</span><b>${n0(fr.trainee)}<i>人</i></b><span>特定技能</span><b>${n0(fr.skilled)}<i>人</i></b><span>留学生</span><b>${n0(fr.student)}<i>人</i></b>
-        <span title="実習先からの失踪や、在留期限が切れた人の推計">不法滞在（推計）</span><b style="color:${col(fr.undoc > 60, fr.undoc > 20)}">${n0(fr.undoc)}<i>人</i></b><span>生活の支援</span><b style="color:${col(fr.support < 0.3, fr.support < 0.5)}">${pct(fr.support)}</b></div>
-      <p class="note">工場・農業・介護・ホテルなどが人手を外国人に頼るほど増えます。治安に響くのは国籍ではなく、言葉が通じず孤立すること・不法就労・支援の不足です。多文化共生センターや日本語教室の施策で支援を厚くすると、孤立と失踪が減ります。</p></section>` : ''}
+      </div>
+      ${st.access ? `<div class="rows"><span title="相談窓口・手続きの届きやすさ・多言語/やさしい日本語の情報・オンライン手続き（住民全体）">行政サービスへのアクセス</span><b style="color:${col(st.access.access < 0.35, st.access.access < 0.55)}">${pct(st.access.access)}</b><span title="日本語学習の機会・通訳・学校での支援が足りないほど高い">言語の壁</span><b style="color:${col(st.access.lang < 0.25, st.access.lang < 0.45)}">${pct(1 - st.access.lang)}</b>
+        <span title="高齢のひとり暮らし・障害のある人・転入したばかりの世帯・日本語に不慣れな人に、医療・防災・福祉の情報と相談が届く割合（推計）">情報が届きにくい住民への到達</span><b style="color:${col(st.access.reach < 0.55, st.access.reach < 0.7)}">${pct(st.access.reach)}</b><span title="人手不足の職（介護・保育・工場など）の採用と定着への倍率">採用の定着</span><b>×${st.access.retain.toFixed(2)}</b></div>` : ''}
+      <p class="note">人数は推計（ゲーム上の仮定）です。工場・農業・介護・ホテルなどが人手を外国人の働き手に頼るほど増えます。外国人住民の数は治安を悪くしません。暮らしを左右するのは、相談と手続きの届きやすさと言語の壁です。多文化共生センター（誰でも使える相談と情報の拠点）・日本語教室・多言語の相談窓口で、相談の利用（福祉の満足・孤立）、採用の定着、災害時の避難の情報、転出が良くなり、高齢の人や転入したばかりの世帯にも効きます。</p></section>` : ''}
+    <section><h2>災害のリスクの見通し <small>推計・幅で表示</small></h2><table class="t"><tr><th>災害</th><th>リスク</th><th>年に起きる見込み</th><th>影響を受ける世帯</th></tr>${riskOutlook(s).map(r => `<tr title="主な要因：${r.factors}。対策：${r.measures}"><td>${r.name}</td><td style="color:${col(r.level === '高', r.level === '中')}">${r.level}</td><td>${r.perYear[1] > 0 ? `${r.perYear[0]}〜${r.perYear[1]}%` : '条件なし'}</td><td>${n0(r.exposed)}</td></tr>`).join('')}</table>
+      <p class="note">行にカーソルを合わせると、主な要因と対策で下がる分が出ます。確率は地形と街のようすから出したゲーム上の推計で、幅（±4 割）で示します。地震の発生は地域によらず一律の仮定で、被害の大きさが液状化・備え・老朽で変わります。</p></section>
     <section><h2>お産と子育ての医療</h2>
       <div class="rows"><span>市内で出産できる所</span><b style="color:${col(ob < 0.95, ob < 1)}">${ob >= 1.07 ? '周産期母子医療センター' : ob >= 1 ? '産院' : ob >= 0.95 ? '一般の病院だけ' : 'なし（市外へ通う）'}</b><span>出生への効果</span><b>×${ob.toFixed(2)}</b>${s.stats.yudoShare !== undefined ? `<span>居住誘導区域に住む世帯</span><b>${pct(s.stats.yudoShare ?? 0)}</b>` : ''}</div></section>`;
   }
@@ -976,9 +984,9 @@ export class UI {
       const cats = (Object.keys(CAT_NAMES) as Cat[]).filter(c => BK.some(k => DEFS[k].cat === c && (k !== 'station' || this.s.rail)));
       if (!cats.includes(this.bcat)) this.bcat = cats[0];
       const kinds = BK.filter(k => DEFS[k].cat === this.bcat && (k !== 'station' || this.s.rail));
-      const how = (k: Kind) => DEFS[k].build === 'invite' ? '<span class="tag">誘致</span> ' : DEFS[k].build === 'request' ? '<span class="tag">要望</span> ' : '';
+      const how = (k: Kind) => { const a = authorityLabel(k); return a.act === 'direct' ? '' : `<span class="tag" title="${a.actor}：${a.how}${a.why ? '（' + a.why + '）' : ''}">${a.name}・${a.actor}</span> `; }; // v90：5 つの行動種別と主体
       f.innerHTML = `<h3>施設を建てる・誘致する</h3><div class="btnrow cats">${cats.map(c => `<button class="seg" data-act="bcat" data-arg="${c}" aria-pressed="${this.bcat === c}">${CAT_NAMES[c]}</button>`).join('')}</div>
-        <p>${this.bcat === 'biz' || this.bcat === 'industry' || this.bcat === 'commerce' ? '企業やホテル・工場・店は市が建てるのではなく、用地を整えて誘致します。条件（道路・駅・電力・知名度）と税で来てくれる見込みが変わり、失敗することもあります。' : '<b>市</b>の施設は市が建てて運営します。<span class="tag">要望</span>は県や事業者が建て、市は用地と負担金を出します。建設費は着工時に支出します。'}</p>` +
+        <p>${this.bcat === 'biz' || this.bcat === 'industry' || this.bcat === 'commerce' ? '企業やホテル・工場・店は市が建てるのではなく、用地を整えて誘致します。条件（道路・駅・電力・知名度）と税で来てくれる見込みが変わり、失敗することもあります。' : '<b>市</b>の施設は市が建てて運営します（直接整備）。<span class="tag">補助</span>は法人が建て市が補助、<span class="tag">協議</span>は国・県・都道府県警察・鉄道事業者などが決め（時間がかかり、断られることもある）、<span class="tag">広域共同事業</span>は近隣と共同で負担金を出します。建設費は着工時に支出します。'}${(() => { const o = currentOffice(); return o.office === 'mayor' ? '' : `<br><small class="note">${o.role}（${o.power.name}）：${o.power.note}</small>`; })()}</p>` +
         kinds.map(k => { const d = DEFS[k]; return k === 'station' ? item('build:station', '新しい駅（請願駅）', yenT(buildCost(this.s, k)), `${d.w}×${d.h} 区画・工期 ${d.months} か月。線路に面して置きます。市が費用を負担し、鉄道事業者が運営します。駅の近くは高層住宅が建ちやすくなります`, t.t === 'build' && t.kind === k) : item('build:' + k, how(k) + d.name, yenT(buildCost(this.s, k)), `${d.w}×${d.h} 区画・${d.months} か月${isCity(k) ? `・維持費 月 ${d.upkeep} 万円` : ''}${d.staffReq && d.wage ? `・${d.staffKind} ${d.staffReq} 人` : ''}。${capText(k)}${d.lvMax ? `。増築でレベル ${d.lvMax} まで` : ''}`, t.t === 'build' && t.kind === k); }).map((h, j) => { const k = kinds[j], vd = DEFS[k].vision; if (vd) { const vn = VISIONS.find(v => v.id === vd)?.name ?? ''; return this.s.vision === vd ? h.replace('</b>', ' <span class="tag good">ビジョン専用</span></b>') : h.replace('<button class="item', `<button disabled title="ビジョン「${vn}」の街だけ" class="item locked`).replace('</b>', ` <span class="tag">「${vn}」専用</span></b>`); } const u = DEFS[k].unlock, y = Math.floor(this.s.month / 12) + 1; return u && y < u ? h.replace('<button class="item', '<button disabled title="まだ技術がありません" class="item locked').replace('</b>', ` <span class="tag">${u} 年目から</span></b>`) : u ? h.replace('</b>', ' <span class="tag good">新技術</span></b>') : h; }).join('');
     }
     else if (this.group === 'sandbox') f.innerHTML = `<h3>直接配置（サンドボックス専用）</h3><p>落選後の自由な街づくり用です。経営モードの民間開発とは別扱いで、建物には「直接配置」の印が付きます。入居・売上・税収は通常の計算のままで、需要がなければ空のままです。</p>` +
@@ -1144,7 +1152,7 @@ export class UI {
     const sp = (vals: number[], id: string, fmt: (v: number) => string) => chartSvg({ id, series: [{ name: id === 'hpop' ? '人口' : '満足度', color: 'var(--c1)', values: vals }], fmt, xLabel: i => dateStr(hist[Math.min(hist.length - 1, i)].month) }, 336, 96);
     const g = this.game, alog = g.autoLog.slice(-12).reverse();
     const o = s.mode === 'term' && s.goals.length ? electionOutlook(s) : null, d0 = this.dev();
-    const quick = `<section class="quick"><h2>街のいま</h2><div class="qgrid">
+    const quick = `<section class="quick"><h2>街のいま <small title="${esc(dataSource().note)}">${REAL ? '配置は実データ・数値は推計' : 'ゲーム上の仮定'}</small></h2><div class="qgrid">
       <div><small>人口</small><b>${n0(st.pop)}<i>人</i></b><em class="${d0.growth >= 0 ? 'up' : 'down'}">${d0.growth >= 0 ? '▲' : '▼'}${n0(Math.abs(d0.growth))}（1 年）</em></div>
       <div><small>暮らしの満足</small><b style="color:var(--${st.sat >= 0.7 ? 'good' : st.sat >= 0.6 ? 'warn' : 'bad'})">${Math.round(st.sat * 100)}<i>%</i></b></div>
       ${o ? `<div><small>再選の見込み</small><b style="color:var(--${o.win >= 0.6 ? 'good' : o.win >= 0.4 ? 'warn' : 'bad'})">${Math.round(o.win * 100)}<i>%</i></b><em>支持率 ${pct(s.approval)}</em></div>` : ''}
@@ -1161,7 +1169,7 @@ export class UI {
     ${s.mode === 'term' && s.goals.length ? (() => { const o = electionOutlook(s); return `<section><h2>公約と再選の見込み <small><button class="btn small" data-act="tab" data-arg="term">任期の詳細</button></small></h2>
       <div class="rows"><span>いま選挙なら当選する確率</span><b style="color:var(--${o.win >= 0.6 ? 'good' : o.win >= 0.4 ? 'warn' : 'bad'})">${Math.round(o.win * 100)}<i>%</i></b><span>支持率</span><b>${pct(s.approval)}</b></div>
       ${s.goals.map((g, i) => { const def = GOALS.find(o => o.id === g.id)!, pr = goalProgress(s, g); return `<div class="pledge"><span class="tag ${kept[i] ? 'good' : 'warn'}">${kept[i] ? '達成中' : Math.round(pr.p * 100) + '%'}</span><span>${def.desc(g.target)}</span></div>`; }).join('')}</section>`; })() : ''}
-    <section><h2>人口と世帯</h2>
+    <section><h2>人口と世帯 <small>推計</small></h2>
       <div class="rows"><span>人口</span><b>${n0(st.pop)}<i>人</i></b><span>世帯 / 住戸</span><b>${n0(st.households)} / ${n0(st.units)}<i>戸</i></b><span>空き住戸</span><b>${(st.vacancy * 100).toFixed(1)}<i>%</i></b><span>入居できない転入希望</span><b>${st.pentUp.toFixed(1)}<i>世帯/月</i></b></div>
       ${hist.length > 2 ? `<div class="chartbox"><h4>人口の推移 <small>人</small></h4>${sp(hist.map(h => h.pop), 'hpop', v => n0(v))}</div>` : ''}
       <table class="t"><tr><th>世帯類型</th><th>世帯</th><th>満足度</th></tr>${HH_NAMES.map((n, t) => `<tr><td>${n}</td><td>${n0(st.hhByType[t])}</td><td>${pct(st.satType[t])}</td></tr>`).join('')}</table>
@@ -1414,7 +1422,7 @@ export class UI {
       return `<div class="card"><h3>${c.name}<em>${c.cost ? yenT(c.cost) : '費用なし'}</em></h3><p>${c.desc}</p>${nd ? `<p class="note" style="color:var(--warn)">${nd}</p>` : ''}<div class="btnrow"><button class="btn small ${wait || nd ? '' : 'primary'}" data-act="civic" data-arg="${c.id}" ${wait || nd || c.cost > s.cash ? 'disabled' : ''}>${wait === Infinity ? '実施済み' : wait ? `あと ${wait} か月` : '行う'}</button></div></div>`;
     }).join('')).join('')}</section>`;
     h += `<section><h2>隣の市町 <small>転入・転出や買物を取り合う相手</small></h2><table class="t"><tr><th>市町</th><th>人口</th><th>住みやすさ</th><th>税</th><th>関係</th></tr>${s.neighbors.map(n => `<tr><td>${n.name}<br><small class="note">${n.trait}</small></td><td>${n0(n.pop)}</td><td>${pct(n.appeal)}</td><td>${pct(n.tax)}</td><td>${pct(n.rel)}</td></tr>`).join('')}</table>
-      <p class="note">この市の住みやすさ（満足度 ${pct(st.sat)}）、税、知名度が隣より高いと転入が増え、低いと転出が増えます。隣町の大型店や合併の話などのできごとも起きます。市町はゲーム用の架空のものです。</p></section>`;
+      <p class="note">この市の住みやすさ（満足度 ${pct(st.sat)}）、税、知名度が隣より高いと転入が増え、低いと転出が増えます。隣町の大型店や広域連携の話などのできごとも起きます。市町はゲーム用の架空のものです。</p></section>`;
     return h;
   }
   private pVoice(): string {
@@ -1579,8 +1587,8 @@ export class UI {
       return;
     }
     const b = s.buildings.find(o => o.id === sel.b)!, d = DEFS[b.kind];
-    const auth = d.authority === 'direct' ? '市が直接建設・運営' : d.authority === 'attract' ? '民間。市は用途指定・補助・誘致で働きかける' : '市は協議のみ（建設・運営はできない）';
-    let h = `<h3>${b.name ? `${bname(b)} <small class="note">${d.name}</small>` : d.name}${b.sandbox ? ' <span class="tag">直接配置</span>' : ''}${close}</h3><p class="own">所有・運営：${d.owner}<br>市の権限：${auth}</p>${b.osm ? '<p class="note">地図の建物から推計した街区です（30m 四方の区画ごと）。戸数・世帯構成はゲームの推計で、実際の値ではありません。</p>' : b.name ? '<p class="note">名前と位置は OpenStreetMap。定員・職員・老朽度などはゲームの設定です。</p>' : ''}`;
+    const al = authorityLabel(b.kind), auth = `${al.name}（${al.actor}）— ${al.how}${al.why ? '。' + al.why : ''}`; // v90：5 つの行動種別
+    let h = `<h3>${b.name ? `${bname(b)} <small class="note">${d.name}</small>` : d.name}${b.sandbox ? ' <span class="tag">直接配置</span>' : ''}${close}</h3><p class="own">所有・運営：${d.owner}<br>市の権限：${auth}</p>${b.osm ? '<p class="note">地図の建物から推計した街区です（30m 四方の区画ごと）。戸数・世帯構成はゲームの推計で、実際の値ではありません。</p>' : b.name ? '<p class="note">名前と位置は OpenStreetMap（実データ）。定員・職員・老朽度・費用などはゲーム上の仮定で、実際の施設の値ではありません。</p>' : ''}`;
     { const ai = idx(b.x, b.y), td = hasSea(s) ? tsunamiDepth(s, designWave(s))[ai] : 0; h += `<p class="note elev">⛰ 海抜 ${altitude(s, ai).toFixed(1)}m${hasSea(s) ? `・海から ${n0(Math.max(0, seaDist(s, ai)) * 30)}m・想定の津波（${designWave(s)}m）で${td > 0.05 ? `<b style="color:var(--bad)">浸水 ${td.toFixed(1)}m</b>` : '浸水しない'}` : ''}${liquefyRisk(s, ai) ? '・<b style="color:var(--warn)">液状化のおそれ</b>' : ''}</p>`; }
     if (b.status === 'construction') h += `<p><span class="tag">工事中</span> 残り ${b.remain} か月（工期 ${b.total} か月）</p>`;
     else if (b.status === 'renewing') h += `<p><span class="tag warn">更新工事中</span> 残り ${b.remain} か月。工事中の能力は ${pct(d.renewFactor)}</p>`;

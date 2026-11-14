@@ -570,7 +570,7 @@ describe('v6：交通・官公庁・レジャー・自然', () => {
 });
 
 describe('v7：広域・暮らし', () => {
-  it('一部事務組合でごみ処理が増え、関係が良くなると合併できる', () => {
+  it('一部事務組合でごみ処理が増え、関係が良くなると広域連合をつくれる（区域と隣町は変わらない）', () => {
     const s = newGame({ seed: 15 }); s.cash = 1e7; s.month = 30;
     recompute(s); const w0 = s.stats.wasteCap;
     expect(dispatch(s, { type: 'civic', id: 'merge' }).ok).toBe(false); // 関係 50% では足りない
@@ -578,7 +578,8 @@ describe('v7：広域・暮らし', () => {
     recompute(s); expect(s.stats.wasteCap).toBeGreaterThan(w0 + 1000);
     const n0 = s.neighbors.length;
     expect(dispatch(s, { type: 'civic', id: 'merge' }).ok).toBe(true);
-    expect(s.neighbors.length).toBe(n0 - 1);
+    expect(s.neighbors.length).toBe(n0); // v90：合併ではないので隣町は残る
+    recompute(s); expect(s.stats.wasteCap).toBeGreaterThan(w0 + 2000);
     expect(validateState(s)).toBeNull();
   });
   it('ごみの分別でごみの量が減る', () => {

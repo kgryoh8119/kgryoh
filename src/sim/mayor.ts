@@ -110,7 +110,7 @@ export const MEDALS: Medal[] = [
   { id: 'landmark', name: 'ランドマークの街', desc: '大きな名所（1 か所だけの施設）を 3 つ', tier: 2, pts: 40, done: s => s.buildings.filter(b => b.status === 'operating' && DEFS[b.kind].unique && (DEFS[b.kind].fame ?? 0) >= 5).length >= 3 },
   { id: 'tower', name: 'タワマンの街', desc: 'タワーマンションが 5 棟', tier: 1, pts: 20, done: s => countOp(s, 'towerMansion') >= 5 },
   { id: 'missions', name: '初仕事の達人', desc: '市長の初仕事をすべて達成', tier: 2, pts: 50, done: s => (s.missions?.length ?? 0) >= 13 },
-  { id: 'annex3', name: '合併の立役者', desc: '区域を 3 つ編入', tier: 1, pts: 30, done: s => (s.mayor?.annexed ?? 0) >= 3 },
+  { id: 'annex3', name: '編入の立役者', desc: '区域を 3 つ編入', tier: 1, pts: 30, done: s => (s.mayor?.annexed ?? 0) >= 3 },
   { id: 'top100', name: '全国トップ 100', desc: '全国市区町村ランキング（総合）で 100 位以内', tier: 2, pts: 60, done: s => (s.mayor?.ranks ?? []).some(r => r.total <= 100) },
   { id: 'no1', name: '全国 1 位', desc: '全国市区町村ランキングのどれかの部門で 1 位', tier: 3, pts: 120, done: s => (s.mayor?.ranks ?? []).some(r => Object.values(r.cats).some(v => v === 1)) },
 ];

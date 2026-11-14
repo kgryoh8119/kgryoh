@@ -626,9 +626,9 @@ export function autoTurn(s: GameState): string[] {
   }
   // 10m. ふるさと納税・外国人住民の支援
   if (op6 > 300 && !s.policies.furusatoPR?.on && st.pop > 7000) act({ type: 'policy', id: 'furusatoPR', on: true }, 'ふるさと納税の PR を始める：返礼品（米・野菜・地元の産品）で寄付を集めるため');
-  { const fr = st.foreign; if (fr && fr.total > st.pop * 0.025 && fr.support < 0.5) {
-    if (!s.buildings.some(b => b.kind === 'multicultural') && op6 > 200) build('multicultural', `外国人住民が ${Math.round(fr.total)} 人（${(fr.total / Math.max(1, st.pop) * 100).toFixed(1)}%）で、支援が足りない（孤立と失踪を減らす）`);
-    else if (!s.policies.nihongo?.on && op6 > 250) act({ type: 'policy', id: 'nihongo', on: true }, '日本語教室を始める：外国人住民が地域で孤立しないように');
+  { const fr = st.foreign, ac = st.access; if (fr && ac && (ac.reach < 0.65 || (fr.total > st.pop * 0.025 && fr.support < 0.5))) {
+    if (!s.buildings.some(b => b.kind === 'multicultural') && op6 > 200) build('multicultural', `相談と情報が届きにくい住民への到達が ${Math.round(ac.reach * 100)}%（高齢の人・転入世帯・外国人住民 ${Math.round(fr.total)} 人）。誰でも使える相談の拠点をつくる`);
+    else if (!s.policies.nihongo?.on && op6 > 250) act({ type: 'policy', id: 'nihongo', on: true }, '日本語教室を始める：言語の壁を下げ、医療・防災の情報と職場の定着を支える');
   } }
   // 10n. 堤防：浸水のおそれがある世帯が多ければ、水辺の空き地に（年 1 回、6 区画まで）
   if (s.month % 12 === 3 && (st.floodHH ?? 0) > 30 && op6 > 300 && !campaign) {

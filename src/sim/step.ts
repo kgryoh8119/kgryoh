@@ -272,7 +272,7 @@ export function stepMonth(s: GameState, opts: { forecast?: boolean } = {}): void
     if (staff > target) staff = target;
     else {
       // 採用できる人数は、街が大きいほど多い（働き手が多いほど、資格を持つ人も多い）
-      if (hireLeft[d.staffKind] === undefined) hireLeft[d.staffKind] = d.hire * modMul(s, 'hire:' + d.staffKind) * (d.staffKind === '介護職員' && hasOp(s, 'humanoidLab') ? 1.15 : 1) * Math.max(1, s.stats.pop / (5000 * SCALE));
+      if (hireLeft[d.staffKind] === undefined) hireLeft[d.staffKind] = d.hire * modMul(s, 'hire:' + d.staffKind) * (d.staffKind === '介護職員' && hasOp(s, 'humanoidLab') ? 1.15 : 1) * (s.stats.access?.retain ?? 1) * Math.max(1, s.stats.pop / (5000 * SCALE));
       const h = Math.min(target - staff, hireLeft[d.staffKind]);
       staff += h; hireLeft[d.staffKind] -= h;
     }
@@ -285,7 +285,7 @@ export function stepMonth(s: GameState, opts: { forecast?: boolean } = {}): void
   const isle = isCastaway(s.seed); // v88：無人島は、水と電気が島にないと誰も住めない（はじめの 1 世帯から）
   const waterLv = isle ? Math.min(1, st.waterCap / Math.max(4, st.waterDemand)) : st.waterDemand > 0 ? Math.min(1, st.waterCap / st.waterDemand) : 1;
   const powerIn = isle ? clamp((Math.min(1, st.powerCap / Math.max(4, st.powerDemand)) - 0.4) / 0.6) : 1;
-  const outMul = modMul(s, 'outflow');
+  const outMul = modMul(s, 'outflow') * (1 + 0.1 * (0.6 - (st.access?.reach ?? 0.6))); // v90：相談と情報が届かない街は、暮らしに行き詰まって出ていく
   // 人の一生：結婚・出産・子の成長・独立・高齢化。高齢世帯は亡くなって減る。医療（病院・診療所）が届かない地区ほど亡くなる人が多い
   let deaths = 0, births = 0; const dm = [0, 0, 0, 0, 0, 0], hh0 = res.reduce((a, r) => a + sumHH(r), 0);
   const hospShort = Math.max(0, 0.7 - (st.lv[1] ?? 0.7)); // 市全体の医療の不足（病床が足りない）

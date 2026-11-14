@@ -9,7 +9,7 @@ export const THREATS: { id: ThreatId; name: string; why: string; bad: boolean }[
   { id: 'fraud', name: '闇の組織（特殊詐欺・闇バイトの元締め）', why: '高齢者の多い街と、若者の貧しさにつけ込みます。見守りと消費生活センターで弱まります', bad: true },
   { id: 'cult', name: 'カルト的な団体（高額献金・霊感商法）', why: '孤立した人と、満足の低い街で信者を増やします。相談窓口と見守りで弱まります', bad: true },
   { id: 'left', name: '極左の過激派', why: '米軍基地・原発・自衛隊・大きな国の事業への反対運動に紛れ、妨害やゲリラ事件を起こすことがあります', bad: true },
-  { id: 'right', name: '右翼団体（街宣活動）', why: '外国の領事館・外国人住民の多さ・平和運動に反発して、街宣車で大音量の演説をします', bad: true },
+  { id: 'right', name: '右翼団体（街宣活動）', why: '外国の領事館・基地・大きな国際行事・平和運動に反発して、街宣車で大音量の演説をします。街宣の規制条例と警察で弱まります', bad: true },
   { id: 'terror', name: '国際テロ組織', why: '空港・大きな駅・米軍基地・国際的な行事（万博・五輪）が狙われやすくなります。テロ対策の政策で備えます', bad: true },
   { id: 'religion', name: '地域の宗教団体（寺社・教会・新宗教）', why: '祭りや福祉で地域を支え、選挙で票をまとめる力も持ちます。政治との近すぎる関係は問題になります', bad: false },
 ];
@@ -33,7 +33,7 @@ export const threatsOf = (s: GameState): Threats => {
 /** 1 か月進める */
 export function updateThreats(s: GameState): void {
   const T = threatsOf(s), pop = s.stats.pop, mo = s.month, sd = s.seed;
-  const old = s.stats.aging ?? 0.28, sat = s.stats.sat ?? 0.6, foreign = (s.stats.foreign?.total ?? 0) / Math.max(1, pop);
+  const old = s.stats.aging ?? 0.28, sat = s.stats.sat ?? 0.6;
   const police = (has(s, 'police') ? 1 : 0) + 0.2 * Math.min(4, cnt(s, 'koban')) + (has(s, 'kidotai') ? 0.4 : 0) + (has(s, 'policeAcademy') ? 0.15 : 0);
   const big = ['expoSite', 'stadium', 'megaPark', 'arena'].some(k => has(s, k)) || !!(s as any).pol?.bid?.won;
   // 目指す強さ（街のようす）と、対策で下がる分
@@ -42,7 +42,7 @@ export function updateThreats(s: GameState): void {
     fraud: 0.08 + 0.5 * Math.max(0, old - 0.2) + (pop > 50000 ? 0.06 : 0),
     cult: 0.05 + 0.4 * Math.max(0, 0.62 - sat) + 0.05 * Math.max(0, old - 0.25) * 4,
     left: 0.02 + (has(s, 'usBase') ? 0.18 : 0) + (has(s, 'nuclear') ? 0.15 : 0) + (has(s, 'sdfBase') ? 0.06 : 0) + (has(s, 'navyBase') ? 0.06 : 0) + (has(s, 'airBase') ? 0.08 : 0) + (has(s, 'ammoDepot') ? 0.04 : 0) + (big ? 0.06 : 0) + (has(s, 'university') ? 0.03 : 0),
-    right: 0.02 + (has(s, 'consulate') ? 0.12 : 0) + 0.6 * Math.max(0, foreign - 0.03) + (has(s, 'usBase') ? 0.03 : 0) + (has(s, 'sdfBase') ? 0.02 : 0),
+    right: 0.02 + (has(s, 'consulate') ? 0.12 : 0) + (big ? 0.03 : 0) + (has(s, 'usBase') ? 0.03 : 0) /* v90：外国人住民の多さは原因にしない */ + (has(s, 'sdfBase') ? 0.02 : 0),
     terror: 0.01 + (has(s, 'airport') ? 0.08 : 0) + (has(s, 'usBase') ? 0.08 : 0) + (big ? 0.12 : 0) + (has(s, 'consulate') ? 0.04 : 0) + (pop > 100000 ? 0.04 : 0) + (has(s, 'nuclear') ? 0.05 : 0),
     religion: 0.25 + 0.04 * Math.min(4, cnt(s, 'temple') + cnt(s, 'shrine') + cnt(s, 'church')) + 0.15 * Math.max(0, old - 0.2),
   };

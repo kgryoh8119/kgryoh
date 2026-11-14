@@ -19,6 +19,8 @@ export interface RealMap {
   roads: RealLine[]; rails: RealLine[]; rivers: RealLine[]; streams: RealLine[]; waters: RealLine[];
   /** 海・大きな水面の区画数。市外の施設で代用したもの（浄水場など） */
   sea: number; assumed: string[];
+  /** v90：地図データを集めた日時（ISO。古いデータでは無い） */
+  collectedAt?: string;
   /** まちづくり版（実在の地図をもとにゲーム用にデフォルメした街）。区画の用途の初期値を持つ */
   deformed: boolean; zone: Uint8Array | null;
   /** まちづくり版の線路（区画ごと。0 なし・1 単線・2 複線）。プレイヤーが敷設・撤去・複線化できる */
@@ -57,7 +59,7 @@ function decode(r: any): RealMap {
     road: b64(r.road), flags: b64(r.flags), district: b64(r.district), districts: r.districts,
     gateways: r.gateways, through: r.through, lots: r.lots, names: r.names, bld: u16(r.bld), bldShape: r.bldShape ? u16(r.bldShape) : null,
     deformed: !!r.deformed, zone: r.zone ? b64(r.zone) : null, rail: r.railTiles ? b64(r.railTiles) : null, railGrade: r.railTiles ? (r.railGrade ? b64(r.railGrade) : new Uint8Array(r.W * r.H)) : null,
-    sea: r.seaTiles ?? 0, assumed: Array.isArray(r.assumed) ? r.assumed.map(String) : [],
+    sea: r.seaTiles ?? 0, assumed: Array.isArray(r.assumed) ? r.assumed.map(String) : [], collectedAt: typeof r.collectedAt === 'string' ? r.collectedAt.slice(0, 40) : undefined,
     roads: lines(r.roads, true), rails: lines(r.rails, false), rivers: lines(r.rivers, false), streams: lines(r.streams, false), waters: lines(r.waters, false),
   };
 }
@@ -74,4 +76,12 @@ export function onMapChange(f: () => void): void { hooks.push(f); f(); }
 export function setMap(id: string, raw: any | null): void {
   REAL = raw ? decode(raw) : null; MAP_ID = id; MAP_RAW = raw;
   for (const f of hooks) f();
+}
+
+/** v90：実データと推計の区別（UI のラベル用）。実在マップでは出典と取得日も返す */
+export const DATA_REAL = '地形・道路・鉄道・川・建物の位置', DATA_EST = '世帯・人口・資産・施設の能力・財政・外国人住民などの人数';
+export function dataSource(): { real: boolean; credits: string; date: string; assumed: string[]; note: string } {
+  if (!REAL) return { real: false, credits: '', date: '', assumed: [], note: '架空の街です。すべての値はゲーム上の仮定です。' };
+  const date = REAL.collectedAt ? REAL.collectedAt.slice(0, 10) : '';
+  return { real: true, credits: REAL.credits, date, assumed: REAL.assumed, note: `実データ：${DATA_REAL}（${REAL.credits}${date ? `、${date} 取得` : ''}）。推計（ゲーム上の仮定）：${DATA_EST}。実在の自治体の統計ではありません。${REAL.assumed.length ? `範囲外の施設で代用：${REAL.assumed.join('・')}。` : ''}` };
 }

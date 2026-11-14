@@ -19,6 +19,8 @@ export interface EventDef {
   cond: (s: GameState) => { target: number; detail: string } | null;
   /** 条件を満たした月あたりの発生確率 */
   prob: number;
+  /** v90：発生確率の倍率（地形・人口・対策に結び付ける） */
+  probK?: (s: GameState) => number;
   /** 再発待ち（月） */
   cooldown: number;
   /** 条件がこの月数続いてから発生 */
@@ -37,6 +39,7 @@ const TSP = ['soccer', 'baseball', 'basket'] as const;
 const teamPick = (s: GameState, f: (t: NonNullable<GameState['teams']>[number]) => boolean) => { const l = (s.teams ?? []).filter(t => SPORTS[t.sport] && s.buildings.some(b => SPORTS[t.sport].venue.includes(b.kind) && b.status === 'operating') && f(t)); return l.length ? l[s.month % l.length] : null; };
 const cityNursery = (s: GameState) => s.buildings.filter(b => fam(b.kind) === 'care' && isCity(b.kind) && b.status === 'operating');
 import { threatLv } from './threats';
+import { floodProbK, slideProbK } from './risk';
 const r0 = (v: number) => Math.round(v);
 /** できごとの起きる月を、地図の種と月から決める（0〜1） */
 const hh = (s: GameState, k: number) => { const v = Math.sin(s.seed * 0.0137 * k + s.month * (1.37 + k * 0.211) + k * 7.7) * 43758.5453; return v - Math.floor(v); };
@@ -105,9 +108,9 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'dForeign', title: '【決断】外国人材の受け入れを広げるか', prob: 0.04, cooldown: 120, minStreak: 0, expire: 6,
-    cond: s => (s.month >= 48 && s.stats.localJobs > s.stats.workers * 0.5 ? { target: -1, detail: '工場や介護の現場から、人手不足を外国人材で補いたいという要望が出ています。日本語教室や相談窓口の整備が要ります。' } : null),
+    cond: s => (s.month >= 48 && s.stats.localJobs > s.stats.workers * 0.5 ? { target: -1, detail: '工場や介護の現場から、人手不足を外国人材で補いたいという要望が出ています。受け入れるなら、住まい探し・日本語学習・労働相談の体制が要ります。' } : null),
     options: [
-      { label: '受け入れを広げる', cost: 800, desc: '800 万円で窓口を整えます。5 年間、転入と景気が伸びます。1 年後から 2 年間、文化の違いによる摩擦で満足が少し下がります。', effects: [{ t: 'cash', v: -800, label: '多文化共生の窓口' }, { t: 'mod', key: 'inflow', op: 'mul', v: 1.04, months: 60 }, { t: 'mod', key: 'econ', op: 'mul', v: 1.01, months: 60 }, { t: 'mod', key: 'sat:all', op: 'add', v: -0.003, months: 24, delay: 12 }] },
+      { label: '受け入れを広げる', cost: 800, desc: '800 万円で、通訳つきの相談窓口と住まいの入居支援を整えます。5 年間、転入と景気が伸び、行政サービスへのアクセスが少し上がります。ごみ出しや騒音の行き違いは、手引きと相談で早めにほどけます。', effects: [{ t: 'cash', v: -800, label: '通訳つきの相談窓口と入居支援' }, { t: 'mod', key: 'inflow', op: 'mul', v: 1.04, months: 60 }, { t: 'mod', key: 'econ', op: 'mul', v: 1.01, months: 60 }, { t: 'mod', key: 'access', op: 'add', v: 0.05, months: 60 }] },
       { label: '慎重に進める', cost: 0, desc: 'いまは何も変わりません。2 年後から、人手不足で景気が少し伸び悩みます。', effects: [{ t: 'mod', key: 'econ', op: 'mul', v: 0.99, months: 48, delay: 24 }] },
     ],
   },
@@ -242,7 +245,7 @@ export const EVENTS: EventDef[] = [
     ],
   },
   {
-    id: 'flood', title: '台風の大雨で浸水した', prob: 0.04, cooldown: 24, minStreak: 0, expire: 3,
+    id: 'flood', title: '台風の大雨で浸水した', prob: 0.04, probK: floodProbK, cooldown: 24, minStreak: 0, expire: 3,
     cond: s => { const m = s.month % 12; return m >= 3 && m <= 6 && s.stats.floodHH >= 5 ? { target: -1, detail: `台風の大雨で川があふれそうになりました。川沿いの低い土地には ${r0(s.stats.floodHH)} 世帯が住んでいます（雨水調整池のある地区は被害が半分）。` } : null; },
     hit: s => damage(s, 'flood', 0.7),
     options: [
@@ -431,11 +434,11 @@ export const EVENTS: EventDef[] = [
     ],
   },
   {
-    id: 'neighborMerge', title: '隣町から合併の打診', prob: 0.003, cooldown: 240, minStreak: 0, expire: 4, once: true,
-    cond: s => (s.month >= 36 ? { target: -1, detail: `人口が減っている${s.neighbors[1]?.name ?? '隣町'}から、合併を前提にした協議の申し入れがありました。国の特例で交付金が増えますが、住民の意見は分かれています。` } : null),
+    id: 'neighborMerge', title: '隣町から広域連携の深化の打診', prob: 0.003, cooldown: 240, minStreak: 0, expire: 4, once: true,
+    cond: s => (s.month >= 36 ? { target: -1, detail: `人口が減っている${s.neighbors[1]?.name ?? '隣町'}から、水道と消防の共同化を進めたいという申し入れがありました。費用は分担できますが、協議には手間がかかり、住民の意見も分かれています。` } : null),
     options: [
-      { label: '合併協議を始める', cost: 300, desc: '300 万円。交付金がずっと 4% 増え、知名度が上がります。支持率は一時的に下がります。', effects: [{ t: 'cash', v: -300, label: '合併協議' }, { t: 'mod', key: 'transfer', op: 'mul', v: 1.04, months: -1 }, { t: 'fame', v: 3 }, { t: 'approval', v: -0.03 }] },
-      { label: '広域連携にとどめる', cost: 0, desc: '合併はしませんが、ごみ処理などで協力します。36 か月、ごみ処理の能力が増えます。', effects: [{ t: 'mod', key: 'wasteCap', op: 'add', v: 600, months: 36 }, { t: 'neighbor', v: 0.05 }] },
+      { label: '水道と消防の共同化の協議を始める', cost: 300, desc: '300 万円。ずっと、浄水の融通で水の供給が 5% 増え、消防の到達範囲が 5% 広がり、維持費が 1% 下がります（負担金 月 40 万円）。隣町との関係が良くなり、協議の手間で支持率は一時的に少し下がります。', effects: [{ t: 'cash', v: -300, label: '共同化の協議' }, { t: 'mod', key: 'waterCap', op: 'mul', v: 1.05, months: -1, cost: 40 }, { t: 'mod', key: 'fireRange', op: 'mul', v: 1.05, months: -1 }, { t: 'mod', key: 'prices', op: 'mul', v: 0.99, months: -1 }, { t: 'neighbor', v: 0.05 }, { t: 'approval', v: -0.01 }] },
+      { label: 'ごみ処理の応援にとどめる', cost: 0, desc: '共同化はしませんが、ごみ処理で協力します。36 か月、ごみ処理の能力が増えます。', effects: [{ t: 'mod', key: 'wasteCap', op: 'add', v: 600, months: 36 }, { t: 'neighbor', v: 0.05 }] },
       { label: '断る', cost: 0, desc: '支持率が少し上がりますが、隣町との関係は冷えます。', effects: [{ t: 'approval', v: 0.01 }, { t: 'neighbor', v: -0.1 }] },
     ],
   },
@@ -459,7 +462,7 @@ export const EVENTS: EventDef[] = [
     ],
   },
   {
-    id: 'landslide', title: '大雨で土砂崩れが起きた', prob: 0.03, cooldown: 24, minStreak: 0, expire: 2,
+    id: 'landslide', title: '大雨で土砂崩れが起きた', prob: 0.03, probK: s => slideProbK(s), cooldown: 24, minStreak: 0, expire: 2,
     cond: s => { const mm = s.month % 12; if (mm < 3 || mm > 6) return null; const m = getMap(s.seed); const n = s.buildings.filter(b => isRes(b.kind) && b.status === 'operating' && [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dx, dy]) => { const x = b.x + dx, y = b.y + dy; return x >= 0 && y >= 0 && x < W && y < H && m.steep[idx(x, y)]; })).length; return n >= 2 ? { target: -1, detail: `長雨で地盤がゆるみ、斜面が崩れました。斜面に接する住宅は ${n} 棟あります。` } : null; },
     hit: s => damage(s, 'slide', 0.8),
     options: [
@@ -648,9 +651,9 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'foreignWorkers', title: '企業から外国人の働き手を受け入れたいと相談', prob: 0.03, cooldown: 36, minStreak: 0, expire: 3,
-    cond: s => (s.stats.bizJobs >= 400 && !s.policies.tabunka?.on ? { target: -1, detail: `市内の企業（職 ${r0(s.stats.bizJobs)} 人）が人手不足で、外国人の働き手を受け入れたいと言っています。住まいや言葉の支えが要ります。` } : null),
+    cond: s => (s.stats.bizJobs >= 400 && !s.policies.tabunka?.on ? { target: -1, detail: `市内の企業（職 ${r0(s.stats.bizJobs)} 人）が人手不足で、外国人の働き手を受け入れたいと言っています。住まい探し・日本語・労働条件の相談の支えが要ります。` } : null),
     options: [
-      { label: '住まいの紹介と日本語教室を用意する', cost: 400, desc: '400 万円。24 か月、単身世帯の転入が 1 割増え、景気も少し良くなります。', effects: [{ t: 'cash', v: -400, label: '外国人住民の受け入れ支援' }, { t: 'mod', key: 'inflow:0', op: 'mul', v: 1.1, months: 24 }, { t: 'mod', key: 'econ', op: 'mul', v: 1.01, months: 24 }] },
+      { label: '住まいの入居支援と日本語教室を用意する', cost: 400, desc: '400 万円。24 か月、単身世帯の転入が 1 割増え、景気も少し良くなり、言語の支援が上がります。', effects: [{ t: 'cash', v: -400, label: '入居支援と日本語教室' }, { t: 'mod', key: 'inflow:0', op: 'mul', v: 1.1, months: 24 }, { t: 'mod', key: 'econ', op: 'mul', v: 1.01, months: 24 }, { t: 'mod', key: 'lang', op: 'add', v: 0.08, months: 24 }] },
       { label: '企業に任せる', cost: 0, desc: '12 か月、人手不足で景気が少し下がります。', effects: [{ t: 'mod', key: 'econ', op: 'mul', v: 0.99, months: 12 }] },
     ],
   },
@@ -1108,7 +1111,7 @@ export function damage(s: GameState, what: 'quake' | 'flood' | 'fire' | 'snow' |
 let dmgDepth = 0;
 function damage0(s: GameState, what: 'quake' | 'flood' | 'fire' | 'snow' | 'slide' | 'wind' | 'tsunami' | 'liquefy', v: number, target = -1): string {
   // 自衛隊の駐屯地があると初動が早く被害が小さい。シェルターの整備（disasterDmg）も効く
-  const st = s.stats, prep = st.pop > 0 ? Math.min(1, st.shelterCap / (st.pop * 0.4)) : 1, k = v * (1 - 0.5 * prep) * modMul(s, 'disasterDmg') * (hasOp(s, 'sdfBase') ? 0.8 : 1);
+  const st = s.stats, prep = st.pop > 0 ? Math.min(1, st.shelterCap / (st.pop * 0.4)) : 1, k = v * (1 - 0.5 * prep) * (1 + 0.2 * (0.6 - (st.access?.reach ?? 0.6))) /* v90：避難の情報が届きにくい住民への到達 */ * modMul(s, 'disasterDmg') * (hasOp(s, 'sdfBase') ? 0.8 : 1);
   let lost = 0, hit = 0;
   if (what === 'quake') {
     for (const b of s.buildings) {
@@ -1164,7 +1167,7 @@ function damage0(s: GameState, what: 'quake' | 'flood' | 'fire' | 'snow' | 'slid
     // 土砂崩れ：斜面に接する住宅のうち、最大 3 棟が被害を受ける。斜面沿いの市道も傷む
     const m = getMap(s.seed), near = (b: Building) => { for (let dy = -1; dy <= b.h; dy++) for (let dx = -1; dx <= b.w; dx++) { const x = b.x + dx, y = b.y + dy; if (x >= 0 && y >= 0 && x < W && y < H && m.steep[idx(x, y)]) return true; } return false; };
     const list = s.buildings.filter(b => isRes(b.kind) && b.status === 'operating' && near(b));
-    const n = Math.min(list.length, Math.max(1, Math.round(3 * k)));
+    const n = Math.min(list.length, Math.max(1, Math.round(3 * k * (hasOp(s, 'sabo') ? 0.5 : 1)))); // v90：砂防ダムで被害の棟数が半分
     for (let j = 0; j < n; j++) { const b = list[Math.floor(rngNext(s) * list.length) % list.length]; if (!s.buildings.includes(b)) continue; lost += sumHH(b); removeBuilding(s, b); hit++; }
     for (let i = 0; i < W * H; i++) if (m.steep[i] && (s.road[i] === 1 || s.road[i] === 2)) s.roadAge[i] = Math.min(100, s.roadAge[i] + 30 * k);
     return ` 被害：斜面沿いの住宅 ${hit} 棟が土砂に巻き込まれ、${Math.round(lost)} 世帯が住まいを失いました。備え（避難所・備蓄）の水準 ${Math.round(prep * 100)}%。`;
@@ -1301,7 +1304,7 @@ export function tickEvents(s: GameState): void {
     if (s.streak[def.id] < def.minStreak) continue;
     if (def.once && s.events.log.some(l => l.id === def.id)) continue;
     if (calm && !def.hit) continue;
-    if (def.prob >= 1 || rngNext(s) < def.prob * (def.hit ? Math.min(1, diffOf(s).events * 1.1) : diffOf(s).events)) {
+    if (def.prob >= 1 || rngNext(s) < def.prob * (def.probK ? def.probK(s) : 1) * (def.hit ? Math.min(1, diffOf(s).events * 1.1) : diffOf(s).events)) {
       const extra = def.hit ? def.hit(s, c.target) : '';
       s.events.active.push({ id: def.id, start: s.month, target: c.target, detail: (c.detail + extra).slice(0, 3900) });
       s.events.cooldown[def.id] = s.month + Math.max(def.cooldown, def.once ? 100000 : 0);

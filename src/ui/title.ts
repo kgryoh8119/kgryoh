@@ -34,7 +34,7 @@ export function chooseMap(): Promise<Choice> {
       return `<article class="mcard ${have ? "" : "nodata"} ${have && real ? "mfeat" : ""}">
         <header><small>${esc(area)}</small><h3>${esc(name)}${badge}</h3></header>
         <p>${esc(e?.blurb ?? '取り込んだ地図')}</p>
-        <p class="meta">${km(e?.bbox)}・${esc(status)}${e?.role ? `・あなたは${esc(e.role)}` : ''}</p>
+        <p class="meta">${km(e?.bbox)}・${esc(status)}${e?.role ? `・あなたは${esc(e.role)}` : ''}${real ? '<br><small title="地形・道路・鉄道・川・建物の位置は実データ（OpenStreetMap・国土地理院）。世帯・人口・施設の能力・財政はゲームの推計で、自治体の統計ではありません">配置は実データ／数値はゲームの推計</small>' : ''}</p>
         ${have && real ? `<div class="btnrow"><button class="btn primary" data-t="start" data-id="${id}-d" ${busy ? 'disabled' : ''} title="駅・線路・川・幹線道路の配置はそのままに、ゲーム用に縮めて整理した街。空き地が多く、道路や施設を置きやすい">まちづくり版ではじめる</button>${saveD ? `<button class="btn" data-t="cont" data-id="${id}-d" ${busy ? 'disabled' : ''}>続きから</button>` : ''}</div>
         <p class="note">まちづくり版：実在の配置を 1/3 ほどに縮めて、細い道や家並みを整理した街です。空き地が多く、道路や施設を置きやすく、動きも軽くなります。</p>` : ''}
         <div class="btnrow">${have ? `<button class="btn ${real ? '' : 'primary'}" data-t="start" data-id="${id}" ${busy ? 'disabled' : ''}>${real ? '実寸版ではじめる' : 'はじめる'}</button>${save ? `<button class="btn" data-t="cont" data-id="${id}" ${busy ? 'disabled' : ''}>続きから${real ? '（実寸版）' : ''}</button>` : ''}` : ''}
