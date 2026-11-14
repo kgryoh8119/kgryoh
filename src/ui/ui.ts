@@ -25,6 +25,8 @@ import { playTimeline, timelineCount } from './timelapse';
 import { dailyOf, dailyProgress, checkDaily, DAILY, DAILY_PTS, heroOf, avatar, lifeIcon, FIRSTS, cityTitles } from './engage';
 import { loadCareer, canRun, startRun } from '../career';
 import { familiesOf, featured, famTitle, famWhere, moodIcon, driverOf, type Family } from './people';
+import { issueSteps, pastResults, reportHtml, policyCard, buildFacts, voiceDetail, voiceDistrict, districtCenter, type IssueFlow, type PolicyTrial } from './flow';
+import { trialOptions, compareTrial, annualReport, type AnnualReport } from '../sim/report';
 
 type Tool = { t: 'select' } | { t: 'road'; road: 1 | 2 } | { t: 'tunnel'; road: 1 | 2 } | { t: 'bridge'; road: 1 | 2 } | { t: 'overpass' } | { t: 'footbridge' } | { t: 'canal' } | { t: 'busStop'; on: boolean } | { t: 'railKind'; kind: 0 | 1 | 2 } | { t: 'street'; style: 'tree' | 'stone' | 'nopole' | 'charge' | 'none' } | { t: 'levee' } | { t: 'area'; v: 0 | 1 | 2 } | { t: 'terra'; op: TerraOp } | { t: 'widen'; on: boolean } | { t: 'flyover' } | { t: 'unroad' } | { t: 'rail'; level: 1 | 2 | 3; grade: 0 | 1 | 2 | 3 } | { t: 'railgrade'; grade: 0 | 1 | 2 | 3 } | { t: 'unrail' } | { t: 'repair' } | { t: 'zone'; zone: Zone } | { t: 'devarea'; zone: 1 | 2 | 3 } | { t: 'build'; kind: Kind; move?: number } | { t: 'sandbox'; kind: Kind };
 type Tab = 'home' | 'term' | 'voice' | 'money' | 'policy' | 'fc' | 'fac' | 'mayor' | 'city';
@@ -139,6 +141,7 @@ export class UI {
 
   constructor(game: Game, view: View) {
     this.game = game; this.view = view;
+    game.onMonth.push(() => { const rd = this.game.reportDue; if (rd && !this.game.auto) { this.game.reportDue = null; const rep = annualReport(this.game.state, rd.from, rd.to, rd.title); if (rep.rows.length) { this.reportOpen = rep; this.renderModal(); } } if (this.ix?.trial) { this.ix.trial = null; this.ix.confirm = false; } this.ptrial = null; });
     game.onMonth.push(() => { if (this.game.auto) { const last = this.game.autoLog.filter(n => n.month === this.game.state.month); if (last.length) this.toast(`オート：${last[last.length - 1].text}${last.length > 1 ? `（ほか ${last.length - 1} 件）` : ''}`); } });
     game.onSave.push(() => { const f = this.game.saveFail; this.renderSaveMark(); if (f && f.where === '自動保存') this.toast('自動保存に失敗しました。上の「未保存」からファイルに保存できます', true); if (this.menu) this.renderModal(); });
     game.onChange.push(() => { this.flushNotes(); if (this.job && this.game.rev !== this.job.rev) { this.cancelForecast(); this.toast('街が変わったため、計算中の試算を中止しました。もう一度「試算する」を押してください'); } this.refresh(); });
@@ -495,6 +498,14 @@ export class UI {
         if (phone() && arg !== 'policy' && arg !== 'money' && arg !== 'term') { $('side').classList.add('closed'); }
         break;
       }
+      case 'ix': this.issueAct(arg); break;
+      case 'ptrial': { const p = POLICIES.find(x => x.id === arg); if (!p) break; const on = !!g.state.policies[p.id]?.on; this.ptrial = { id: p.id, busy: true, res: null }; this.renderSide();
+        setTimeout(() => { if (this.ptrial?.id !== p.id) return; this.ptrial.res = compareTrial(g.state, [{ type: 'policy', id: p.id, on: !on }], 'sat'); this.ptrial.busy = false; this.renderSide(); }, 30); break; }
+      case 'vpol': { this.tab = 'policy'; this.renderSide(); requestAnimationFrame(() => { const e = document.getElementById('pol-' + arg)?.closest('.card') as HTMLElement | null; if (e) { e.scrollIntoView({ block: 'start' }); e.classList.add('f90-flash'); setTimeout(() => e.classList.remove('f90-flash'), 1600); } }); break; }
+      case 'vsel': { const k = Number(arg), v = s.voices[k]; this.vsel = this.vsel === k ? -1 : k;
+        if (v && this.vsel === k) { const d = voiceDistrict(s, v), t = v.tile >= 0 ? v.tile : d >= 0 ? districtCenter(s, d) : -1; if (t >= 0) this.view.focus(t, 520); if (v.layer !== 'none') { this.view.layer = v.layer; this.view.refreshOverlay(); this.renderViewbar(); } }
+        this.renderSide(); break; }
+      case 'report': { if (arg === 'close') this.reportOpen = null; else { const y0 = Math.floor(g.state.month / 12) * 12; this.reportOpen = annualReport(g.state, y0 - (g.state.month - y0 < 3 ? 12 : 0), g.state.month + 1, `${Math.floor(g.state.month / 12) + 1} 年目の報告（途中経過）`); } this.renderModal(); break; }
       case 'camrot': this.view.want.yaw += Number(arg) * 0.6; break;
       case 'camzoom': this.view.zoomBy(Number(arg) > 0 ? 0.7 : 1.4); break;
       case 'group': if (phone()) $('side').classList.add('closed'); this.group = this.group === arg ? null : arg; if (arg === 'select') { this.group = null; this.setTool({ t: 'select' }); } this.renderTools(); break;
@@ -1001,13 +1012,15 @@ export class UI {
   private renderCands(): void {
     let el = document.getElementById('cands');
     const t = this.tool;
-    if (t.t !== 'build' || !hasCandidates(t.kind) || this.photo) { if (el) el.hidden = true; return; }
+    if (t.t !== 'build' || this.photo) { if (el) el.hidden = true; return; }
+    const facts = `<details class="f90-bf"${this.openK.has('f90bf') ? ' open' : ''} data-k="f90bf"><summary>${esc(DEFS[t.kind].name)}：費用・工期・権限など</summary>${buildFacts(this.s, t.kind)}</details>`; // v90
+    if (!hasCandidates(t.kind)) { if (!el) { el = document.createElement('div'); el.id = 'cands'; $('app').appendChild(el); } el.hidden = false; el.innerHTML = facts; return; }
     if (!el) { el = document.createElement('div'); el.id = 'cands'; $('app').appendChild(el); }
     const key = `${t.kind}:${this.game.rev}:${this.game.draft ? 1 : 0}`;
     if (!this.cands || this.cands.key !== key) this.cands = { key, list: findCandidates(this.s, t.kind, 4) };
     const list = this.cands.list, m = getMap(this.s.seed), MARK = '①②③④';
     el.hidden = false;
-    el.innerHTML = `<b>おすすめの場所</b>` + (list.length
+    el.innerHTML = facts + `<b>おすすめの場所</b>` + (list.length
       ? list.map((c, k) => `<div class="cand"><button class="btn small" data-act="candsee" data-arg="${c.x}:${c.y}"><span class="mk">${MARK[k]}</span>${esc(DISTRICTS[m.district[idx(c.x, c.y)]] ?? '')}<small>${esc(c.label)}・${yenT(c.cost)}</small></button><button class="btn small primary" data-act="candbuild" data-arg="${c.x}:${c.y}">建てる</button></div>`).join('')
       : '<small>いまは足りない所が見つかりません</small>');
   }
@@ -1064,16 +1077,42 @@ export class UI {
     p.scrollTop = same ? top : 0;
   }
   /** 街が発展するのに必要なものの充足（0〜1）。足りないものから順に */
+  /** v90：課題の導線（① 原因を見る → ② 対策を試算 → ③ 実行 → ④ 結果）。③で押すまで街は変わらない */
+  private issueAct(arg: string): void {
+    const [cmd, key, n] = arg.split('|'), g = this.game, s = g.state, iss = allIssues(s).find(i => i.key === key);
+    const f = this.ix?.key === key ? this.ix : (this.ix = { key, open: null, opts: [], pick: -1, trial: null, busy: false, confirm: false });
+    if (cmd === 'close') { this.ix = null; this.renderSide(); return; }
+    if (cmd === 'cause') {
+      f.open = f.open === 'cause' ? null : 'cause';
+      if (iss && f.open) { const v = s.voices.find(o => o.key.split(':')[0] === key.split(':')[0] && o.tile >= 0), t = iss.tile >= 0 ? iss.tile : v ? v.tile : -1; if (t >= 0) this.view.focus(t, 520); if (iss.layer !== 'none') { this.view.layer = iss.layer; this.view.refreshOverlay(); this.renderViewbar(); } }
+    } else if (cmd === 'trial') { f.open = f.open === 'trial' && !f.trial ? null : 'trial'; if (iss) f.opts = trialOptions(s, iss); if (f.pick < 0) f.pick = f.opts.findIndex(o => o.actions); if (f.pick >= 0 && !f.trial) return this.issueAct(`pick|${key}|${f.pick}`); }
+    else if (cmd === 'pick') {
+      f.open = 'trial'; f.pick = Number(n); f.confirm = false; const o = f.opts[f.pick]; if (!o?.actions) { this.renderSide(); return; }
+      f.busy = true; f.trial = null; const rev = g.rev;
+      setTimeout(() => { if (this.ix !== f || g.rev !== rev) { f.busy = false; return; } f.trial = compareTrial(g.state, o.actions!, key); f.busy = false; this.renderSide(); }, 30);
+    } else if (cmd === 'run') {
+      const o = f.opts[f.pick]; if (!o?.actions || !f.trial?.ok) return;
+      if (!f.confirm) { f.confirm = true; this.renderSide(); return; }
+      let ok = 0, msg = ''; for (const a of o.actions) { const r = g.act(a, { issue: key }); if (r.ok) ok++; else msg = r.msg; }
+      this.ix = { key, open: 'result', opts: [], pick: -1, trial: null, busy: false, confirm: false };
+      this.toast(ok ? `実行しました：${o.label}。3・6・12 か月後に「④ 数か月後の結果」で予測と比べられます` : `実行できませんでした：${msg}`, !ok);
+    } else if (cmd === 'result') f.open = f.open === 'result' ? null : 'result';
+    this.renderSide();
+  }
   /** 今月の街の課題（最大 3 件）。何が起きた／どこ／主因／対策の候補／地図へ。押しても道具や資料が開くだけで、建設や政策の変更は自動ではしない */
   private pIssues(): string {
     const list = monthlyIssues(this.s), all = allIssues(this.s);
     const tag = (i: Issue) => { const p = i.parts, t: string[] = []; if (p.deadline >= 0.5) t.push('期限が近い'); if (p.trend >= 0.4) t.push('悪化している'); if (p.hard >= 0.6) t.push('放置すると戻しにくい'); return t.map(x => `<em class="itag">${x}</em>`).join(''); };
     const card = (i: Issue, k: number) => `<div class="issue"><h3><b class="inum">${k + 1}</b>${esc(i.title)}${tag(i)}</h3>
       <dl><dt>何が</dt><dd>${esc(i.what)}</dd><dt>どこ</dt><dd>${esc(i.where)}${i.tile >= 0 || i.layer !== 'none' ? ` <button class="btn small" data-act="${i.tile >= 0 ? 'focus' : 'layer'}" data-arg="${i.tile >= 0 ? `${i.tile}:${i.layer}` : i.layer}">地図へ</button>` : ''}</dd><dt>主因</dt><dd>${esc(i.cause)}</dd>
-      <dt>対策</dt><dd class="iopts">${i.options.map(o => `<span><button class="btn small" data-act="${o.act}" data-arg="${o.arg}">${esc(o.label)}</button>${o.note ? `<small>${esc(o.note)}</small>` : ''}</span>`).join('')}</dd></dl></div>`;
+      <dt>対策</dt><dd class="iopts">${i.options.map(o => `<span><button class="btn small" data-act="${o.act}" data-arg="${o.arg}">${esc(o.label)}</button>${o.note ? `<small>${esc(o.note)}</small>` : ''}</span>`).join('')}</dd></dl>${this.game.draft ? '' : issueSteps(this.s, i, this.ix, k === firstK)}</div>`;
+    // v90：はじめての人には 1 件を「まずこれ」と示す（案内が終わってから。施策をまだ課題から実行していない最初の 2 年）
+    const s0 = this.s, firstK = s0.mode === 'term' && s0.tutorial.done && s0.month < 24 && !(s0.decisions ?? []).some(d => d.issue) && list.length ? Math.max(0, list.findIndex(i => i.key === 'care' || i.key === 'aging' || i.key.startsWith('cap:'))) : -1;
     return `<section class="needtop issues"><h2>今月の街の課題 <small>${list.length ? `${list.length} 件（重要な順${all.length > list.length ? `・候補 ${all.length} 件から` : ''}）` : '大きな課題はありません'}</small></h2>
       ${this.game.speed === 0 && !this.game.blocked ? '<p class="note">時間が止まっています。右上の ▶ で進みます（止めたまま準備しても構いません）。 <button class="btn small" data-act="issue" data-arg="go">時間を進める</button></p>' : ''}${list.length ? list.map(card).join('') : '<p class="note">いまは急いで手を打つ課題がありません。公約やビジョンを進めるか、街を広げる時期です。［声］で住民の様子を確かめられます。</p>'}
-      <p class="note">影響を受ける人の多さを基本に、悪化の傾向・期限の近さ・戻しにくさを足して並べています。対策のボタンは道具や資料を開くだけで、建設や政策の変更はあなたが決めます。</p></section>`;
+      ${pastResults(this.s, new Set(list.map(i => i.key)))}
+      <div class="btnrow"><button class="btn small" data-act="report" data-arg="year">📘 年次報告（今年度の施策と結果）</button></div>
+      <p class="note">影響を受ける人の多さを基本に、悪化の傾向・期限の近さ・戻しにくさを足して並べています。対策のボタンは道具や資料を開くだけで、建設や政策の変更はあなたが決めます（②の試算も、③を押すまで街は変わりません）。</p></section>`;
   }
   private needs(): { name: string; r: number; text: string; btn?: [string, string, string] }[] {
     const s = this.s, st = s.stats, out: { name: string; r: number; text: string; btn?: [string, string, string] }[] = [];
@@ -1420,7 +1459,7 @@ export class UI {
   private pVoice(): string {
     const s = this.s;
     const h = (t: string) => { let a = 7; for (let i = 0; i < t.length; i++) a = (a * 31 + t.charCodeAt(i)) >>> 0; return a; };
-    const v = s.voices.map(x => `<div class="card voice ${x.tone}${x.key.startsWith('thanks') ? ' thanks' : ''}"><span class="who"><span class="av" style="background:hsl(${h(x.who) % 360} 55% 55%)">${x.who.slice(0, 1)}</span>${x.who}${x.district >= 0 ? '・' + DISTRICTS[x.district] : ''} <span class="handle">@sumino_${(h(x.who + x.key) % 9000 + 1000)}</span>${x.key.startsWith('thanks') ? '<span class="tag good">解消</span>' : ''}</span><q>${x.text}</q><span class="likes">♡ ${Math.round((h(x.key) % 40 + 5) * (1 + s.stats.pop / 8000) * (x.tone === 'bad' ? 2 : 1))}</span><details open><summary>なぜ起きているか</summary><p>${x.cause}</p></details>${x.tile >= 0 || x.layer !== 'none' ? `<div class="btnrow"><button class="btn small" data-act="focus" data-arg="${x.tile}:${x.layer}">地図で場所を見る</button></div>` : ''}</div>`).join('');
+    const v = s.voices.map((x, vi) => `<div class="card voice ${x.tone}${x.key.startsWith('thanks') ? ' thanks' : ''}"><span class="who"><span class="av" style="background:hsl(${h(x.who) % 360} 55% 55%)">${x.who.slice(0, 1)}</span>${x.who}${x.district >= 0 ? '・' + DISTRICTS[x.district] : ''} <span class="handle">@sumino_${(h(x.who + x.key) % 9000 + 1000)}</span>${x.key.startsWith('thanks') ? '<span class="tag good">解消</span>' : ''}</span><q data-act="vsel" data-arg="${vi}" title="押すと、この人の住む地区へ移動して、詳しいことを出します">${x.text}</q><span class="likes">♡ ${Math.round((h(x.key) % 40 + 5) * (1 + s.stats.pop / 8000) * (x.tone === 'bad' ? 2 : 1))}</span><details open><summary>なぜ起きているか</summary><p>${x.cause}</p></details><div class="btnrow"><button class="btn small ${this.vsel === vi ? 'primary' : ''}" data-act="vsel" data-arg="${vi}" aria-expanded="${this.vsel === vi}">${this.vsel === vi ? '詳しいことを閉じる' : '詳しく（住む地区・指標・効く施策）'}</button>${x.tile >= 0 || x.layer !== 'none' ? `<button class="btn small" data-act="focus" data-arg="${x.tile}:${x.layer}">地図で場所を見る</button>` : ''}</div>${this.vsel === vi ? voiceDetail(s, x, vi) : ''}</div>`).join('');
     const st = s.stats, L = s.ledger.at(-1);
     const diff = (a: number, b: number, unit: string, lowerBetter: boolean, f = (v: number) => n0(v)) => { const d = b - a; if (Math.abs(d) < 1e-9) return `${f(a)}${unit}（変化なし）`; return `${f(a)} → <b>${f(b)}</b>${unit}（<span style="color:var(--${(d < 0) === lowerBetter ? 'good' : 'bad'})">${d > 0 ? '+' : '−'}${f(Math.abs(d))}</span>）`; };
     const log = [...s.events.log].reverse().slice(0, 12).map(e => `<div class="card"><h3>${e.title}<em>${dateStr(e.month)}</em></h3><p>選んだこと：${e.choice}</p>${e.before ? `<details><summary>選んだ時 → いま（${s.month - e.month} か月後）</summary><div class="rows" style="font-size:12.5px"><span>保育の待機</span><b>${diff(e.before.wait, st.waitlist, '人', true)}</b><span>最大混雑率</span><b>${diff(e.before.maxVc * 100, st.maxVc * 100, '%', true)}</b><span>資金</span><b>${diff(e.before.cash, s.cash, '万円', false)}</b><span>毎月の収支</span><b>${diff(e.before.op, L?.operating ?? 0, '万円', false)}</b>${DISTRICTS.map((n, d) => `<span>${n}の満足度</span><b>${diff(e.before!.sat[d] * 100, st.satDistrict[d] * 100, '%', false)}</b>`).join('')}</div><p class="note">差には、この選択以外のできごと（入居、工事の完成、ほかの政策）の影響も含まれます。</p></details>` : ''}</div>`).join('');
@@ -1469,8 +1508,7 @@ export class UI {
     const s = this.s;
     return `<section><h2>政策 <small>効果は時間をかけて出ます</small></h2>${POLICIES.map(p => {
       const st = s.policies[p.id], on = !!st?.on, f = on ? Math.min(1, (s.month - st.since) / p.ramp) : 0;
-      return `<div class="card"><h3>${p.name}<em>月 ${yenT(policyCost(s, p))}</em></h3><p>${p.desc}</p><p><b>効く理由：</b>${p.why}</p><p><b>影響する住民：</b>${p.who}</p>
-        <label class="switch"><input type="checkbox" id="pol-${p.id}" data-policy="${p.id}" ${on ? 'checked' : ''}> ${on ? `実施中（効果 ${Math.round(f * 100)}% 発現）` : `実施する（満額まで ${p.ramp} か月）`}</label></div>`;
+      return policyCard(s, p, on, f, this.ptrial?.id === p.id ? this.ptrial : null); // v90：費用・効き始め・対象・期待効果・副作用・不確実性・権限主体を同じ並びで
     }).join('')}</section>
     ${s.modifiers.length ? `<section><h2>実施中の臨時対応</h2><table class="t"><tr><th>内容</th><th>月額</th><th>終了</th></tr>${s.modifiers.map(m => `<tr><td>${m.src}</td><td>${m.cost ? n0(m.cost) + ' 万円' : '—'}</td><td>${m.until < 0 ? '継続' : dateStr(m.until)}</td></tr>`).join('')}</table></section>` : ''}`;
   }
@@ -1673,6 +1711,8 @@ export class UI {
     el.hidden = !this.photo;
     if (this.photo) el.innerHTML = `<div class="vrow"><span>フォト</span><span>時刻</span><input id="phour" type="range" min="0" max="23.9" step="0.1" value="${this.view.hour.toFixed(1)}" aria-label="時刻"><span>画角</span><input id="fov" type="range" min="18" max="75" step="1" value="${this.view.fov}" aria-label="画角"><button class="seg" data-act="cam" data-arg="${this.view.mode === 'orbit' ? 'ground' : 'orbit'}">${this.view.mode === 'orbit' ? '地上へ' : '俯瞰へ'}</button><span>天気</span><select id="pwx" aria-label="天気">${[['', 'いまの天気'], ['clear', '晴れ'], ['cloudy', 'くもり'], ['rain', '雨'], ['storm', '雷雨'], ['snow', '雪'], ['fog', '霧']].map(([v, n]) => `<option value="${v}" ${this.view.weatherForce === v ? 'selected' : ''}>${n}</option>`).join('')}</select><label class="chk"><input type="checkbox" id="pmini" ${this.mini ? 'checked' : ''}> ミニチュア風</label><label class="chk"><input type="checkbox" id="pdof" ${this.view.dof ? 'checked' : ''}> 背景ぼかし</label><span>色</span><select id="pfilter" aria-label="写真の色">${Object.entries(PFILTERS).map(([v, f]) => `<option value="${v}" ${this.pfilter === v ? 'selected' : ''}>${f[0]}</option>`).join('')}</select><label class="chk"><input type="checkbox" id="pstamp" ${this.pstamp ? 'checked' : ''}> 日付を入れる</label><button class="btn small primary" data-act="shoot">撮影</button><button class="btn small" data-act="photoend">終了</button></div>`;
   }
+  /** v90：課題の導線・政策の試算・声の詳細・年次報告 */
+  ix: IssueFlow | null = null; ptrial: PolicyTrial | null = null; vsel = -1; reportOpen: AnnualReport | null = null;
   newsOpen = false; confirmRun = false; statsOpen = false; statsRange = 0;
   menuTab: 'set' | 'save' = 'save';
   fontSize: 's' | 'm' | 'l' = (() => { try { const v = localStorage.getItem('sumu-fs'); return v === 's' || v === 'l' ? v : 'm'; } catch { return 'm'; } })();
@@ -1749,6 +1789,7 @@ export class UI {
   private renderModal0(): void {
     const el = $('modal'), g = this.game, s = g.state;
     const ev = s.events.active[0], er = s.pendingElection;
+    if (this.reportOpen) { el.hidden = false; el.innerHTML = reportHtml(this.reportOpen); return; }
     if (this.newsOpen) { el.hidden = false; el.innerHTML = this.newsHtml(); return; }
     if (this.peopleOpen) { el.hidden = false; el.innerHTML = this.peopleHtml(); return; }
     if (this.albumOpen) { el.hidden = false; el.innerHTML = this.albumHtml(); return; }
