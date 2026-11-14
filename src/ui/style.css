@@ -652,6 +652,7 @@ body:not(.explain) #panel p.note, body:not(.explain) #panel .fold p.note { displ
 table.t td.good{color:var(--good);font-weight:700}table.t td.bad{color:var(--bad);font-weight:700}
 .f90-gap tr.out td{background:#fff3e6}.f90-gap em{display:block;font-style:normal;font-size:10px;color:var(--bad)}
 .f90-past{margin:6px 0;font-size:12.5px}.f90-past summary .f90-new{display:inline-block;margin-left:6px}.f90-past h4{margin:6px 0 2px;font-size:12.5px}
+.f90-warn{display:block;font-style:normal;color:var(--bad,#c0392b);font-weight:600;overflow-wrap:anywhere}p.f90-warn{margin:6px 0}
 .f90-report section{display:flex;flex-direction:column;gap:6px}.f90-report h3{margin:0;font-size:14px}
 .f90-rrow{border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:#fff}
 .f90-rrow h4{margin:0 0 4px;font-size:13px;display:flex;flex-wrap:wrap;gap:6px;align-items:baseline;overflow-wrap:anywhere}.f90-rrow h4 small{color:var(--ink-3);font-weight:400}

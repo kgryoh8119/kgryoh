@@ -1100,7 +1100,7 @@ export class UI {
       if (iss && f.open) { const v = s.voices.find(o => o.key.split(':')[0] === key.split(':')[0] && o.tile >= 0), t = iss.tile >= 0 ? iss.tile : v ? v.tile : -1; if (t >= 0) this.view.focus(t, 520); if (iss.layer !== 'none') { this.view.layer = iss.layer; this.view.refreshOverlay(); this.renderViewbar(); } }
     } else if (cmd === 'trial') { f.open = f.open === 'trial' && !f.trial ? null : 'trial'; if (iss) f.opts = trialOptions(s, iss); if (f.pick < 0) f.pick = f.opts.findIndex(o => o.actions); if (f.pick >= 0 && !f.trial) return this.issueAct(`pick|${key}|${f.pick}`); }
     else if (cmd === 'pick') {
-      f.open = 'trial'; f.pick = Number(n); f.confirm = false; const o = f.opts[f.pick]; if (!o?.actions) { this.renderSide(); return; }
+      f.open = 'trial'; f.pick = Number(n); f.confirm = false; f.range = null; const o = f.opts[f.pick]; if (!o?.actions) { this.renderSide(); return; }
       f.busy = true; f.trial = null; const rev = g.rev;
       setTimeout(() => { if (this.ix !== f || g.rev !== rev) { f.busy = false; return; } f.trial = compareTrial(g.state, o.actions!, key); f.busy = false; this.renderSide(); }, 30);
     } else if (cmd === 'run') {
@@ -1109,6 +1109,9 @@ export class UI {
       let ok = 0, msg = ''; for (const a of o.actions) { const r = g.act(a, { issue: key }); if (r.ok) ok++; else msg = r.msg; }
       this.ix = { key, open: 'result', opts: [], pick: -1, trial: null, busy: false, confirm: false };
       this.toast(ok ? `実行しました：${o.label}。3・6・12 か月後に「④ 数か月後の結果」で予測と比べられます` : `実行できませんでした：${msg}`, !ok);
+    } else if (cmd === 'range') { // v90：ループの対策の期待効果の幅（expectOf。重いので押したときだけ）
+      const o = f.opts[f.pick]; if (!o?.range || f.range === 'busy') return; f.range = 'busy'; const rev = g.rev;
+      setTimeout(() => { if (this.ix !== f || g.rev !== rev) return; try { f.range = o.range!(); } catch { f.range = []; } this.renderSide(); }, 30);
     } else if (cmd === 'result') f.open = f.open === 'result' ? null : 'result';
     this.renderSide();
   }

@@ -87,14 +87,17 @@ const WIDTH: Record<number, number> = { 3: 0.25, 6: 0.35, 12: 0.5 };
 export type Band = [number, number, number];
 export type Expect = Record<number, Record<string, Band>>;
 
+/** 試算の k か月目の乱数の種。比べる 2 本（しない／する）で同じ値になるので、施策で乱数を引く回数が変わっても翌月には揃い直す */
+export function commonRng(anchor: number, k: number): number { let h = (anchor ^ Math.imul(k + 1, 0x9e3779b1)) | 0; h = Math.imul(h ^ (h >>> 16), 0x85ebca6b); h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35); return (h ^ (h >>> 16)) | 0; }
 /** 状態 s のまま（または actions を加えて）months か月進めた試算。基準 1 本を回し、幅は変化量の係数と指標ごとの最小幅で出す */
 export function projectBands(s: GameState, actions: Action[] = [], months = 12, at: number[] = CHECK_AT): { ok: boolean; msg: string; expect: Expect; start: Record<string, number> } {
   const c: GameState = structuredClone(s);
   delete (c as any).decisions;
   let msg = '';
   for (const a of actions) { const r = dispatch(c, a); if (!r.ok) return { ok: false, msg: r.msg, expect: {}, start: {} }; msg = r.msg; }
-  const start = indicatorValues(c), expect: Expect = {};
+  const start = indicatorValues(c), expect: Expect = {}, anchor = s.rng;
   for (let k = 1; k <= months; k++) {
+    c.rng = commonRng(anchor, k); // しない場合とする場合で、毎月同じ乱数の列から始める（差が施策の効果だけになるように）
     stepMonth(c, { forecast: true });
     if (at.includes(k)) {
       const v = indicatorValues(c), o: Record<string, Band> = {};
@@ -257,7 +260,11 @@ export function annualReport(s: GameState, from: number, to: number, title?: str
 }
 
 // ---------------------------------------------------------------- 課題の対策の試算
-export interface TrialOption { label: string; actions: Action[] | null; note: string; cost?: number }
+export interface TrialOption { label: string; actions: Action[] | null; note: string; cost?: number;
+  /** 実行しても効かない条件があるときの注意（例：水道に余力がなく住宅が建たない）。試算の結果の上に目立たせて出す */
+  warn?: string;
+  /** 転入の楽観〜慎重で、何もしない場合との差の幅を出す（重い。押したときだけ呼ぶ） */
+  range?: () => { id: string; lo: number; hi: number }[] }
 /** 課題ごとの、効く政策 */
 const ISSUE_POLICY: Record<string, string[]> = {
   care: ['careStaff', 'familyMove'], traffic: ['roadCare'], housing: ['homeReform'], fiscal: ['furusatoPR'], 'sat:5': ['shopStart'], 'sat:0': ['homeReform'], 'sat:13': ['homeReform'],
