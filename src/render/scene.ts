@@ -1221,13 +1221,14 @@ export class View {
       pts[k * 3] = d[b] + nx * 0.25; pts[k * 3 + 1] = d[b + 1]; pts[k * 3 + 2] = d[b + 2] + nz * 0.25; } // 光の点は灯器の少し前へ（後ろからは灯器の箱に隠れる）
     m.frustumCulled = false; this.sigMesh = m; this.scene.add(m);
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pts, 3)); g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    if (!this.matSigPt.map && typeof document !== 'undefined') { const c = document.createElement('canvas'); c.width = c.height = 32; const x = c.getContext('2d'); if (x) { const gr = x.createRadialGradient(16, 16, 0, 16, 16, 16); gr.addColorStop(0, '#fff'); gr.addColorStop(0.35, 'rgba(255,255,255,0.8)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, 32, 32); this.matSigPt.map = new THREE.CanvasTexture(c); this.matSigPt.needsUpdate = true; } } // 丸くにじむ光
     this.sigPts = new THREE.Points(g, this.matSigPt); this.sigPts.frustumCulled = false; this.sigPts.renderOrder = 4; this.scene.add(this.sigPts);
   }
   /** 車・歩行者と同じ周期（36 秒、前半は東西・後半は南北が青、各半分の終わり 2 秒が黄）で点灯を決める。歩行者の青は黄の前の 4 秒に点滅し、黄からは赤 */
   private sigLights(cyc: number, axis: number, amber: boolean): void {
     if (!this.sigMesh || !this.sigPts) return;
     const ph = cyc % 18, blink = ph > 11.5 && ph <= 15, on = !blink || (ph * 4 | 0) % 2 === 0, key = `${axis}${amber ? 1 : 0}${on ? 1 : 0}`;
-    const n = this.night; this.matSig.color.setScalar(1.3 + 2.2 * n); this.matSigPt.opacity = 0.35 + 0.55 * n; this.matSigPt.size = 2.4 * Math.max(1, Math.min(3, this.dist / 400));
+    const n = this.night; this.matSig.color.setScalar(1.3 + 2.2 * n); this.matSigPt.opacity = 0.35 + 0.55 * n; this.matSigPt.size = 0.75 * Math.min(7, Math.max(1, this.dist / 110)); // 近くでは灯の大きさ、遠くでは赤・青が見分けられる大きさ
     if (key === this.sigKey) return; this.sigKey = key;
     const d = this.sigData, nn = d.length / 7, ca = this.sigPts.geometry.attributes.color as THREE.BufferAttribute, c = this.tmpC;
     const LIT = [0x1ee0b4, 0xffb020, 0xff3020, 0xff3a2a, 0x2ee8c0], OFF = [0x0c2a24, 0x2e240c, 0x2e0e0c, 0x2e100c, 0x0c2a24];
