@@ -668,3 +668,7 @@ table.t td.good{color:var(--good);font-weight:700}table.t td.bad{color:var(--bad
 .voice q[data-act]{cursor:pointer}
 .f90-bf{font-size:12px;max-width:100%}.f90-bf summary{cursor:pointer;font-weight:700}
 @media (max-width:480px){.f90-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.f90-parts{grid-template-columns:1fr}}
+.f90-play{display:flex;flex-direction:column;gap:6px}.f90-play h3{margin:0;font-size:14px}
+.f90-play-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
+.f90-play-c{display:flex;flex-direction:column;gap:4px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-width:0}
+.f90-play-c small{color:var(--ink-3);font-size:11.5px;line-height:1.45;overflow-wrap:anywhere}.f90-play-c .btn{align-self:flex-start}

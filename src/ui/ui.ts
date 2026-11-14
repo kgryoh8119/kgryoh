@@ -499,6 +499,11 @@ export class UI {
         break;
       }
       case 'ix': this.issueAct(arg); break;
+      case 'play': { // v90：遊び方の入口（経営とは別の遊び方）
+        if (arg === 'photo' || arg === 'ground') { this.menu = false; this.renderModal(); if (arg === 'photo') this.setPhoto(true); else { this.view.setMode('ground'); this.renderViewbar(); this.toast('街歩き：W A S D で歩く・ドラッグで見回す・Esc で戻る（スマホは画面の下のボタン）'); } break; }
+        if (arg === 'sandbox') { const st = g.state; if (st.mode === 'sandbox') break; if (!this.confirmPlay) { this.confirmPlay = true; this.renderModal(); setTimeout(() => { this.confirmPlay = false; }, 6000); break; }
+          this.confirmPlay = false; st.mode = 'sandbox'; st.goalPick = false; st.notes.push('🧱 自由建築に切り替えました。「直」の道具で、費用も土地の持ち主も気にせず建物を置けます。選挙はありません'); this.menu = false; this.renderModal(); this.renderTools(); this.refresh(); }
+        break; }
       case 'ptrial': { const p = POLICIES.find(x => x.id === arg); if (!p) break; const on = !!g.state.policies[p.id]?.on; this.ptrial = { id: p.id, busy: true, res: null }; this.renderSide();
         setTimeout(() => { if (this.ptrial?.id !== p.id) return; this.ptrial.res = compareTrial(g.state, [{ type: 'policy', id: p.id, on: !on }], 'sat'); this.ptrial.busy = false; this.renderSide(); }, 30); break; }
       case 'vpol': { this.tab = 'policy'; this.renderSide(); requestAnimationFrame(() => { const e = document.getElementById('pol-' + arg)?.closest('.card') as HTMLElement | null; if (e) { e.scrollIntoView({ block: 'start' }); e.classList.add('f90-flash'); setTimeout(() => e.classList.remove('f90-flash'), 1600); } }); break; }
@@ -1712,6 +1717,18 @@ export class UI {
     if (this.photo) el.innerHTML = `<div class="vrow"><span>フォト</span><span>時刻</span><input id="phour" type="range" min="0" max="23.9" step="0.1" value="${this.view.hour.toFixed(1)}" aria-label="時刻"><span>画角</span><input id="fov" type="range" min="18" max="75" step="1" value="${this.view.fov}" aria-label="画角"><button class="seg" data-act="cam" data-arg="${this.view.mode === 'orbit' ? 'ground' : 'orbit'}">${this.view.mode === 'orbit' ? '地上へ' : '俯瞰へ'}</button><span>天気</span><select id="pwx" aria-label="天気">${[['', 'いまの天気'], ['clear', '晴れ'], ['cloudy', 'くもり'], ['rain', '雨'], ['storm', '雷雨'], ['snow', '雪'], ['fog', '霧']].map(([v, n]) => `<option value="${v}" ${this.view.weatherForce === v ? 'selected' : ''}>${n}</option>`).join('')}</select><label class="chk"><input type="checkbox" id="pmini" ${this.mini ? 'checked' : ''}> ミニチュア風</label><label class="chk"><input type="checkbox" id="pdof" ${this.view.dof ? 'checked' : ''}> 背景ぼかし</label><span>色</span><select id="pfilter" aria-label="写真の色">${Object.entries(PFILTERS).map(([v, f]) => `<option value="${v}" ${this.pfilter === v ? 'selected' : ''}>${f[0]}</option>`).join('')}</select><label class="chk"><input type="checkbox" id="pstamp" ${this.pstamp ? 'checked' : ''}> 日付を入れる</label><button class="btn small primary" data-act="shoot">撮影</button><button class="btn small" data-act="photoend">終了</button></div>`;
   }
   /** v90：課題の導線・政策の試算・声の詳細・年次報告 */
+  confirmPlay = false;
+  /** v90：遊び方の入口（経営・自由建築・撮影・街歩き） */
+  private playStyles(): string {
+    const s = this.game.state, sb = s.mode === 'sandbox';
+    const c = (icon: string, name: string, text: string, btn: string) => `<div class="f90-play-c"><b>${icon} ${name}</b><small>${text}</small>${btn}</div>`;
+    return `<section class="f90-play"><h3>遊び方</h3><div class="f90-play-g">
+      ${c('🏛', '経営', '市長として予算・選挙・公約の中で街をやりくりします。費用と土地の持ち主の制約があります。', sb ? '<small>いまは自由建築です</small>' : '<span class="tag good">いまの遊び方</span>')}
+      ${c('🧱', '自由建築', '費用・土地の持ち主・選挙を気にせず、建物を直接置いて街をつくります（「直」の道具）。', sb ? '<span class="tag good">いまの遊び方</span>' : `<button class="btn small ${this.confirmPlay ? 'danger' : ''}" data-act="play" data-arg="sandbox">${this.confirmPlay ? '本当に切り替える（もう一度押す）' : '自由建築にする'}</button>`)}
+      ${c('📷', '撮影', '時刻・天気・ぼかしを決めて、街の写真を撮ります。街の計算は止まりません。', '<button class="btn small" data-act="play" data-arg="photo">撮影をはじめる</button>')}
+      ${c('🚶', '街歩き', '地上の目線で、自分のつくった街を歩きます。', '<button class="btn small" data-act="play" data-arg="ground">街を歩く</button>')}
+      </div>${!sb && this.confirmPlay ? '<p class="note">自由建築にすると、この街の選挙・公約・年次報告はなくなり、この街は経営に戻せません。経営の続きを残したいときは、先に「保存・読込」でファイルに保存してください。</p>' : ''}</section>`;
+  }
   ix: IssueFlow | null = null; ptrial: PolicyTrial | null = null; vsel = -1; reportOpen: AnnualReport | null = null;
   newsOpen = false; confirmRun = false; statsOpen = false; statsRange = 0;
   menuTab: 'set' | 'save' = 'save';
@@ -1831,6 +1848,7 @@ export class UI {
       el.innerHTML = `<div class="dialog" role="dialog" aria-modal="true" aria-label="メニュー"><header><small>スムシティ Phase 1</small><h2>保存・設定</h2></header><div class="body">
         <div class="btnrow mtabs"><button class="seg" data-act="menutab" data-arg="set" aria-pressed="${this.menuTab === 'set'}">⚙ 設定</button><button class="seg" data-act="menutab" data-arg="save" aria-pressed="${this.menuTab === 'save'}">💾 保存・読込・はじめから</button></div>
         ${this.menuMsg ? `<p role="status"><b>${this.menuMsg}</b></p>` : ''}
+        ${this.menuTab === 'set' ? this.playStyles() : ''}
         ${this.menuTab === 'save' ? saveHtml : setHtml}
         <div class="btnrow"><button class="btn primary" data-act="menu">閉じる</button></div></div></div>`;
     } else if (s.over && !this.overSeen) {

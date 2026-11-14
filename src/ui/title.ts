@@ -64,6 +64,7 @@ export function chooseMap(): Promise<Choice> {
           <label class="btn">保存ファイルから再開<input type="file" accept=".json,application/json,text/plain" data-t="savefile" hidden></label>
           <label class="btn">ほかの地域の地図を取り込む<input type="file" accept=".json,application/json" data-t="import" data-id="" hidden></label>
         </div>
+        <p class="note tplay">遊び方は「経営」（市長として予算・選挙の中でやりくり）のほかに、街に入ってから「保存・設定」→「遊び方」で、🧱 自由建築（費用・土地の持ち主・選挙なし）・📷 撮影・🚶 街歩き を選べます。</p>
         <p class="note tcredit">実在の地図：© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors（ODbL）・標高 国土地理院。世帯数・施設の定員・予算などはゲームの推計です。</p>
       </div>`;
     };
