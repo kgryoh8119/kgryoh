@@ -14,7 +14,7 @@ import { rngNext } from './rng';
 import { applyEffect, tickEvents, addBuilding, removeBuilding } from './events';
 import type { GameState, Building, Ledger, ElectionResult, Kind, Sport, Team } from './types';
 import { NHH } from './types';
-import { logOf, recordClose, chargeLevy, pipelineUnits } from './loopHooks';
+import { logOf, logView, recordClose, chargeLevy, pipelineUnits } from './loopHooks';
 import { updateMacro, sectorK, rateAdd, macroOf, sectorOf } from './macro';
 import { updateThreats } from './threats';
 import { updateRailDev } from './raildev';
@@ -386,7 +386,7 @@ export function stepMonth(s: GameState, opts: { forecast?: boolean } = {}): void
 
   // 9. 財政
   const L = monthlyBudget(s);
-  { const lv = logOf(s).levyM; if (lv) { L.fees = (L.fees ?? 0) + lv; L.operating += lv; } } // v90：開発負担金は今月の収入
+  { const lv = logView(s).levyM; if (lv) { L.fees = (L.fees ?? 0) + lv; L.operating += lv; } } // v90：開発負担金は今月の収入
   L.capital = s.pending.capital; L.other = s.pending.other; L.borrowed = s.pending.borrowed; L.repay = s.pending.repay ?? 0; // 繰り上げ返済（一時借入）
   L.cashStart = s.pending.cashStart ?? s.cash + s.pending.capital + s.pending.other - s.pending.borrowed + (s.pending.repay ?? 0);
   s.cash += L.operating;

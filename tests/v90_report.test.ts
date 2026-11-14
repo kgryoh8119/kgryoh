@@ -15,13 +15,13 @@ describe('v90 施策の記録と年次報告', () => {
     expect(d.before.wait).toBeGreaterThanOrEqual(0);
     expect(Object.keys(d.expect ?? {})).toEqual(['3', '6', '12']);
     for (const id of BASE_INDICATORS.map(x => x.id)) { const [lo, mid, hi] = d.expect![12][id]; expect(lo).toBeLessThanOrEqual(mid); expect(mid).toBeLessThanOrEqual(hi); }
-    expect(d.focus).toEqual(['wait', 'satType']);
+    expect(d.focus.slice(0, 2)).toEqual(['wait', 'satType']); // 統合後は、課題が入口になるゲームループの指標（駅前再開発）が後ろに続く
     run(s, 2); expect(d.results.length).toBe(0);
     run(s, 1); expect(d.results.map(r => r.at)).toEqual([3]);
     run(s, 3); expect(d.results.map(r => r.at)).toEqual([3, 6]);
     run(s, 6); expect(d.results.map(r => r.at)).toEqual([3, 6, 12]);
     const g = gapsOf(d, d.results[2]);
-    expect(g.length).toBe(2);
+    expect(g.length).toBe(d.focus.length); expect(g.length).toBeGreaterThanOrEqual(2); // 統合後は、ゲームループの指標の分だけ行が増える
     for (const x of g) { expect(Number.isFinite(x.diff)).toBe(true); expect(x.diff).toBeCloseTo(x.actual - x.mid, 5); if (x.outside) expect(d.results[2].factors.length).toBeGreaterThan(0); }
     const rep = annualReport(s, 0, s.month);
     expect(rep.rows.length).toBe(1); expect(rep.rows[0].r?.at).toBe(12); expect(['better', 'worse', 'mixed']).toContain(rep.rows[0].verdict);

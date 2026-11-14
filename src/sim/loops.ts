@@ -10,7 +10,7 @@ import { modMul, modAdd, sumHH, distField } from './core';
 import { stepMonth, monthlyBudget } from './step';
 import { dispatch, checkPlace, upgradeBlock, planZone, planRepair } from './actions';
 import { FREQS } from './big';
-import { logOf, renewCostOf } from './loopHooks';
+import { logView, renewCostOf } from './loopHooks';
 import { waterOldK } from './events';
 import { getMap, idx } from './map';
 
@@ -84,7 +84,7 @@ export function disasterLoss(s: GameState, k = 1): number {
 
 /** 各ループで比べる指標のいまの値。予測（複製を回したもの）にも結果にも、同じ関数を使う */
 export function loopIndicators(s: GameState): Record<IndicatorId, number> {
-  const st = s.stats, L = monthlyBudget(s), log = logOf(s);
+  const st = s.stats, L = monthlyBudget(s), log = logView(s);
   let schoolCrowd = 0;
   for (const b of s.buildings) if (fam(b.kind) === 'school' && b.effCap > 0) schoolCrowd = Math.max(schoolCrowd, b.used / b.effCap);
   if (st.schoolKids > 0) schoolCrowd = Math.max(schoolCrowd, st.schoolKids / Math.max(1, st.schoolCap)); // 通学圏の外の子も数える（市全体の在籍 ÷ 定員）

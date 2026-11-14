@@ -4,6 +4,8 @@ import type { GameState, Building } from './types';
 import { DEFS } from './config';
 
 /** ゲームループの記録（古いセーブにはない → はじめて使うときに作る） */
+/** 読むだけ（状態を変えない）。指標・収支の計算はこちらを使う：読んだだけで loopLog が生えると、試算と本番の状態が食い違う */
+export const logView = (s: GameState): NonNullable<GameState['loopLog']> => s.loopLog ?? { closed: [], levy: 0, levyM: 0, inHH: 0 };
 export function logOf(s: GameState): NonNullable<GameState['loopLog']> {
   return (s.loopLog ??= { closed: [], levy: 0, levyM: 0, inHH: 0 });
 }
