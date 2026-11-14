@@ -1,4 +1,4 @@
-// v89：信号の灯の撮影。同じ交差点を、周期をずらして 2 枚（A：東西が青／B：南北が青）。OUT（出力先）、PRE、Q（品質）、HOUR、DIST
+// v89：信号の灯の撮影。同じ交差点を、周期をずらして 2 枚（A：東西が青／B：南北が青）。OUT（出力先）、PRE、Q（品質）、HOUR、CAMD（カメラの距離）
 import { open } from './shot.mjs';
 const OUT = process.env.OUT ?? 'shots', PRE = process.env.PRE ?? 'sig';
 const { browser, page, errors } = await open(960, 600, process.env.MAPID ?? 'sumino');
@@ -11,7 +11,7 @@ const info = await page.evaluate(() => { const S = window.__sumu, s = S.game.sta
   for (let i = 0; i < s.road.length; i++) if (g[i] && s.vc[i] > best) { best = s.vc[i]; xi = i; }
   return { xi, n: g.reduce((a, b) => a + b, 0), lamps: v.sigData.length / 7 }; });
 console.log(JSON.stringify(info));
-await page.evaluate(([xi, d, yaw]) => { const v = window.__sumu.view; v.focus(xi, d); v.pitch = 0.42; v.yaw = yaw; v.spawnAgents(); }, [info.xi, Number(process.env.DIST ?? 45), Number(process.env.YAW ?? 0.6)]);
+await page.evaluate(([xi, d, yaw]) => { const v = window.__sumu.view; v.focus(xi, d); v.pitch = 0.42; v.yaw = yaw; v.spawnAgents(); }, [info.xi, Number(process.env.CAMD ?? 45), Number(process.env.YAW ?? 0.6)]);
 for (const [n, t] of [['A', 13], ['B', 31]]) {
   await page.evaluate((t) => { window.__sumu.view.lifeT = 36 * 20 + t - 9; }, t); // 少し前から走らせて、赤で止まる車を溜める
   await page.waitForTimeout(9000);

@@ -1035,6 +1035,11 @@ export class View {
     const connAt = (xx: number, yy: number) => { if (!inMap(xx, yy) || !s.road[idx(xx, yy)]) return 0; let n = 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) n += this.roadConn(s, xx, yy, dx, dy) ? 1 : 0; return n; };
     const schools = s.buildings.filter(b => (b.kind === 'school' || b.kind === 'nursery' || b.kind === 'nurseryS' || b.kind === 'nurseryL' || b.kind === 'jhs') && b.status !== 'construction');
     const schoolNear = (xx: number, yy: number) => schools.some(b => xx >= b.x - 3 && xx < b.x + b.w + 3 && yy >= b.y - 3 && yy < b.y + b.h + 3);
+    // v89：シェアモビリティのポートを置ける所（駅のまわり 3 区画は 2、商業の建物の隣は 1）と、置いた数の上限（街の規模に応じて控えめに）
+    const shareG = new Uint8Array(N); let shareCap = 0, shareN = 0;
+    if (fineR) { for (const b of s.buildings) { if (b.status !== 'operating') continue; const st = b.kind === 'station', r = st ? 3 : fam(b.kind) === 'shop' ? 1 : 0; if (!r) continue; shareCap += st ? 3 : 0.08;
+      for (let yy = b.y - r; yy < b.y + b.h + r; yy++) for (let xx = b.x - r; xx < b.x + b.w + r; xx++) if (inMap(xx, yy)) shareG[idx(xx, yy)] = Math.max(shareG[idx(xx, yy)], st ? 2 : 1); }
+      shareCap = Math.min(24, Math.round(shareCap)); }
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = idx(x, y), t = s.road[i];
       if (!t) continue;
@@ -1158,6 +1163,7 @@ export class View {
         else if (kind === 6) { g.blob(0, 0.22, 0, 0.22, 0.16, 0.12, [0xf2efe6, 0x2a2a2a, 0xc88a3a][(hv >> 5) % 3], 5); g.blob(ew ? 0.2 : 0, 0.36, ew ? 0 : 0.2, 0.1, 0.1, 0.1, [0xf2efe6, 0x2a2a2a, 0xc88a3a][(hv >> 5) % 3], 4); } // 猫
         else if (kind === 7) { g.box(0, 0, 0, 0.6, 1.0, 0.6, 0x9a9a92); g.box(0, 1.0, 0, 0.9, 0.3, 0.9, 0xb8b4ac); } // 消火栓の標識の代わりに防火水槽の箱
         else if (kind === 8 && t === 2) { g.cyl(0, 0, 0, 0.06, 2.4, 0x9aa0a6, 4); g.box(0, 2.3, 0, ew ? 0.6 : 0.05, 0.6, ew ? 0.05 : 0.6, 0x2a5aa0); } // 案内標識
+        else if (kind >= 9 && shareN < shareCap && (shareG[i] || sig[i - 1] || sig[i + 1] || sig[i - W] || sig[i + W]) && hash(x, y, 97) < (shareG[i] === 2 ? 0.55 : shareG[i] ? 0.3 : 0.35)) { shareN++; g.at(0, 0, 0); this.sharePort(g, qx, qy, qz, ew, ox, oz, hv); } // v89：シェアモビリティのポート
         g.at(0, 0, 0);
       }
     }
@@ -1187,6 +1193,20 @@ export class View {
     if (this.pools) { this.scene.remove(this.pools); this.pools.geometry.dispose(); }
     this.pools = new THREE.Mesh(pool.build(), this.matPool); this.pools.frustumCulled = false; this.pools.renderOrder = 3; this.scene.add(this.pools);
     if (this.agentRoadVer !== s.roadVersion * 1000 + sid(s)) { this.agentRoadVer = s.roadVersion * 1000 + sid(s); this.spawnAgents(); }
+  }
+  /** v89：シェアモビリティの貸し出し場所（歩道の区画線と薄い色の床、短いラックにシェア自転車、電動キックボード、案内の小さな立て札）。ブランドの名前やロゴは描かない。
+   *  u は道に沿う向き、v は道路の側（ox, oz）。y は足もとから */
+  private sharePort(g: Geo, qx: number, qy: number, qz: number, ew: boolean, ox: number, oz: number, hv: number): void {
+    const B = (u: number, y: number, v: number, lu: number, h: number, lv: number, col: number) => g.box(qx + (ew ? u : 0) + ox * v, qy + y, qz + (ew ? 0 : u) + oz * v, ew ? lu : lv, h, ew ? lv : lu, col);
+    const fc = [0xe8c030, 0x2aa060, 0xd8382c, 0x2a8ac8][(hv >> 14) & 3], kc = [0x2a2c30, 0x2aa060, 0xf2f2ee][(hv >> 16) % 3];
+    B(0, 0.02, 0, 4.4, 0.02, 1.4, 0x8a9aa8); for (const v of [-0.7, 0.7]) B(0, 0.045, v, 4.4, 0.02, 0.07, 0xf2f2ee); for (const u of [-2.2, 0.35, 2.2]) B(u, 0.045, 0, 0.07, 0.02, 1.4, 0xf2f2ee); // 床と白い区画線
+    for (const u of [-1.95, 0.15]) B(u, 0.05, -0.55, 0.06, 0.55, 0.06, 0x9aa0a6); B(-0.9, 0.55, -0.55, 2.16, 0.06, 0.06, 0x9aa0a6); // 短いラック
+    for (const u of [-1.6, -0.9, -0.2]) { // 自転車（ラックに前輪を入れて、道路へ向けて並ぶ）。車輪は細い板、前にかご
+      for (const v of [-0.42, 0.42]) B(u, 0.05, v, 0.04, 0.6, 0.6, 0x1a1a1c); B(u, 0.42, 0, 0.06, 0.06, 0.8, fc); B(u, 0.38, 0.12, 0.05, 0.42, 0.06, fc); B(u, 0.8, 0.12, 0.18, 0.05, 0.22, 0x2a2c30);
+      B(u, 0.75, -0.38, 0.4, 0.04, 0.05, 0x2a2c30); B(u, 0.6, -0.5, 0.26, 0.2, 0.2, 0x9aa0a6); B(u, 0.4, -0.38, 0.05, 0.38, 0.05, fc); }
+    for (const u of [0.85, 1.35, 1.85]) { // 電動キックボード（人は乗せない）：低い踏み板と立てたハンドル
+      B(u, 0.06, 0, 0.16, 0.08, 0.8, kc); for (const v of [-0.42, 0.42]) B(u, 0.0, v, 0.06, 0.18, 0.18, 0x1a1a1c); B(u, 0.12, -0.38, 0.05, 0.95, 0.05, 0x3a3a3c); B(u, 1.05, -0.38, 0.44, 0.04, 0.05, 0x2a2c30); B(u, 0.82, -0.38, 0.1, 0.1, 0.06, fc); }
+    B(2.45, 0, -0.55, 0.06, 1.25, 0.06, 0x9aa0a6); B(2.45, 1.1, -0.55, 0.42, 0.34, 0.05, fc); B(2.45, 1.16, -0.53, 0.32, 0.08, 0.055, 0xf2f2ee); // 案内の小さな立て札（色の板に白い帯。文字は描かない）
   }
   private agentRoadVer = -1;
   // v89：信号の灯（車両用の青・黄・赤、歩行者用の赤・青）。灯だけを 1 つの InstancedMesh と、遠くからも分かる光の点（Points）にまとめ、周期の変わり目に色だけ塗り替える
