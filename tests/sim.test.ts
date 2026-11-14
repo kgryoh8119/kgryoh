@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   newGame, FIC_W, FIC_H, FIC_PREV_W, FIC_PREV_H, DISTRICTS, buildable, saveMapId, SAVE_VERSION, stationStats, VISIONS, candidates, landPrices, roadPath, routeStats, CIT_N, pyramid, projection, TERRAINS, seedForTerrain, altitude, hasSea, seaDist, tsunamiDepth, modAdd, stepMonth, initLocks, isLocked, annexable, levelOf, N_CITIES, RANK_CATS, newMayor, LEVELS, furusatoCalc, roadCapacity, modMul, ledgerGap, checkPlace, dispatch, recompute, forecast, serialize, deserialize, eventDef, idx, W, H, P, DEFS, isRes, isShop, sumHH, getMap, GameState, Building, Kind, Action, electionOutlook, monthlyBudget, designCap, buildCost, validateState,
+  renewCostOf,
 } from '../src/sim/index';
 import { Game } from '../src/game';
 import { damage } from '../src/sim/events';
@@ -219,12 +220,13 @@ describe('金銭の整合性', () => {
     expect(after.wages).toBeGreaterThan(0);
     // 更新
     const w = s.buildings.find(b => b.kind === 'water')!;
-    const c1 = s.cash;
+    const c1 = s.cash, rc = renewCostOf(w); // v90：老朽度 80 を超えた施設は更新費が割増し
+    expect(rc).toBeGreaterThanOrEqual(DEFS.water.renewCost);
     dispatch(s, { type: 'renew', id: w.id });
-    expect(s.cash).toBe(c1 - DEFS.water.renewCost);
+    expect(s.cash).toBe(c1 - rc);
     let cap2 = 0;
     for (let i = 0; i < DEFS.water.renewMonths + 2; i++) { stepMonth(s, { forecast: true }); cap2 += s.ledger.at(-1)!.capital; }
-    expect(cap2).toBe(DEFS.water.renewCost);
+    expect(cap2).toBe(rc);
   });
 
   it('月次の残高は台帳と一致する', () => {
