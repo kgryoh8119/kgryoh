@@ -9,7 +9,7 @@ await page.evaluate((q) => { const S = window.__sumu, g = S.game, s = g.state; s
 await page.waitForTimeout(3000);
 const info = await page.evaluate(() => { const S = window.__sumu, s = S.game.state, W = S.W; const st = s.buildings.find(b => b.kind === 'station' && b.status === 'operating');
   let best = -1; if (st) { let bd = 1e9; for (let i = 0; i < s.road.length; i++) { if (s.road[i] !== 1 && s.road[i] !== 2) continue; const x = i % W, y = (i / W) | 0, d = Math.abs(x - st.x - st.w / 2) + Math.abs(y - st.y - st.h / 2); if (d < bd && d > 2) { bd = d; best = i; } } }
-  return { best }; });
+  const sp = S.view.sharePos; return { best: sp.length ? sp[0] : best, ports: sp.length }; });
 console.log(JSON.stringify(info));
 await page.evaluate(([xi, d, yaw]) => { const v = window.__sumu.view; v.focus(xi, d); v.pitch = 0.5; v.yaw = yaw; v.spawnAgents(); v.cars.forEach((a, k) => { if (k % 4 === 0 && a.kind === 0) { a.vm = k % 8 ? 38 : 39; a.vc = [0x2a8a4a, 0xc8302a, 0x58b8d8, 0x1c1e22][k % 4 === 0 ? (k / 4) % 4 : 0]; } }); },
   [info.best, Number(process.env.CAMD ?? 60), Number(process.env.YAW ?? 0.6)]);

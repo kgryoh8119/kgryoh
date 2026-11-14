@@ -1036,7 +1036,7 @@ export class View {
     const schools = s.buildings.filter(b => (b.kind === 'school' || b.kind === 'nursery' || b.kind === 'nurseryS' || b.kind === 'nurseryL' || b.kind === 'jhs') && b.status !== 'construction');
     const schoolNear = (xx: number, yy: number) => schools.some(b => xx >= b.x - 3 && xx < b.x + b.w + 3 && yy >= b.y - 3 && yy < b.y + b.h + 3);
     // v89：シェアモビリティのポートを置ける所（駅のまわり 3 区画は 2、商業の建物の隣は 1）と、置いた数の上限（街の規模に応じて控えめに）
-    const shareG = new Uint8Array(N); let shareCap = 0, shareN = 0;
+    const shareG = new Uint8Array(N); let shareCap = 0, shareN = 0; this.sharePos = [];
     if (fineR) { for (const b of s.buildings) { if (b.status !== 'operating') continue; const st = b.kind === 'station', r = st ? 3 : fam(b.kind) === 'shop' ? 1 : 0; if (!r) continue; shareCap += st ? 3 : 0.08;
       for (let yy = b.y - r; yy < b.y + b.h + r; yy++) for (let xx = b.x - r; xx < b.x + b.w + r; xx++) if (inMap(xx, yy)) shareG[idx(xx, yy)] = Math.max(shareG[idx(xx, yy)], st ? 2 : 1); }
       shareCap = Math.min(24, Math.round(shareCap)); }
@@ -1163,7 +1163,7 @@ export class View {
         else if (kind === 6) { g.blob(0, 0.22, 0, 0.22, 0.16, 0.12, [0xf2efe6, 0x2a2a2a, 0xc88a3a][(hv >> 5) % 3], 5); g.blob(ew ? 0.2 : 0, 0.36, ew ? 0 : 0.2, 0.1, 0.1, 0.1, [0xf2efe6, 0x2a2a2a, 0xc88a3a][(hv >> 5) % 3], 4); } // 猫
         else if (kind === 7) { g.box(0, 0, 0, 0.6, 1.0, 0.6, 0x9a9a92); g.box(0, 1.0, 0, 0.9, 0.3, 0.9, 0xb8b4ac); } // 消火栓の標識の代わりに防火水槽の箱
         else if (kind === 8 && t === 2) { g.cyl(0, 0, 0, 0.06, 2.4, 0x9aa0a6, 4); g.box(0, 2.3, 0, ew ? 0.6 : 0.05, 0.6, ew ? 0.05 : 0.6, 0x2a5aa0); } // 案内標識
-        else if (kind >= 9 && shareN < shareCap && (shareG[i] || sig[i - 1] || sig[i + 1] || sig[i - W] || sig[i + W]) && hash(x, y, 97) < (shareG[i] === 2 ? 0.55 : shareG[i] ? 0.3 : 0.35)) { shareN++; g.at(0, 0, 0); this.sharePort(g, qx, qy, qz, ew, ox, oz, hv); } // v89：シェアモビリティのポート
+        else if (kind >= 9 && shareN < shareCap && (shareG[i] || sig[i - 1] || sig[i + 1] || sig[i - W] || sig[i + W]) && hash(x, y, 97) < (shareG[i] === 2 ? 0.55 : shareG[i] ? 0.3 : 0.35)) { shareN++; this.sharePos.push(i); g.at(0, 0, 0); this.sharePort(g, qx, qy, qz, ew, ox, oz, hv); } // v89：シェアモビリティのポート
         g.at(0, 0, 0);
       }
     }
@@ -1196,6 +1196,8 @@ export class View {
   }
   /** v89：シェアモビリティの貸し出し場所（歩道の区画線と薄い色の床、短いラックにシェア自転車、電動キックボード、案内の小さな立て札）。ブランドの名前やロゴは描かない。
    *  u は道に沿う向き、v は道路の側（ox, oz）。y は足もとから */
+  /** v89：ポートを置いた区画（撮影・確かめ用） */
+  sharePos: number[] = [];
   private sharePort(g: Geo, qx: number, qy: number, qz: number, ew: boolean, ox: number, oz: number, hv: number): void {
     const B = (u: number, y: number, v: number, lu: number, h: number, lv: number, col: number) => g.box(qx + (ew ? u : 0) + ox * v, qy + y, qz + (ew ? 0 : u) + oz * v, ew ? lu : lv, h, ew ? lv : lu, col);
     const fc = [0xe8c030, 0x2aa060, 0xd8382c, 0x2a8ac8][(hv >> 14) & 3], kc = [0x2a2c30, 0x2aa060, 0xf2f2ee][(hv >> 16) % 3];
@@ -1228,7 +1230,7 @@ export class View {
   private sigLights(cyc: number, axis: number, amber: boolean): void {
     if (!this.sigMesh || !this.sigPts) return;
     const ph = cyc % 18, blink = ph > 11.5 && ph <= 15, on = !blink || (ph * 4 | 0) % 2 === 0, key = `${axis}${amber ? 1 : 0}${on ? 1 : 0}`;
-    const n = this.night; this.matSig.color.setScalar(1.3 + 2.2 * n); this.matSigPt.opacity = 0.35 + 0.55 * n; this.matSigPt.size = 0.75 * Math.min(7, Math.max(1, this.dist / 110)); // 近くでは灯の大きさ、遠くでは赤・青が見分けられる大きさ
+    const n = this.night; this.matSig.color.setScalar(1.3 + 2.2 * n); this.matSigPt.opacity = 0.75 + 0.25 * n; this.matSigPt.size = 1.5 * Math.min(6, Math.max(1, this.dist / 90)); // 近くでは灯の大きさ、遠くでは赤・青が見分けられる大きさ
     if (key === this.sigKey) return; this.sigKey = key;
     const d = this.sigData, nn = d.length / 7, ca = this.sigPts.geometry.attributes.color as THREE.BufferAttribute, c = this.tmpC;
     const LIT = [0x1ee0b4, 0xffb020, 0xff3020, 0xff3a2a, 0x2ee8c0], OFF = [0x0c2a24, 0x2e240c, 0x2e0e0c, 0x2e100c, 0x0c2a24];
