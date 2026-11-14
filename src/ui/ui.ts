@@ -18,6 +18,7 @@ import {
   planStreet, planRailKind, rerunRules, RERUN, monthlyIssues, allIssues, type Issue, WIN_VOTE, voteText, fiscalWatch, RAILKIND_NAME, modAdd, THREATS, SECTORS, sectorOf, industryBalance, rateAdd, type Macro, REAL, MAP_ID, mapEntry, baseEntry, TILE, monthlyBudget, pledgeStatus, GOALS, VISIONS, CAT_NAMES, BUILD_KINDS, fam, lvOf, LV_CAP, SV_NAMES, goalProgress, visionProgress, electionOutlook, upgradeCost, buildCost, CIVIC, isBiz, NEIGHBOR_SEED, DIFFS, diffOf, rerunCheck, teamCheck, teamVenue, SPORTS, upkeepOf, staffReq, designCap, sumHH, roadCapacity, checkPlace, lineTiles, rectTiles, planRoad, planTunnel, planBridge, planOverpass, planFootbridge, planCanal, planBusStop, planLevee, planArea, planTerra, planWiden, planFlyover, TERRA_NAMES, planUnroad, planRepair, planZone, planRail, planRailGrade, planUnrail, fiscalCrisis, tempDebt, ledgerGap, stationUpCheck, shinCheck, eventDef, forecastAsync, modMul,
   stationStats, FREQS, DOOR_COST, SUBWAY_COST, BIDS, bidChance, STYLES_M, REC_PLANS, hasOp, terrainOf, isCastaway, missionsFor, calMonth, POSTS, candidates, execOf, landOf, landPrices, routeStats, FREQ, MAX_ROUTES, citsOf, CIT_N, voteForecast, FACTIONS, PLANS, LOBBY_COST, SPEECH_COST, ADS_COST, monthsToElection, campaignOpen, PRESS, grantChance, PETITION_COST, GRANTS, GRANT_COOL, APPLY_COST, FESTS, pyramid, projection,
   authorityLabel, currentOffice,
+  dataSource,
 } from '../sim/index';
 import type { GameState, Building, Kind, Zone, Layer, ForecastSet, Action, TilePlan, Cat, TerraOp, MissionDef } from '../sim/index';
 import { sound } from '../audio/sound';
@@ -149,7 +150,8 @@ export class UI {
       document.querySelector('#top .plate')!.innerHTML = `<b>${e?.name ?? REAL.name}</b><span>${REAL.deformed ? 'まちづくり版' : e?.area ?? 'スムシティ・実在都市'}</span>`;
       $('gl').setAttribute('aria-label', `${e?.name ?? REAL.name}周辺の 3D 地図`);
       const cr = document.createElement('div'); cr.id = 'credit';
-      cr.innerHTML = '地図 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors（ODbL）・標高 <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>';
+      const ds = dataSource(); cr.title = ds.note; // v90：実データと推計の区別
+      cr.innerHTML = '地図 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors（ODbL）・標高 <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>' + (ds.date ? `（${ds.date} 取得）` : '') + '・数値はゲームの推計';
       $('app').appendChild(cr);
     } else if (game.state.cityName && game.state.cityName !== '住野市') {
       const t = terrainOf(game.state.seed);
@@ -1147,7 +1149,7 @@ export class UI {
     const sp = (vals: number[], id: string, fmt: (v: number) => string) => chartSvg({ id, series: [{ name: id === 'hpop' ? '人口' : '満足度', color: 'var(--c1)', values: vals }], fmt, xLabel: i => dateStr(hist[Math.min(hist.length - 1, i)].month) }, 336, 96);
     const g = this.game, alog = g.autoLog.slice(-12).reverse();
     const o = s.mode === 'term' && s.goals.length ? electionOutlook(s) : null, d0 = this.dev();
-    const quick = `<section class="quick"><h2>街のいま</h2><div class="qgrid">
+    const quick = `<section class="quick"><h2>街のいま <small title="${esc(dataSource().note)}">${REAL ? '配置は実データ・数値は推計' : 'ゲーム上の仮定'}</small></h2><div class="qgrid">
       <div><small>人口</small><b>${n0(st.pop)}<i>人</i></b><em class="${d0.growth >= 0 ? 'up' : 'down'}">${d0.growth >= 0 ? '▲' : '▼'}${n0(Math.abs(d0.growth))}（1 年）</em></div>
       <div><small>暮らしの満足</small><b style="color:var(--${st.sat >= 0.7 ? 'good' : st.sat >= 0.6 ? 'warn' : 'bad'})">${Math.round(st.sat * 100)}<i>%</i></b></div>
       ${o ? `<div><small>再選の見込み</small><b style="color:var(--${o.win >= 0.6 ? 'good' : o.win >= 0.4 ? 'warn' : 'bad'})">${Math.round(o.win * 100)}<i>%</i></b><em>支持率 ${pct(s.approval)}</em></div>` : ''}
@@ -1164,7 +1166,7 @@ export class UI {
     ${s.mode === 'term' && s.goals.length ? (() => { const o = electionOutlook(s); return `<section><h2>公約と再選の見込み <small><button class="btn small" data-act="tab" data-arg="term">任期の詳細</button></small></h2>
       <div class="rows"><span>いま選挙なら当選する確率</span><b style="color:var(--${o.win >= 0.6 ? 'good' : o.win >= 0.4 ? 'warn' : 'bad'})">${Math.round(o.win * 100)}<i>%</i></b><span>支持率</span><b>${pct(s.approval)}</b></div>
       ${s.goals.map((g, i) => { const def = GOALS.find(o => o.id === g.id)!, pr = goalProgress(s, g); return `<div class="pledge"><span class="tag ${kept[i] ? 'good' : 'warn'}">${kept[i] ? '達成中' : Math.round(pr.p * 100) + '%'}</span><span>${def.desc(g.target)}</span></div>`; }).join('')}</section>`; })() : ''}
-    <section><h2>人口と世帯</h2>
+    <section><h2>人口と世帯 <small>推計</small></h2>
       <div class="rows"><span>人口</span><b>${n0(st.pop)}<i>人</i></b><span>世帯 / 住戸</span><b>${n0(st.households)} / ${n0(st.units)}<i>戸</i></b><span>空き住戸</span><b>${(st.vacancy * 100).toFixed(1)}<i>%</i></b><span>入居できない転入希望</span><b>${st.pentUp.toFixed(1)}<i>世帯/月</i></b></div>
       ${hist.length > 2 ? `<div class="chartbox"><h4>人口の推移 <small>人</small></h4>${sp(hist.map(h => h.pop), 'hpop', v => n0(v))}</div>` : ''}
       <table class="t"><tr><th>世帯類型</th><th>世帯</th><th>満足度</th></tr>${HH_NAMES.map((n, t) => `<tr><td>${n}</td><td>${n0(st.hhByType[t])}</td><td>${pct(st.satType[t])}</td></tr>`).join('')}</table>
@@ -1583,7 +1585,7 @@ export class UI {
     }
     const b = s.buildings.find(o => o.id === sel.b)!, d = DEFS[b.kind];
     const al = authorityLabel(b.kind), auth = `${al.name}（${al.actor}）— ${al.how}${al.why ? '。' + al.why : ''}`; // v90：5 つの行動種別
-    let h = `<h3>${b.name ? `${bname(b)} <small class="note">${d.name}</small>` : d.name}${b.sandbox ? ' <span class="tag">直接配置</span>' : ''}${close}</h3><p class="own">所有・運営：${d.owner}<br>市の権限：${auth}</p>${b.osm ? '<p class="note">地図の建物から推計した街区です（30m 四方の区画ごと）。戸数・世帯構成はゲームの推計で、実際の値ではありません。</p>' : b.name ? '<p class="note">名前と位置は OpenStreetMap。定員・職員・老朽度などはゲームの設定です。</p>' : ''}`;
+    let h = `<h3>${b.name ? `${bname(b)} <small class="note">${d.name}</small>` : d.name}${b.sandbox ? ' <span class="tag">直接配置</span>' : ''}${close}</h3><p class="own">所有・運営：${d.owner}<br>市の権限：${auth}</p>${b.osm ? '<p class="note">地図の建物から推計した街区です（30m 四方の区画ごと）。戸数・世帯構成はゲームの推計で、実際の値ではありません。</p>' : b.name ? '<p class="note">名前と位置は OpenStreetMap（実データ）。定員・職員・老朽度・費用などはゲーム上の仮定で、実際の施設の値ではありません。</p>' : ''}`;
     { const ai = idx(b.x, b.y), td = hasSea(s) ? tsunamiDepth(s, designWave(s))[ai] : 0; h += `<p class="note elev">⛰ 海抜 ${altitude(s, ai).toFixed(1)}m${hasSea(s) ? `・海から ${n0(Math.max(0, seaDist(s, ai)) * 30)}m・想定の津波（${designWave(s)}m）で${td > 0.05 ? `<b style="color:var(--bad)">浸水 ${td.toFixed(1)}m</b>` : '浸水しない'}` : ''}${liquefyRisk(s, ai) ? '・<b style="color:var(--warn)">液状化のおそれ</b>' : ''}</p>`; }
     if (b.status === 'construction') h += `<p><span class="tag">工事中</span> 残り ${b.remain} か月（工期 ${b.total} か月）</p>`;
     else if (b.status === 'renewing') h += `<p><span class="tag warn">更新工事中</span> 残り ${b.remain} か月。工事中の能力は ${pct(d.renewFactor)}</p>`;

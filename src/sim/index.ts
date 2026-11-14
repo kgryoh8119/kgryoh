@@ -15,7 +15,7 @@ export { forecast, forecastAsync, SCENARIOS } from './forecast';
 export type { ForecastRow, ForecastSet } from './forecast';
 export { serialize, deserialize, saveMapId, SAVE_VERSION } from './save';
 export { LEVELS, MEDALS, RANK_CATS, N_CITIES, MAYOR_DIFF, mayorDiff, levelOf, blockOf, blockRect, blockName, isLocked, annexable, initLocks, newMayor, rankScores, computeRank, BX, BY, LOCK_MSG } from './mayor';
-export { REAL, RF, LOT_KINDS, setMap, onMapChange, MAP_ID, MAP_RAW } from './real';
+export { REAL, RF, LOT_KINDS, setMap, onMapChange, MAP_ID, MAP_RAW, dataSource, DATA_REAL, DATA_EST } from './real';
 export { MAPS, mapEntry, baseEntry, isDeformedId } from '../maps/registry';
 export type { MapEntry } from '../maps/registry';
 export { OPTIONS, OPT, optionsFor, optSlots, optCost, STYLES, STYLE_COST, sponsorOf, optIncome, optUpkeep } from './options';
