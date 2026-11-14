@@ -1013,7 +1013,7 @@ export class View {
     const junction0 = (n: number) => n >= 3;
     this.clearGroup('roads');
     const m = this.map, g = new Geo();
-    const lampPos: number[] = [], vendPos: number[] = [];
+    const lampPos: number[] = [], vendPos: number[] = [], sigPos: number[] = [];
     const pool = new Geo(true), kit = new Geo(true); // kit：路面の文字・矢印と標識の面（v86）
     const poles = new Map<number, [number, number, number]>();
     this.roadTiles = []; this.roadW = []; this.pedTiles = [];
@@ -1107,7 +1107,7 @@ export class View {
         for (let k = 0; k <= 24; k++) { const a = (k / 24) * Math.PI / 2; for (const off of [-(bendA - 0.3), bendA - 0.3]) dot(a, 15 + off, 0.09, 0xdcdcd8); if (t >= 2 && k % 4 < 2) dot(a, 15, 0.12, t === 3 ? 0xf2c230 : 0xeeeeea); }
       }
       // v86：路面標示（等級・幅・交差点の形ごと）、縁石・側溝・植樹帯・ガードパイプ・信号機・標識（render/roadkit.ts）
-      if (!bend) roadTile({ g, kit, s, i, x, y, t, cx, cz, hw, Wd, aE, aW, aS, aN, nConn, kerbless, stone, wide: wideT, ak, hA, mark, sig: sig[i] === 1, fine: fineR, hi: hiR, conn: connAt, lamps: lampPos });
+      if (!bend) roadTile({ g, kit, s, i, x, y, t, cx, cz, hw, Wd, aE, aW, aS, aN, nConn, kerbless, stone, wide: wideT, ak, hA, mark, sig: sig[i] === 1, fine: fineR, hi: hiR, conn: connAt, lamps: lampPos, sigs: sigPos });
       // 電柱・街灯
       const ew = !!(cE || cW), ns = !!(cS || cN);
       const px = cx + (ns ? -(Wd - 0.6) : 0), pz = cz + (ew ? -(Wd - 0.6) : (ns ? 0 : -(Wd - 0.6)));
@@ -1183,11 +1183,39 @@ export class View {
     this.lamps = new THREE.Points(lg, this.matLamp); this.lamps.frustumCulled = false; this.scene.add(this.lamps);
     if (this.vends) { this.scene.remove(this.vends); this.vends.geometry.dispose(); }
     { const vg = new THREE.BufferGeometry(); vg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vendPos), 3)); this.vends = new THREE.Points(vg, this.matVend); this.vends.frustumCulled = false; this.scene.add(this.vends); }
+    this.buildSigLights(sigPos);
     if (this.pools) { this.scene.remove(this.pools); this.pools.geometry.dispose(); }
     this.pools = new THREE.Mesh(pool.build(), this.matPool); this.pools.frustumCulled = false; this.pools.renderOrder = 3; this.scene.add(this.pools);
     if (this.agentRoadVer !== s.roadVersion * 1000 + sid(s)) { this.agentRoadVer = s.roadVersion * 1000 + sid(s); this.spawnAgents(); }
   }
   private agentRoadVer = -1;
+  // v89：信号の灯（車両用の青・黄・赤、歩行者用の赤・青）。灯だけを 1 つの InstancedMesh と、遠くからも分かる光の点（Points）にまとめ、周期の変わり目に色だけ塗り替える
+  private sigMesh: THREE.InstancedMesh | null = null; private sigPts: THREE.Points | null = null; private sigData: number[] = []; private sigKey = '';
+  private matSig = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false });
+  private matSigPt = new THREE.PointsMaterial({ size: 2.4, sizeAttenuation: true, vertexColors: true, transparent: true, opacity: 0.4, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+  private buildSigLights(d: number[]): void {
+    for (const o of [this.sigMesh, this.sigPts]) if (o) { this.scene.remove(o); o.geometry.dispose(); }
+    this.sigMesh = this.sigPts = null; this.sigData = d; this.sigKey = ''; const n = d.length / 7; if (!n) return;
+    const m = new THREE.InstancedMesh(new THREE.BoxGeometry(0.34, 0.34, 0.05), this.matSig, n), M = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), p = new THREE.Vector3(), sc = new THREE.Vector3(1, 1, 1), pts = new Float32Array(n * 3);
+    for (let k = 0; k < n; k++) { const b = k * 7, nx = d[b + 3], nz = d[b + 4]; q.setFromAxisAngle(up, Math.atan2(nx, nz)); m.setMatrixAt(k, M.compose(p.set(d[b], d[b + 1], d[b + 2]), q, sc)); m.setColorAt(k, this.tmpC.setRGB(0, 0, 0));
+      pts[k * 3] = d[b] + nx * 0.25; pts[k * 3 + 1] = d[b + 1]; pts[k * 3 + 2] = d[b + 2] + nz * 0.25; } // 光の点は灯器の少し前へ（後ろからは灯器の箱に隠れる）
+    m.frustumCulled = false; this.sigMesh = m; this.scene.add(m);
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pts, 3)); g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    this.sigPts = new THREE.Points(g, this.matSigPt); this.sigPts.frustumCulled = false; this.sigPts.renderOrder = 4; this.scene.add(this.sigPts);
+  }
+  /** 車・歩行者と同じ周期（36 秒、前半は東西・後半は南北が青、各半分の終わり 2 秒が黄）で点灯を決める。歩行者の青は黄の前の 4 秒に点滅し、黄からは赤 */
+  private sigLights(cyc: number, axis: number, amber: boolean): void {
+    if (!this.sigMesh || !this.sigPts) return;
+    const ph = cyc % 18, blink = ph > 11.5 && ph <= 15, on = !blink || (ph * 4 | 0) % 2 === 0, key = `${axis}${amber ? 1 : 0}${on ? 1 : 0}`;
+    const n = this.night; this.matSig.color.setScalar(1.3 + 2.2 * n); this.matSigPt.opacity = 0.35 + 0.55 * n; this.matSigPt.size = 2.4 * Math.max(1, Math.min(3, this.dist / 400));
+    if (key === this.sigKey) return; this.sigKey = key;
+    const d = this.sigData, nn = d.length / 7, ca = this.sigPts.geometry.attributes.color as THREE.BufferAttribute, c = this.tmpC;
+    const LIT = [0x1ee0b4, 0xffb020, 0xff3020, 0xff3a2a, 0x2ee8c0], OFF = [0x0c2a24, 0x2e240c, 0x2e0e0c, 0x2e100c, 0x0c2a24];
+    for (let k = 0; k < nn; k++) { const kind = d[k * 7 + 5], mine = d[k * 7 + 6] === axis;
+      const lit = kind === 0 ? mine && !amber : kind === 1 ? mine && amber : kind === 2 ? !mine : kind === 3 ? !mine || amber : mine && !amber && on;
+      c.setHex(lit ? LIT[kind] : OFF[kind]); this.sigMesh.setColorAt(k, c); if (lit) ca.setXYZ(k, c.r, c.g, c.b); else ca.setXYZ(k, 0, 0, 0); }
+    this.sigMesh.instanceColor!.needsUpdate = true; ca.needsUpdate = true;
+  }
   private infraV = -1; private infraK = '';
   /** トンネルの区画（路面を描かず、車と人は山の中を通る＝見えない） */
   tunnelSet = new Set<number>();
@@ -2251,10 +2279,13 @@ export class View {
       else if (r < 0.14) { vm = 9; vc = pk([0x24262a, 0x24262a, 0xf4f4f2, 0xe8c840, 0x2f8a5a]); }
       else if (r < 0.2) { const u = (r - 0.14) / 0.06, T: [number, number, number[], number][] = [[0.24, WV('moto'), [0x24262a, 0xc0392b, 0x2a5fb0, 0xd8d8d8], 1.0], [0.4, WV('roadbike'), [0xd8382c, 0x24262a, 0xf2f2f2, 0x2a8ac8], 0.75], [0.58, WV('mamachari'), [0xf2f2f2, 0x6a8a4a, 0x8a6a4a, 0x2a2c33], 0.45], [0.68, WV('kick'), [0x2aa060, 0x24262a, 0xe8c030], 0.55], [0.76, WV('postbike'), [0xc8261c], 0.6], [0.8, WV('kitchen'), [0xe8c030, 0x6ab0d8, 0xf2c8d4], 1], [0.88, WV('welfare'), [0xf4f4f2, 0xc4c8cc], 1], [0.95, WV('kyoshu'), [0xf4f4f2], 0.75], [1, WV('whitebike'), [0xf6f6f2], 1.1]];
         const e = T.find(x => u < x[0]) ?? T[0]; vm = e[1]; vc = pk(e[2]); a.speed *= e[3]; }
+      else if (r < 0.2 + this.deliP()) { const b = R() < 0.55; vm = WV(b ? 'delibike' : 'delimoto'); vc = pk([0x1c1e22, 0x2a8a4a, 0xc8302a, 0x58b8d8, 0xe8a020]); a.speed *= b ? 0.65 : 0.95; } // v89：フードデリバリー（保温バッグの色）
       else { const kd = carKindOf(q); vm = VEH_MODELS.indexOf(kd); vc = carColor(R(), kd === 'kei' || kd === 'keitruck'); } }
     if (vm >= 10 && vm <= 12) a.speed *= 1.12;
     a.vm = vm; a.vc = vc; a.v = undefined;
   }
+  /** v89：フードデリバリーの配達員の割合（全体の車のうち）。昼（11〜14 時）と夜（18〜22 時）に増える */
+  private deliP(): number { const h = this.hour; return h >= 11 && h < 14 ? 0.03 : h >= 18 && h < 22 ? 0.035 : h >= 7 && h < 23 ? 0.006 : 0.002; }
   private vehKind(s: GameState): number {
     let bus = 0.03 + Math.min(0.05, (s.busStops?.length ?? 0) * 0.002), truck = 0.05; // バス停が多いと路線バスが増える
     for (const b of s.buildings) { if (b.status !== 'operating') continue; if (b.kind === 'busTerminal' || b.kind === 'lrt') bus += 0.03; else if (b.kind === 'station') bus += 0.01; else if (b.kind === 'logistics' || b.kind === 'factory' || b.kind === 'port' || b.kind === 'industrialPark' || b.kind === 'ic') truck += 0.025; }
@@ -2764,6 +2795,7 @@ export class View {
         if (nx) for (const o of nx) if (o.id >= 0 && (ce[o.id] as any)?.em) lim = Math.min(lim, 1 + o.t - (me + o.hl + 3) / TILE); }
       (a as any).limit = lim; });
     const sigG = this.signals(s), cyc = this.lifeT % 36, sigAxis = cyc < 18 ? 0 : 1, amber = cyc % 18 > 15, h = this.hour;
+    this.sigLights(cyc, sigAxis, amber);
     const stepPed = (a: Agent, i: number) => {
       const ld = a.lead !== undefined ? this.peds[a.lead] : null, L = a.L!;
       if (ld) { a.cur = ld.cur; a.next = ld.next; a.prev = ld.prev; a.t = ld.t; a.lane = ld.lane; a.wait = ld.wait; a.enter = ld.enter; a.exit = ld.exit; a.speed = ld.speed; }
