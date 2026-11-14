@@ -290,13 +290,17 @@ export function trialOptions(s: GameState, issue: Issue): TrialOption[] {
     const p = POLICIES.find(x => x.id === id); if (!p || s.policies[id]?.on) continue;
     out.push({ label: `政策「${p.name}」を始める`, actions: [{ type: 'policy', id, on: true }], note: `月 ${policyCost(s, p)} 万円。効果は ${p.ramp} か月かけて出そろいます`, cost: policyCost(s, p) });
   }
+  for (const f of TRIAL_SRC) { try { out.push(...f(s, issue)); } catch { /* 足した側の誤りで課題の画面を止めない */ } }
   return out;
 }
+const TRIAL_SRC: ((s: GameState, issue: Issue) => TrialOption[])[] = [];
+/** 課題の対策の候補を外から足す（ループ担当の loopOptions をつなぐ入口） */
+export function registerTrialOptions(f: (s: GameState, issue: Issue) => TrialOption[]): void { TRIAL_SRC.push(f); }
 export interface TrialResult { ok: boolean; msg: string; ids: string[]; now: Record<string, number>; without: Expect; with: Expect }
 /** 対策を実行した場合としない場合の 12 か月後（同じ指標で並べる） */
 export function compareTrial(s: GameState, actions: Action[], issueKey: string): TrialResult {
   const now = indicatorValues(s), a = projectBands(s, [], 12, [12]), b = projectBands(s, actions, 12, [12]);
-  const ids = [...new Set([...issueIndicators(issueKey), 'operating', 'sat', 'pop'])];
+  const ids = issueKey === '*' ? REG.map(d => d.id) : [...new Set([...issueIndicators(issueKey), 'operating', 'sat', 'pop'])];
   return { ok: b.ok, msg: b.ok ? '' : b.msg, ids, now, without: a.expect, with: b.expect };
 }
 

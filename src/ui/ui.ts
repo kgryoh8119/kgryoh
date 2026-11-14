@@ -505,7 +505,7 @@ export class UI {
           this.confirmPlay = false; st.mode = 'sandbox'; st.goalPick = false; st.notes.push('🧱 自由建築に切り替えました。「直」の道具で、費用も土地の持ち主も気にせず建物を置けます。選挙はありません'); this.menu = false; this.renderModal(); this.renderTools(); this.refresh(); }
         break; }
       case 'ptrial': { const p = POLICIES.find(x => x.id === arg); if (!p) break; const on = !!g.state.policies[p.id]?.on; this.ptrial = { id: p.id, busy: true, res: null }; this.renderSide();
-        setTimeout(() => { if (this.ptrial?.id !== p.id) return; this.ptrial.res = compareTrial(g.state, [{ type: 'policy', id: p.id, on: !on }], 'sat'); this.ptrial.busy = false; this.renderSide(); }, 30); break; }
+        setTimeout(() => { if (this.ptrial?.id !== p.id) return; this.ptrial.res = compareTrial(g.state, [{ type: 'policy', id: p.id, on: !on }], '*'); this.ptrial.busy = false; this.renderSide(); }, 30); break; }
       case 'vpol': { this.tab = 'policy'; this.renderSide(); requestAnimationFrame(() => { const e = document.getElementById('pol-' + arg)?.closest('.card') as HTMLElement | null; if (e) { e.scrollIntoView({ block: 'start' }); e.classList.add('f90-flash'); setTimeout(() => e.classList.remove('f90-flash'), 1600); } }); break; }
       case 'vsel': { const k = Number(arg), v = s.voices[k]; this.vsel = this.vsel === k ? -1 : k;
         if (v && this.vsel === k) { const d = voiceDistrict(s, v), t = v.tile >= 0 ? v.tile : d >= 0 ? districtCenter(s, d) : -1; if (t >= 0) this.view.focus(t, 520); if (v.layer !== 'none') { this.view.layer = v.layer; this.view.refreshOverlay(); this.renderViewbar(); } }

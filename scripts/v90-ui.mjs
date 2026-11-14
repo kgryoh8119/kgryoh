@@ -7,7 +7,10 @@ fs.mkdirSync(OUT, { recursive: true });
 const phone = !!process.env.PHONE, tag = phone ? 'sp' : 'pc';
 if (phone) process.env.MOBILE = '1';
 const { browser, page, errors } = await open(phone ? 390 : 1280, phone ? 844 : 800);
-const shot = async n => { await page.waitForTimeout(300); await page.screenshot({ path: `${OUT}/${tag}-${n}.png` }); console.log('shot', n); };
+// 3D はソフトウェア描画で 1 コマ数秒かかるため、毎フレームの描画を止め、撮る前に数コマだけ描く
+await page.evaluate(() => { const v = window.__sumu.view; v.__frame = v.frame; v.frame = () => {}; });
+const draw = (n = 4) => page.evaluate(n => { const v = window.__sumu.view; for (let i = 0; i < n; i++) v.__frame.call(v, 0.25); }, n);
+const shot = async (n, frames = 2) => { await draw(frames); await page.waitForTimeout(200); await page.screenshot({ path: `${OUT}/${tag}-${n}.png` }); console.log('shot', n); };
 await page.evaluate(() => { const S = window.__sumu; S.view.setQuality('low'); S.fixedQuality = true; const g = S.game; g.state.tutorial.done = true; g.state.goalPick = false; g.state.goals = [{ id: 'wait', base: 0, target: 10, diff: 1 }]; S.ui.refresh(); S.ui.renderModal(); });
 await page.waitForTimeout(800);
 const openPanel = async () => { if (phone) { const closed = await page.evaluate(() => document.getElementById('side').classList.contains('closed')); if (closed) await page.click('.tool.panelbtn'); await page.waitForTimeout(300); } };
@@ -22,8 +25,8 @@ await page.evaluate(() => document.querySelector('.issues')?.scrollIntoView());
 await shot('01-issues');
 checks.first = await page.$eval('.issues', e => !!e.querySelector('.f90-first'));
 await page.click('.issues [data-act="ix"][data-arg^="cause|"]');
-await page.waitForTimeout(1200); await page.evaluate(() => document.querySelector('.f90-box')?.scrollIntoView({ block: 'center' }));
-await shot('02-cause');
+await page.waitForTimeout(300); await page.evaluate(() => document.querySelector('.f90-box')?.scrollIntoView({ block: 'center' }));
+await shot('02-cause', 6);
 checks.cause = await page.$$eval('.f90-box', e => e.length);
 await page.click('.issues [data-act="ix"][data-arg^="trial|"]');
 await page.waitForSelector('.f90-cmp', { timeout: 60000 });
@@ -72,7 +75,7 @@ checks.overPolicy = await overflow();
 await tab('voice');
 const vq = await page.$('.voice [data-act="vsel"]');
 if (vq) { await vq.click(); await page.waitForTimeout(1500); await page.evaluate(() => document.querySelector('.f90-vd')?.scrollIntoView({ block: 'center' })); }
-await shot('10-voice');
+await shot('10-voice', 6);
 checks.voice = await page.$$eval('.f90-vd', e => e.length);
 checks.overVoice = await overflow();
 // 建設メニューの詳細
