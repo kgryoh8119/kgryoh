@@ -14,6 +14,7 @@ import { rngNext } from './rng';
 import { applyEffect, tickEvents, addBuilding, removeBuilding } from './events';
 import type { GameState, Building, Ledger, ElectionResult, Kind, Sport, Team } from './types';
 import { NHH } from './types';
+import { logOf, recordClose, chargeLevy, pipelineUnits } from './loopHooks';
 import { updateMacro, sectorK, rateAdd, macroOf, sectorOf } from './macro';
 import { updateThreats } from './threats';
 import { updateRailDev } from './raildev';
@@ -344,6 +345,7 @@ export function stepMonth(s: GameState, opts: { forecast?: boolean } = {}): void
   st.deaths = Math.round(deaths * 10) / 10; st.births = Math.round(births * 10) / 10;
   { const hh1 = res.reduce((a, r) => a + sumHH(r), 0); demoAdd(s, { marry: dm[0], school: dm[1], leave: dm[2], retire: dm[3], birth: births, death: deaths, inHH: placed, outHH: Math.max(0, hh0 + placed - hh1 - dm[4]) }); }
   st.pentUp = 0.5 * st.pentUp + 0.5 * Math.max(0, unplaced);
+  logOf(s).inHH = placed; // v90：今月の転入世帯（ゲームループの指標）
 
   // 5. 店舗：閉店と開業
   const grace = modAdd(s, 'shopGrace');
@@ -352,13 +354,13 @@ export function stepMonth(s: GameState, opts: { forecast?: boolean } = {}): void
     const d = DEFS[b.kind];
     if (s.month <= b.builtMonth) continue;
     if (b.revenue * P.margin < d.fixed!) b.lossStreak = (b.lossStreak ?? 0) + 1; else b.lossStreak = Math.max(0, (b.lossStreak ?? 0) - 1);
-    if (!b.sandbox && !b.name && b.lossStreak! >= P.closeStreak + grace) removeBuilding(s, b); // 地図にある既存の店（名前つき）は赤字でも閉めない（ゲームの仮定）
+    if (!b.sandbox && !b.name && b.lossStreak! >= P.closeStreak + grace) { removeBuilding(s, b); recordClose(s); } // 地図にある既存の店（名前つき）は赤字でも閉めない（ゲームの仮定）
   }
   tryOpenShop(s);
   tryOpenBiz(s);
 
   // 6. 民間住宅開発
-  privateHousing(s, waterLv);
+  { const u0 = pipelineUnits(s); privateHousing(s, waterLv); chargeLevy(s, pipelineUnits(s) - u0, modAdd(s, 'devLevy')); } // v90：開発負担金
 
   // 7. 未接続のまま空になった住宅は解体される
   for (const r of [...s.buildings]) {
@@ -366,11 +368,12 @@ export function stepMonth(s: GameState, opts: { forecast?: boolean } = {}): void
     if (!r.connected && sumHH(r) < 0.5) { r.lossStreak = (r.lossStreak ?? 0) + 1; if (r.lossStreak >= 12) removeBuilding(s, r); } else r.lossStreak = 0;
   }
 
-  // 8. 老朽化
+  // 8. 老朽化（v90：市の施設は長寿命化・先送りの政策で進み方が変わる）
+  const ageK = modMul(s, 'ageRate');
   for (const b of s.buildings) {
     const d = DEFS[b.kind];
     if (!d.ageRate || b.status === 'construction' || b.status === 'renewing') continue;
-    b.age = Math.min(100, b.age + d.ageRate * (b.status === 'operating' ? 1 : 0.5));
+    b.age = Math.min(100, b.age + d.ageRate * (b.status === 'operating' ? 1 : 0.5) * (isCity(b.kind) ? ageK : 1));
     if (b.age >= 100 && b.status === 'operating' && isCity(b.kind)) { b.status = 'suspended'; s.bVersion++; }
   }
   const rAge = modMul(s, 'roadAge'), rFix = modAdd(s, 'roadFix');
@@ -383,6 +386,7 @@ export function stepMonth(s: GameState, opts: { forecast?: boolean } = {}): void
 
   // 9. 財政
   const L = monthlyBudget(s);
+  { const lv = logOf(s).levyM; if (lv) { L.fees = (L.fees ?? 0) + lv; L.operating += lv; } } // v90：開発負担金は今月の収入
   L.capital = s.pending.capital; L.other = s.pending.other; L.borrowed = s.pending.borrowed; L.repay = s.pending.repay ?? 0; // 繰り上げ返済（一時借入）
   L.cashStart = s.pending.cashStart ?? s.cash + s.pending.capital + s.pending.other - s.pending.borrowed + (s.pending.repay ?? 0);
   s.cash += L.operating;
@@ -516,13 +520,14 @@ function privateHousing(s: GameState, waterLv: number): void {
     else if (b.connected) { units += b.units!; vacant += Math.max(0, b.units! - sumHH(b)); }
   }
   const sDist = stationDist(s);
+  const maxStarts = Math.max(1, Math.round(P.devMaxStarts * modMul(s, 'devCap'))); // v90：開発負担金で事業者の着工が減る
   const all = modMul(s, 'dev:all');
   const mul = [1, modMul(s, 'dev:1'), modMul(s, 'dev:2'), modMul(s, 'dev:3')];
   // 線引きと立地適正化：市街化調整区域は原則として家が建たない。居住誘導区域を決めると、そこに建ちやすく、外には建ちにくい
   const ar = s.area, hasYudo = !!ar && ar.some(v => v === 2);
   const areaMul = (i: number) => !ar ? 1 : ar[i] === 1 ? 0.1 : ar[i] === 2 ? 1.3 : 1;
   let starts = 0;
-  for (let i = 0; i < N && starts < P.devMaxStarts; i++) {
+  for (let i = 0; i < N && starts < maxStarts; i++) {
     const z = s.zone[i];
     if (z < 1 || z > 3 || s.occ[i] || s.road[i] || !buildable(m, i)) continue;
     const x = i % W, y = (i / W) | 0;
@@ -540,7 +545,7 @@ function privateHousing(s: GameState, waterLv: number): void {
   }
   // 用途を引き上げた既存の住宅は、需要があれば民間が建て替える。住んでいた世帯は転居する
   // （実在都市版は地図の街区。架空の街は建ってから P.redevAge か月たった住宅）
-  if (starts >= P.devMaxStarts) return;
+  if (starts >= maxStarts) return;
   const LV: Partial<Record<Kind, number>> = { house: 1, apartment: 2, mansion: 3, towerMansion: 4 };
   // 駅のすぐ近くの分譲マンションは、人口 2 万人を超えるとタワーマンションに建て替わることがある
   const towerOK = (b: { kind: Kind; acc: number }) => b.kind === 'mansion' && st.pop >= P.towerPop && !!sDist && b.acc >= 0 && sDist[b.acc] >= 0 && sDist[b.acc] <= P.towerStationRange;
@@ -548,7 +553,7 @@ function privateHousing(s: GameState, waterLv: number): void {
   const pressure = clamp((P.targetVacancy - vEff) / P.targetVacancy) + Math.min(1, st.pentUp / 12);
   const cands = s.buildings.filter(b => (REAL ? b.osm : isRes(b.kind) && b.w === 1 && b.h === 1 && s.month - b.builtMonth >= P.redevAge) && b.status === 'operating' && b.connected && (s.zone[idx(b.x, b.y)] > (LV[b.kind] ?? 9) || (s.zone[idx(b.x, b.y)] === 3 && towerOK(b))) && s.zone[idx(b.x, b.y)] <= 3);
   for (const b of cands) {
-    if (starts >= P.devMaxStarts) break;
+    if (starts >= maxStarts) break;
     const z = s.zone[idx(b.x, b.y)];
     const p = P.devProb[z] * Math.min(1.5, Math.max(0.15, pressure)) * all * mul[z] * P.redevRate;
     if (rngNext(s) >= p) continue;

@@ -1,6 +1,7 @@
 // 設定データ。ここの数値は全てゲーム用の仮定で、実在の制度・統計の値ではない。
 // 係数・施設・政策はこのファイルを書き換えれば変えられる。
 import type { Kind, Pledge } from './types';
+import { LOOP_POLICIES } from './loopPolicies';
 
 import { REAL, MAP_ID, onMapChange } from './real';
 import { mapEntry } from '../maps/registry';
@@ -1199,7 +1200,7 @@ export const POLICIES: PolicyDef[] = [
     desc: '地域の子ども食堂に場所代と食材費を補助し、学習支援もつなげます。',
     who: '子育て世帯', why: '子育て世帯の満足が少し上がり、支持率も上がります。',
     effects: [{ key: 'sat:2', op: 'add', v: 0.008 }, { key: 'sat:3', op: 'add', v: 0.012 }, { key: 'approval', op: 'add', v: 0.008 }],
-  },
+  },  ...LOOP_POLICIES, // v90：3 つのゲームループの対策（loopPolicies.ts）
 ];
 
 export const PLEDGES: Pledge[] = [

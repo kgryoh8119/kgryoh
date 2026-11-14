@@ -37,6 +37,7 @@ const TSP = ['soccer', 'baseball', 'basket'] as const;
 const teamPick = (s: GameState, f: (t: NonNullable<GameState['teams']>[number]) => boolean) => { const l = (s.teams ?? []).filter(t => SPORTS[t.sport] && s.buildings.some(b => SPORTS[t.sport].venue.includes(b.kind) && b.status === 'operating') && f(t)); return l.length ? l[s.month % l.length] : null; };
 const cityNursery = (s: GameState) => s.buildings.filter(b => fam(b.kind) === 'care' && isCity(b.kind) && b.status === 'operating');
 import { threatLv } from './threats';
+import { renewCostOf } from './loopHooks';
 const r0 = (v: number) => Math.round(v);
 /** できごとの起きる月を、地図の種と月から決める（0〜1） */
 const hh = (s: GameState, k: number) => { const v = Math.sin(s.seed * 0.0137 * k + s.month * (1.37 + k * 0.211) + k * 7.7) * 43758.5453; return v - Math.floor(v); };
@@ -1106,6 +1107,12 @@ export function damage(s: GameState, what: 'quake' | 'flood' | 'fire' | 'snow' |
   return out;
 }
 let dmgDepth = 0;
+/** v90：水道施設の古さで地震の被害の大きさを変える（老朽度 0 で 0.7 倍、100 で 1.5 倍。全部が新しい街は少し強い） */
+export function waterOldK(s: GameState): number {
+  const w = s.buildings.filter(b => fam(b.kind) === 'water' && isCity(b.kind) && b.status !== 'construction');
+  if (!w.length) return 1;
+  return 0.7 + 0.8 * w.reduce((a, b) => a + b.age, 0) / w.length / 100;
+}
 function damage0(s: GameState, what: 'quake' | 'flood' | 'fire' | 'snow' | 'slide' | 'wind' | 'tsunami' | 'liquefy', v: number, target = -1): string {
   // 自衛隊の駐屯地があると初動が早く被害が小さい。シェルターの整備（disasterDmg）も効く
   const st = s.stats, prep = st.pop > 0 ? Math.min(1, st.shelterCap / (st.pop * 0.4)) : 1, k = v * (1 - 0.5 * prep) * modMul(s, 'disasterDmg') * (hasOp(s, 'sdfBase') ? 0.8 : 1);
@@ -1116,7 +1123,7 @@ function damage0(s: GameState, what: 'quake' | 'flood' | 'fire' | 'snow' | 'slid
       else if (isCity(b.kind) && b.status === 'operating' && b.age > 40) { b.age = Math.min(99, b.age + 22 * k); hit++; }
     }
     for (let i = 0; i < W * H; i++) if ((s.road[i] === 1 || s.road[i] === 2) && rngNext(s) < 0.15) s.roadAge[i] = Math.min(100, s.roadAge[i] + 35 * k);
-    s.modifiers.push({ key: 'waterCap', op: 'mul', v: 1 - 0.25 * k, until: s.month + 6, cost: 0, src: '地震による水道の被害' });
+    s.modifiers.push({ key: 'waterCap', op: 'mul', v: Math.max(0.3, 1 - 0.25 * k * waterOldK(s)), until: s.month + 6, cost: 0, src: '地震による水道の被害' }); // v90：古い水道ほど被害が大きい
     return ` 被害：古い市の施設 ${hit} か所が傷み、市道の一部が壊れました。約 ${Math.round(lost)} 世帯が市外へ避難しました。備え（避難所・備蓄）の水準 ${Math.round(prep * 100)}%。`;
   }
   if (what === 'liquefy') {
@@ -1214,11 +1221,12 @@ export function startRenew(s: GameState, b: Building): Result {
   const d = DEFS[b.kind];
   if (!d.renewCost) return { ok: false, msg: 'この施設は更新できません' };
   if (b.status !== 'operating' && b.status !== 'suspended') return { ok: false, msg: '工事中は更新を始められません' };
-  if (s.cash < d.renewCost) return { ok: false, msg: `資金が足りません（更新費 ${d.renewCost.toLocaleString()} 万円）` };
-  s.cash -= d.renewCost; s.pending.capital += d.renewCost;
+  const rc = renewCostOf(b); // v90：老朽度 80 を超えて先送りした施設は更新費が高い
+  if (s.cash < rc) return { ok: false, msg: `資金が足りません（更新費 ${rc.toLocaleString()} 万円）` };
+  s.cash -= rc; s.pending.capital += rc;
   b.status = 'renewing'; b.remain = d.renewMonths; b.total = d.renewMonths;
   s.bVersion++;
-  return { ok: true, msg: `${d.name}の更新工事を始めました`, cost: d.renewCost };
+  return { ok: true, msg: `${d.name}の更新工事を始めました${rc > d.renewCost ? `（傷みが進んでいたため、更新費は ${rc.toLocaleString()} 万円）` : ''}`, cost: rc };
 }
 
 export function applyEffect(s: GameState, e: Effect, target: number, src: string): void {
@@ -1316,7 +1324,7 @@ export function resolveEvent(s: GameState, id: string, option: number, auto = fa
   const def = eventDef(id), opt = def.options[option];
   if (!opt) return { ok: false, msg: '選択肢がありません' };
   const renewB = s.buildings.find(o => o.id === inst.target);
-  const need = Math.max(opt.cost, opt.effects.reduce((a, e) => a + (e.t === 'cash' && !('delay' in e && e.delay) ? -e.v : e.t === 'renew' ? DEFS[renewB?.kind ?? e.kind].renewCost : 0), 0));
+  const need = Math.max(opt.cost, opt.effects.reduce((a, e) => a + (e.t === 'cash' && !('delay' in e && e.delay) ? -e.v : e.t === 'renew' ? (renewB ? renewCostOf(renewB) : DEFS[e.kind].renewCost) : 0), 0));
   // 資金が足りないときも選べるようにする（足りない分は自動で一時借入。高い利子がつく）。どの選択肢も選べず先へ進めなくなるのを防ぐ
   let borrowed = 0;
   if (need > s.cash + 1e-6) { borrowed = Math.ceil((need - Math.max(0, s.cash)) / 100) * 100; s.loans.push({ principal: borrowed, remaining: borrowed, rate: P.tempRate, months: P.tempMonths, kind: 'temp' }); s.cash += borrowed; s.pending.borrowed += borrowed; }

@@ -31,3 +31,6 @@ export * from './macro';
 export { monthlyIssues, allIssues, careCause, ISSUE_W } from './issues';
 export type { Issue, IssueOption } from './issues';
 export * from './isle';
+export { LOOPS, INDICATORS, loopIndicators, loopOptions, expectOf, districtIndicators, rentBurden, disasterLoss, siteNear, loopOfIssue } from './loops';
+export type { LoopId, IndicatorId, IndicatorDef, LoopOption, LoopOptionsOpts } from './loops';
+export { renewCostOf, DEFER_PREMIUM, BIG_STORES } from './loopHooks';
