@@ -19,7 +19,7 @@ import {
   stationStats, FREQS, DOOR_COST, SUBWAY_COST, BIDS, bidChance, STYLES_M, REC_PLANS, hasOp, terrainOf, isCastaway, missionsFor, calMonth, POSTS, candidates, execOf, landOf, landPrices, routeStats, FREQ, MAX_ROUTES, citsOf, CIT_N, voteForecast, FACTIONS, PLANS, LOBBY_COST, SPEECH_COST, ADS_COST, monthsToElection, campaignOpen, PRESS, grantChance, PETITION_COST, GRANTS, GRANT_COOL, APPLY_COST, FESTS, pyramid, projection,
   authorityLabel, currentOffice,
   dataSource,
-  riskOutlook,
+  riskOutlook, renewCostOf,
 } from '../sim/index';
 import type { GameState, Building, Kind, Zone, Layer, ForecastSet, Action, TilePlan, Cat, TerraOp, MissionDef } from '../sim/index';
 import { sound } from '../audio/sound';
@@ -562,8 +562,8 @@ export class UI {
       }
       case 'renewall': {
         // 老朽化で使用停止した施設を、資金の続く限りまとめて更新する（arg は施設の系統。all はすべて）
-        const list = s.buildings.filter(b => isCity(b.kind) && b.status === 'suspended' && b.age >= 99 && (arg === 'all' || fam(b.kind) === arg)).sort((a, b) => DEFS[a.kind].renewCost - DEFS[b.kind].renewCost);
-        let n = 0, cost = 0; for (const b of list) { if (s.cash < DEFS[b.kind].renewCost) break; const r = this.game.act({ type: 'renew', id: b.id }); if (r.ok) { n++; cost += DEFS[b.kind].renewCost; } }
+        const list = s.buildings.filter(b => isCity(b.kind) && b.status === 'suspended' && b.age >= 99 && (arg === 'all' || fam(b.kind) === arg)).sort((a, b) => renewCostOf(a) - renewCostOf(b));
+        let n = 0, cost = 0; for (const b of list) { if (s.cash < renewCostOf(b)) break; const r = this.game.act({ type: 'renew', id: b.id }); if (r.ok) { n++; cost += renewCostOf(b); } }
         this.toast(n ? `使用停止の施設 ${n} か所の更新を始めました（${yenT(cost)}）${n < list.length ? `。残り ${list.length - n} か所は資金が足りません` : ''}` : '資金が足りず、更新できませんでした。市債を発行してください', !n);
         break;
       }
@@ -1691,7 +1691,7 @@ export class UI {
     h += this.growthHtml(b);
     if (isRes(b.kind) && b.status !== 'construction' && !(s.mode === 'sandbox')) { const bc = buyoutCost(s, b); h += `<div class="btnrow"><button class="btn danger" data-act="buyout" data-arg="${b.id}" ${s.cash < bc ? 'disabled' : ''}>用地を買収して撤去（${yenT(bc)}）</button></div><p class="note">民間の住宅なので、土地代と補償を払って買い取ります。住んでいる世帯は転居し、支持率が少し下がります。跡地は空き地（用途の指定なし）になります。</p>`; }
     if (isCity(b.kind)) {
-      h += `<div class="btnrow">${b.status === 'operating' || b.status === 'suspended' ? `<button class="btn" data-act="renew" data-arg="${b.id}" ${s.cash < d.renewCost ? 'disabled' : ''}>更新する（${yenT(d.renewCost)}・${d.renewMonths} か月）</button>` : ''}${b.status === 'operating' ? `<button class="btn" data-act="suspend" data-arg="${b.id}">休止</button>` : b.status === 'suspended' && b.age < 100 ? `<button class="btn" data-act="suspend" data-arg="${b.id}">再開</button>` : ''}<button class="btn danger" data-act="demolish" data-arg="${b.id}">${b.status === 'construction' ? '工事を中止（未施工分の半額返金）' : `撤去（${yenT(d.cost * P.demolishRate)}）`}</button></div>`;
+      h += `<div class="btnrow">${b.status === 'operating' || b.status === 'suspended' ? `<button class="btn" data-act="renew" data-arg="${b.id}" ${s.cash < renewCostOf(b) ? 'disabled' : ''}>更新する（${yenT(renewCostOf(b))}・${d.renewMonths} か月）</button>` : ''}${b.status === 'operating' ? `<button class="btn" data-act="suspend" data-arg="${b.id}">休止</button>` : b.status === 'suspended' && b.age < 100 ? `<button class="btn" data-act="suspend" data-arg="${b.id}">再開</button>` : ''}<button class="btn danger" data-act="demolish" data-arg="${b.id}">${b.status === 'construction' ? '工事を中止（未施工分の半額返金）' : `撤去（${yenT(d.cost * P.demolishRate)}）`}</button></div>`;
     } else if (s.mode === 'sandbox' && (isRes(b.kind) || isShop(b.kind))) h += `<div class="btnrow"><button class="btn danger" data-act="demolish" data-arg="${b.id}">撤去（サンドボックス）</button></div>`;
     el.innerHTML = h;
   }

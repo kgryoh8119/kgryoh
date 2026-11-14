@@ -34,5 +34,10 @@ export type { RiskRow, RiskLevel } from './risk';
 export { monthlyIssues, allIssues, careCause, ISSUE_W } from './issues';
 export type { Issue, IssueOption } from './issues';
 export * from './isle';
-export { registerIndicators, registerTrialOptions, indicators, indicatorOf, indicatorValues, issueIndicators, BASE_INDICATORS, projectBands, recordDecision, fillForecast, updateDecisions, gapsOf, verdictOf, annualReport, actionLabel, trialOptions, compareTrial, findSite, policyTarget, RECORD_KIND, CHECK_AT, MAX_DECISIONS } from './report';
+export { registerIndicators, registerTrialOptions, registerIssueIndicators, onIndicatorValues, indicators, indicatorOf, indicatorValues, issueIndicators, BASE_INDICATORS, projectBands, recordDecision, fillForecast, updateDecisions, gapsOf, verdictOf, annualReport, actionLabel, trialOptions, compareTrial, findSite, policyTarget, RECORD_KIND, CHECK_AT, MAX_DECISIONS } from './report';
 export type { IndicatorDef, Decision, DecisionResult, Gap, AnnualReport, ReportRow, TrialOption, TrialResult, Expect, Band } from './report';
+export { LOOPS, INDICATORS, loopIndicators, loopOptions, expectOf, districtIndicators, rentBurden, disasterLoss, siteNear, loopOfIssue } from './loops';
+export type { LoopId, IndicatorId, IndicatorDef as LoopIndicatorDef, LoopOption, LoopOptionsOpts } from './loops';
+export { renewCostOf, DEFER_PREMIUM, BIG_STORES } from './loopHooks';
+
+import './wire'; // v90：ゲームループの指標と対策を、記録・試算・年次報告につなぐ

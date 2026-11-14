@@ -1,8 +1,9 @@
 // 将来予測。状態の複製に対して月次処理を回す。本番の状態・現金・乱数は変えない。
 import { stepMonth, monthlyBudget } from './step';
 import type { GameState } from './types';
+import { loopIndicators, type IndicatorId } from './loops';
 
-export interface ForecastRow { month: number; pop: number; careDemand: number; careCap: number; wait: number; cash: number; operating: number; renewal: number; debt: number; maxVc: number; sat: number }
+export interface ForecastRow { month: number; pop: number; careDemand: number; careCap: number; wait: number; cash: number; operating: number; renewal: number; debt: number; maxVc: number; sat: number; /** v90：ゲームループの指標（結果の画面と同じ関数） */ loop: Record<IndicatorId, number> }
 export interface ForecastSet { label: string; factor: number; rows: ForecastRow[] }
 
 export const SCENARIOS = [
@@ -14,7 +15,7 @@ export const SCENARIOS = [
 const row = (c: GameState): ForecastRow => ({
   month: c.month, pop: c.stats.pop, careDemand: c.stats.careDemand, careCap: c.stats.careCap, wait: c.stats.waitlist,
   cash: c.cash - c.loans.filter(l => l.kind === 'temp').reduce((a, l) => a + l.remaining, 0),
-  operating: monthlyBudget(c).operating, renewal: c.stats.renewal60, debt: c.stats.debt, maxVc: c.stats.maxVc, sat: c.stats.sat,
+  operating: monthlyBudget(c).operating, renewal: c.stats.renewal60, debt: c.stats.debt, maxVc: c.stats.maxVc, sat: c.stats.sat, loop: loopIndicators(c),
 });
 
 /** 転入の強さを変えた 3 本の試算。イベントは発生させない。 */

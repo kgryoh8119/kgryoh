@@ -288,6 +288,7 @@ export function validateState(s: unknown): string | null {
   if (!Array.isArray(s.history) || s.history.length > 5000 || !s.history.every((h: any) => isObj(h) && ['month', 'pop', 'cash', 'sat', 'wait', 'op', 'maxVc'].every(k => isFin(h[k])))) return '履歴が不正です';
   // ---- 政策・効果・イベント ----
   if (!isObj(s.policies)) return '政策のデータが不正です';
+  if (s.loopLog !== undefined && (!isObj(s.loopLog) || !Array.isArray(s.loopLog.closed) || s.loopLog.closed.length > 60 || !s.loopLog.closed.every(isFin) || !isFin(s.loopLog.levy) || !isFin(s.loopLog.levyM) || !isFin(s.loopLog.inHH))) return 'ゲームループの記録が不正です'; // v90
   for (const p of POLICIES) { const st = s.policies[p.id]; if (st !== undefined && (!isObj(st) || typeof st.on !== 'boolean' || !intIn(st.since, 0, s.month))) return `政策「${p.name}」のデータが不正です`; }
   for (const k of Object.keys(s.policies)) if (!POLICIES.some(p => p.id === k)) return `不明な政策があります（${k}）`;
   if (!Array.isArray(s.modifiers) || s.modifiers.length > 500) return '効果の一覧が不正です';

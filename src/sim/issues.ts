@@ -7,6 +7,7 @@ import { DEFS, GOALS, P, SAT_PARTS, W } from './config';
 import { getMap, isCastaway } from './map';
 import { isleNext, foodSelf } from './isle';
 import { designCap, staffReq } from './core';
+import { loopOfIssue, loopIssueSeeds, type LoopId } from './loops';
 import { goalProgress, tempDebt, fiscalCrisis, monthlyBudget, electionOutlook, voteText, WIN_VOTE } from './step';
 
 /** 対策の候補。押すと道具・資料を開くだけ（実行はプレイヤーが決める） */
@@ -31,6 +32,8 @@ export interface Issue {
   /** 影響を受ける人（世帯・人のおおよその数。表示用） */
   affected: string;
   score: number;
+  /** v90：この課題が入口になるゲームループ（対策の候補は loopOptions(s, loop) で比べる） */
+  loop?: LoopId;
 }
 
 /** 重要度の重み（合計 100）。影響人数を基本に、悪化・期限・戻しにくさを足す */
@@ -196,6 +199,9 @@ export function allIssues(s: GameState): Issue[] {
       options: [{ label: '公約の進み具合を見る', act: 'tab', arg: 'term' }], tile: -1, layer: 'none', parts: { people: 0.3, trend: 0, deadline: c01(1 - left / 18) * 0.6 + 0.4, hard: 0.6 }, affected: '再選の見込み' });
   }
 
+  // ---- v90：ゲームループの入口（学校の過密・駅の混雑・閉店の続出）と、各課題からループの対策の比較へ
+  for (const x of loopIssueSeeds(s)) add({ key: x.key, title: x.title, what: x.what, where: x.tile >= 0 ? dname(m.district[x.tile]) : '市全体', cause: x.cause, causeKind: x.key, options: [], tile: x.tile, layer: x.key === 'shops' ? 'none' : x.key === 'school' ? 'edu' : 'traffic', parts: { people: x.people, trend: x.trend, deadline: 0, hard: 0.4 }, affected: '' });
+  for (const i of out) { const lp = loopOfIssue(i.key); if (!lp) continue; i.loop = lp; i.options = [...i.options, { label: lp === 'aging' ? '維持・更新・先送りを比べる' : '対策の候補を比べる（費用・時間差・副作用）', act: 'loop', arg: lp }]; }
   out.sort((a, b) => b.score - a.score || a.key.localeCompare(b.key));
   const seen = new Set<string>();
   return out.filter(i => (seen.has(i.key) ? false : (seen.add(i.key), true)));

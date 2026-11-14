@@ -16,6 +16,7 @@ import { optAdd, optMul, optCap } from './options';
 import { intlAdd, intlMul, intlVisitors } from './intl';
 import { execAdd, execMul, routeAdd, routeCarK } from './admin';
 import { shipGates } from './isle';
+import { renewCostOf, BIG_STORES } from './loopHooks';
 
 /** 市外への出入口（道路でここにつながれば市外とつながる）。実在都市版では地図の縁の幹線道路 */
 const LIVESTOCK = new Set<string>(['poultry', 'pigFarm', 'beefRanch', 'dairy']);
@@ -396,10 +397,11 @@ function pollution(s: GameState, B: Building[], G: RoadInfo, load: Float64Array)
 export const storeFactor = (st: number) => (st >= 0.4 ? 1 : 0.55 + st * 1.125);
 /** 迷惑施設の近さ（区画ごと 0〜1 程度）。ごみ・工場・空港・火葬場・発電所・刑務所などから、届く範囲の中で近いほど強い */
 export function nimbyField(s: GameState): Float32Array {
-  const f = new Float32Array(N);
+  const f = new Float32Array(N), nbK = modMul(s, 'nimby');
   for (const b of s.buildings) {
     const nb = NIMBY[b.kind]; if (!nb || b.status === 'suspended') continue;
-    const [v, R] = nb, k = b.status === 'construction' ? 0.6 : 1; // 工事中から反対の声
+    const [v, R0] = nb, k = b.status === 'construction' ? 0.6 : 1; // 工事中から反対の声
+    const R = Math.max(1, Math.round(R0 * nbK)); // v90：緩衝緑地の条件づけで届く範囲が狭まる
     for (let y = b.y - R; y < b.y + b.h + R; y++) for (let x = b.x - R; x < b.x + b.w + R; x++) {
       if (!inMap(x, y)) continue;
       const dx = Math.max(b.x - x, 0, x - (b.x + b.w - 1)), dy = Math.max(b.y - y, 0, y - (b.y + b.h - 1)), d = Math.max(dx, dy);
@@ -654,7 +656,7 @@ export function recompute(s: GameState, lite = false): void {
   for (const t of s.teams ?? []) { const v = SPORTS[t.sport].venue.map(k => B.find(b => b.kind === k && b.status === 'operating' && b.connected)).find(Boolean); if (v) vis += SPORTS[t.sport].visitors * (0.6 + 0.8 * t.fans) * (v.kind === 'gym' ? 0.6 : 1); }
   st.visitors = Math.round(vis * (0.7 + 0.6 * Math.min(1, st.fame / 60)) * modMul(s, 'visitors') * reachK);
   void fameT;
-  const OW = P.outsideWeight * modMul(s, 'outside') * (hasOp(s, 'mall') ? 0.75 : 1); // モールがあると市外へ買物に出る人が減る
+  const OW = P.outsideWeight * modMul(s, 'outside'); // v90：モールが市外への買物を減らす効果は、大型店の重み（bigW）で市内の大型店に流れる形にした
   // 7. 商業：世帯の買物支出を、集客力 ÷ (1+距離) の比で店舗と市外に配分する
   for (const sh of B) if (isShop(sh.kind)) sh.revenue = 0;
   const spend = new Float64Array(nRes);
@@ -671,7 +673,11 @@ export function recompute(s: GameState, lite = false): void {
     each(sh.acc, df.range!, (ri, d) => { const w = df.attract! / (1 + d); ris.push(ri); ws.push(w); res[ri].shopP += w; if (w > favW[ri]) { favW[ri] = w; favShop[ri] = si; } });
     return { ri: Int32Array.from(ris), w: Float64Array.from(ws) };
   });
-  shopsOp.forEach((sh, si) => { const c = contrib[si]; for (let k = 0; k < c.ri.length; k++) { const ri = c.ri[k]; sh.revenue += spend[ri] * c.w[k] / (res[ri].shopP + OW); } });
+  // v90：大型店（モール・量販店）は近くの住民の買物を取り合う。近くの小さな店ほど売上が減る（商店街の支援 shopRev で一部を取り戻す）
+  const bigW = new Float64Array(nRes);
+  for (const b of B) { const g = BIG_STORES[b.kind]; if (!g || b.status !== 'operating' || !b.connected || b.acc < 0) continue; each(b.acc, g.R, (ri, d) => { bigW[ri] += g.w / (1 + d / 8); }); }
+  const shopK = modMul(s, 'shopRev');
+  shopsOp.forEach((sh, si) => { const c = contrib[si]; for (let k = 0; k < c.ri.length; k++) { const ri = c.ri[k]; sh.revenue += spend[ri] * c.w[k] / (res[ri].shopP + OW + bigW[ri]) * shopK; } });
   // 市営駐車場の近く（180m 以内）の店は、車の客が増える
   const lots = B.filter(b => b.kind === 'parkingLot' && b.status === 'operating');
   if (lots.length) for (const sh of shopsOp) if (lots.some(p => Math.abs(p.x - sh.x) <= 6 && Math.abs(p.y - sh.y) <= 6)) sh.revenue *= 1.1;
@@ -680,8 +686,8 @@ export function recompute(s: GameState, lite = false): void {
   const ugp = B.filter(b => b.kind === 'ugParking' && b.status === 'operating'); // v87：地下駐車場（立体駐車場と同じ 1.5 割、範囲は 300m。重ねては効かない）
   if (ugp.length) for (const sh of shopsOp) if (!towers.some(p => Math.abs(p.x + 0.5 - sh.x) <= 8 && Math.abs(p.y + 0.5 - sh.y) <= 8) && ugp.some(p => Math.abs(p.x + 1 - sh.x) <= 10 && Math.abs(p.y + 1 - sh.y) <= 10)) sh.revenue *= 1.15;
   // 来訪者の買物：店の集客力の比で分け合う
-  if (st.visitors > 0 && shopsOp.length) { const tot = shopsOp.reduce((a, b) => a + DEFS[b.kind].attract!, 0); for (const sh of shopsOp) sh.revenue += st.visitors * P.visitorSpend * DEFS[sh.kind].attract! / tot; }
-  res.forEach((r, ri) => { if (r.connected) spendLocal += spend[ri] * r.shopP / (r.shopP + OW); });
+  if (st.visitors > 0 && shopsOp.length) { const tot = shopsOp.reduce((a, b) => a + DEFS[b.kind].attract!, 0) + B.reduce((a, b) => a + (b.status === 'operating' && b.connected ? BIG_STORES[b.kind]?.a ?? 0 : 0), 0); for (const sh of shopsOp) sh.revenue += st.visitors * P.visitorSpend * DEFS[sh.kind].attract! / tot; } // v90：来訪者の買物は大型店とも分け合う
+  res.forEach((r, ri) => { if (r.connected) spendLocal += spend[ri] * (r.shopP + bigW[ri]) / (r.shopP + OW + bigW[ri]); });
   st.shops = shopsOp.length;
   st.shopLevel = spendAll > 0 ? spendLocal / spendAll : 0;
 
@@ -754,7 +760,7 @@ export function recompute(s: GameState, lite = false): void {
     // 市外から企業・大型施設へ通う人と、来訪者の車（市外の出入口から）
     for (const b of others) {
       const d = DEFS[b.kind], q = node[b.acc]; if (q === undefined || q < 0) continue;
-      const vol = ((d.jobs ?? 0) * 0.35 + (d.visitors ?? 0) * 0.004 + (b.kind === 'logistics' ? 120 : b.kind === 'factory' ? 60 : 0)) * P.peakFactor * peak;
+      const vol = ((d.jobs ?? 0) * 0.35 + (d.visitors ?? 0) * 0.004 + (b.kind === 'logistics' ? 120 : b.kind === 'factory' ? 60 : 0) + (BIG_STORES[b.kind]?.a ?? 0) * 8) * P.peakFactor * peak; // v90：大型店は買物客の車と搬入のトラックを集める
       if (vol > 0) walk(q, T0.d[q] <= T1.d[q] ? T0 : T1, vol * f);
     }
     cum += f;
@@ -775,6 +781,7 @@ export function recompute(s: GameState, lite = false): void {
   // まちづくり版：駅ごとの朝の利用者と、面する線路の能力（単線・複線）。あふれると駅経由の通勤が遅くなる
   const resCrowd = new Float64Array(nRes).fill(1);
   st.railCrowd = 0;
+  const railFreqK = 1 + 0.25 * ((s.pol as unknown as { rail?: { freq?: number } } | undefined)?.rail?.freq ?? 0); // v90：鉄道会社の増発で電車の能力が増える（big.ts の混雑率と同じ係数）
   if (s.rail && stN.length) {
     const resSt: (Building | undefined)[] = new Array(nRes);
     const load = new Map<Building, number>();
@@ -785,7 +792,7 @@ export function recompute(s: GameState, lite = false): void {
       resSt[ri] = sb; load.set(sb, (load.get(sb) ?? 0) + resW[ri] * P.railShare * P.peakFactor * peak);
     }
     const crowd = new Map<Building, number>();
-    for (const sb of stationsOk) { const cap = (P.stationCap[railLv(sb)] ?? 0) * [1, 1, 1.4, 1.8][lvOf(sb)] * (shinOpen(s, sb) ? 1.3 : 1), used = load.get(sb) ?? 0; sb.used = Math.round(used); sb.effCap = cap; const o = cap > 0 ? used / cap : 0; crowd.set(sb, o); if (o > st.railCrowd) st.railCrowd = Math.round(o * 1000) / 1000; }
+    for (const sb of stationsOk) { const cap = (P.stationCap[railLv(sb)] ?? 0) * [1, 1, 1.4, 1.8][lvOf(sb)] * (shinOpen(s, sb) ? 1.3 : 1) * railFreqK, used = load.get(sb) ?? 0; sb.used = Math.round(used); sb.effCap = cap; const o = cap > 0 ? used / cap : 0; crowd.set(sb, o); if (o > st.railCrowd) st.railCrowd = Math.round(o * 1000) / 1000; }
     for (let ri = 0; ri < nRes; ri++) { const sb = resSt[ri]; if (sb) resCrowd[ri] = 1 + 0.8 * Math.max(0, (crowd.get(sb) ?? 0) - 1); }
   }
 
@@ -817,7 +824,8 @@ export function recompute(s: GameState, lite = false): void {
   st.vacancy = st.units > 0 ? vacant / st.units : 0;
   const tv = P.targetVacancy * 1.4;
   const tax = s.tax ?? { res: 1, prop: 1, biz: 1, stay: 0 };
-  const rentIndex = (1 + 0.5 * clamp((tv - st.vacancy) / tv, -0.5, 1) + 0.1 * Math.min(1, st.pentUp / 12)) * (1 + 0.6 * (tax.prop - 1));
+  const rentIndex = (1 + 0.5 * clamp((tv - st.vacancy) / tv, -0.5, 1) + 0.1 * Math.min(1, st.pentUp / 12)) * (1 + 0.6 * (tax.prop - 1)) * (1 + 0.004 * modAdd(s, 'devLevy')); // v90：開発負担金は家賃・分譲価格に上乗せされる
+  st.rentIndex = rentIndex;
   const houseQ = modAdd(s, 'houseQuality'), aid = modAdd(s, 'housingAid');
   const satAdd = [0, 1, 2, 3, 4].map(t => modAdd(s, 'sat:' + t) + modAdd(s, 'sat:all') + (hasOp(s, 'cityOS') ? 0.01 : 0) + (t === 4 && hasOp(s, 'autoBusDepot') ? 0.01 : 0) + (t === 4 && hasOp(s, 'robotaxi') ? 0.015 : 0) + ((t === 2 || t === 3) && hasOp(s, 'casino') ? -0.012 : 0) + (hasOp(s, 'usBase') ? -0.008 : 0) + (t === 1 && hasOp(s, 'weddingHall') ? 0.004 : 0) + (t === 4 && hasOp(s, 'humanoidLab') ? 0.008 : 0) + (t === 4 && hasOp(s, 'arcade') ? 0.004 : 0) + (t === 3 && hasOp(s, 'clubTeam') ? 0.005 : 0) + ((t === 2 || t === 3) && hasOp(s, 'fuzokuDistrict') ? -0.008 : 0) - 0.004 * Math.max(0, (((s.econ as any)?.macro?.oil ?? 1) - 1.1)) * (1 - Math.min(0.7, ((s.stats.powerCap - (s.base?.power ?? 0)) / Math.max(1, s.stats.powerDemand)))) /* 電気・ガス代の値上がり（市内で発電するほど軽い） */ - 0.006 * cpiBurden(s) * (1 - Math.min(0.8, modAdd(s, 'bukkaRelief'))) * (t === 4 || t === 2 || t === 3 ? 1.3 : 1)); // 物価高：年金暮らしと子育て世帯ほど苦しい。物価高対策で和らぐ
   const satNum = [0, 0, 0, 0, 0], dNum = DISTRICTS.map(() => 0), dDen = DISTRICTS.map(() => 0);
@@ -870,7 +878,7 @@ export function recompute(s: GameState, lite = false): void {
     const fire = r.connected ? clamp(fireLv[ri] * 0.85 + 0.15 * prepared) : 0;
     if (fireLv[ri] >= 0.99) covered += tot;
     // 買物
-    const shop = Math.min(1, r.shopP / (r.shopP + OW) / 0.85);
+    const shop = Math.min(1, (r.shopP + bigW[ri]) / (r.shopP + OW + bigW[ri]) / 0.85); // v90：近くの大型店は住民の買物を便利にする
     // 通勤
     let commute = 0, ratio = 1;
     if (r.connected) {
@@ -931,7 +939,7 @@ export function recompute(s: GameState, lite = false): void {
   for (const b of B) {
     const d = DEFS[b.kind];
     if (!isCity(b.kind) || b.status === 'construction' || b.status === 'renewing') continue;
-    if (b.age + d.ageRate * 60 >= 80) ren += d.renewCost;
+    if (b.age + d.ageRate * 60 >= 80) ren += renewCostOf(b); // v90：老朽度 80 を超えて先送りした施設は更新費が高い
   }
   const rAge = modMul(s, 'roadAge');
   for (let i = 0; i < N; i++) if (s.road[i] === 1 || s.road[i] === 2) { if (s.roadAge[i] + P.roadAgeRate * rAge * 60 >= 70) ren += P.roadRepairCost; }

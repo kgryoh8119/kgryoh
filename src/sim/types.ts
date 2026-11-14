@@ -260,6 +260,8 @@ export interface Stats {
   nimbyHH?: number;
   /** ひとり暮らしの高齢者で、見守り（福祉）が届いていない世帯 */
   lonely?: number;
+  /** v90：家賃の水準（1 が基準。空き家率・住宅の不足・固定資産税で動く） */
+  rentIndex?: number;
 }
 
 export interface Pledge { id: string; text: string }
@@ -396,6 +398,8 @@ export interface GameState {
   teams?: Team[];
   /** v90：施策の予測と結果の記録（古いものから捨てる。街の計算には使わない）。古いセーブにはない */
   decisions?: import('./report').Decision[];
+  /** v90：ゲームループの記録（閉店した月の並び・開発負担金の累計と先月分（万円）・先月の転入世帯） */
+  loopLog?: { closed: number[]; levy: number; levyM: number; inHH: number };
 }
 
 export interface Goal { id: string; base: number; target: number; diff: number }

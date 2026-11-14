@@ -52,13 +52,21 @@ export function registerIndicators(defs: IndicatorDef[]): void {
 }
 export const indicators = (): IndicatorDef[] => REG;
 export const indicatorOf = (id: string): IndicatorDef | undefined => REG.find(d => d.id === id);
+const PRE: ((s: GameState) => void)[] = [];
+/** 指標をまとめて読む前に呼ぶ処理を足す（v90：ループの指標は 1 回の計算で全部出るので、ここで 1 回だけ計算して使い回す） */
+export function onIndicatorValues(f: (s: GameState) => void): void { PRE.push(f); }
 export function indicatorValues(s: GameState): Record<string, number> {
+  for (const f of PRE) { try { f(s); } catch { /* 読めなければ個別に計算する */ } }
   const o: Record<string, number> = {};
   for (const d of REG) { try { o[d.id] = fin(d.get(s)); } catch { o[d.id] = 0; } }
   return o;
 }
 /** 課題の鍵 → 主に見る指標 */
-export function issueIndicators(key: string): string[] {
+const ISSUE_IND: ((key: string) => string[])[] = [];
+/** 課題ごとの指標を外から足す（v90：ゲームループの指標をつなぐ入口） */
+export function registerIssueIndicators(f: (key: string) => string[]): void { ISSUE_IND.push(f); }
+export function issueIndicators(key: string): string[] { return [...new Set([...baseIssueIndicators(key), ...ISSUE_IND.flatMap(f => f(key))])]; }
+function baseIssueIndicators(key: string): string[] {
   if (key === 'care') return ['wait', 'satType'];
   if (key === 'traffic') return ['maxVc', 'sat'];
   if (key === 'housing') return ['burden', 'netMig', 'pop'];
