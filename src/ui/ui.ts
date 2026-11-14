@@ -885,10 +885,12 @@ export class UI {
     <section><h2>ふるさと納税 <small>月あたり</small></h2>
       <div class="rows"><span>市への寄付</span><b>${yenT(fz.gift)}</b><span>返礼品と経費（5 割）</span><b>${yenT(fz.cost)}</b><span>市民がよその市へ寄付（住民税が減る）</span><b>${yenT(fz.loss)}</b><span>差し引き</span><b style="color:${col(fz.gift - fz.cost - fz.loss < 0, false)}">${yenT(fz.gift - fz.cost - fz.loss)}</b></div>
       <p class="note">田んぼ・畑・ビール工場・漁港・温泉などが返礼品になります。知名度が高いほど寄付が集まります（施策「ふるさと納税の PR」で 1.6 倍）。</p></section>
-    ${fr ? `<section><h2>外国人住民 <small>推計</small></h2>
+    ${fr ? `<section><h2>外国人住民と、相談・情報の届きやすさ <small>推計</small></h2>
       <div class="rows"><span>外国人住民</span><b>${n0(fr.total)}<i>人</i></b><span>人口に占める割合</span><b>${(fr.total / Math.max(1, st.pop) * 100).toFixed(1)}<i>%</i></b><span>技能実習生</span><b>${n0(fr.trainee)}<i>人</i></b><span>特定技能</span><b>${n0(fr.skilled)}<i>人</i></b><span>留学生</span><b>${n0(fr.student)}<i>人</i></b>
-        <span title="実習先からの失踪や、在留期限が切れた人の推計">不法滞在（推計）</span><b style="color:${col(fr.undoc > 60, fr.undoc > 20)}">${n0(fr.undoc)}<i>人</i></b><span>生活の支援</span><b style="color:${col(fr.support < 0.3, fr.support < 0.5)}">${pct(fr.support)}</b></div>
-      <p class="note">工場・農業・介護・ホテルなどが人手を外国人に頼るほど増えます。治安に響くのは国籍ではなく、言葉が通じず孤立すること・不法就労・支援の不足です。多文化共生センターや日本語教室の施策で支援を厚くすると、孤立と失踪が減ります。</p></section>` : ''}
+      </div>
+      ${st.access ? `<div class="rows"><span title="相談窓口・手続きの届きやすさ・多言語/やさしい日本語の情報・オンライン手続き（住民全体）">行政サービスへのアクセス</span><b style="color:${col(st.access.access < 0.35, st.access.access < 0.55)}">${pct(st.access.access)}</b><span title="日本語学習の機会・通訳・学校での支援が足りないほど高い">言語の壁</span><b style="color:${col(st.access.lang < 0.25, st.access.lang < 0.45)}">${pct(1 - st.access.lang)}</b>
+        <span title="高齢のひとり暮らし・障害のある人・転入したばかりの世帯・日本語に不慣れな人に、医療・防災・福祉の情報と相談が届く割合（推計）">情報が届きにくい住民への到達</span><b style="color:${col(st.access.reach < 0.55, st.access.reach < 0.7)}">${pct(st.access.reach)}</b><span title="人手不足の職（介護・保育・工場など）の採用と定着への倍率">採用の定着</span><b>×${st.access.retain.toFixed(2)}</b></div>` : ''}
+      <p class="note">人数は推計（ゲーム上の仮定）です。工場・農業・介護・ホテルなどが人手を外国人の働き手に頼るほど増えます。外国人住民の数は治安を悪くしません。暮らしを左右するのは、相談と手続きの届きやすさと言語の壁です。多文化共生センター（誰でも使える相談と情報の拠点）・日本語教室・多言語の相談窓口で、相談の利用（福祉の満足・孤立）、採用の定着、災害時の避難の情報、転出が良くなり、高齢の人や転入したばかりの世帯にも効きます。</p></section>` : ''}
     <section><h2>お産と子育ての医療</h2>
       <div class="rows"><span>市内で出産できる所</span><b style="color:${col(ob < 0.95, ob < 1)}">${ob >= 1.07 ? '周産期母子医療センター' : ob >= 1 ? '産院' : ob >= 0.95 ? '一般の病院だけ' : 'なし（市外へ通う）'}</b><span>出生への効果</span><b>×${ob.toFixed(2)}</b>${s.stats.yudoShare !== undefined ? `<span>居住誘導区域に住む世帯</span><b>${pct(s.stats.yudoShare ?? 0)}</b>` : ''}</div></section>`;
   }

@@ -527,7 +527,7 @@ export const DEFS: Record<Kind, Def> = {
   paddy: { ...req('agri', 'nature', '農家・JA'), cat: 'agri', name: '田んぼ', note: '水田。お米はふるさと納税の返礼品の定番です。雨の量で作柄が変わり、空気と景色をよくします。', w: 2, h: 2, cost: 700, months: 3, jobs: 3, bizTax: 5, green: 1 },
   field: { ...req('agri', 'nature', '農家・JA'), cat: 'agri', name: '畑（野菜・麦）', note: '野菜や麦の畑。道の駅とビール工場の原料になり、ふるさと納税の返礼品にもなります。', w: 2, h: 2, cost: 700, months: 3, jobs: 4, bizTax: 7, green: 0.7 },
   heliport: { ...city('health', 'health'), name: 'ヘリポート（ドクターヘリ）', note: '救急ヘリの発着場。市内のどこへでも 15 分で駆けつけ、救急の水準が大きく上がります。災害時の救助と物資輸送にも使えます。', lvMax: 0, w: 2, h: 2, cost: 15000, months: 12, upkeep: 160, staffReq: 6, staffKind: '運航職員', wage: 34, hire: 1, capacity: 1, capUnit: '', ageRate: 0.1, renewCost: 5000, renewMonths: 4, renewFactor: 0.5, unique: true },
-  multicultural: { ...city('welfare', 'gov'), name: '多文化共生センター', note: '外国人住民の相談・日本語教室・生活の手引き。孤立と不法就労が減り、治安が良くなります。', lvMax: 0, w: 1, h: 1, cost: 6000, months: 6, upkeep: 50, staffReq: 4, staffKind: '相談員', wage: 26, hire: 1, capacity: 1, capUnit: '', ageRate: 0.12, renewCost: 2000, renewMonths: 2, renewFactor: 0.5, unique: true },
+  multicultural: { ...city('welfare', 'gov'), name: '多文化共生センター', note: '誰でも使える相談と情報の拠点。多言語・やさしい日本語の生活相談、日本語教室、通訳の手配、手続きの案内。行政サービスへのアクセスと言語の支援が上がり、高齢の人・転入したばかりの世帯・外国人住民に医療・防災・福祉の情報が届きやすくなります（相談の利用・孤立・採用の定着・災害時の避難）。', lvMax: 0, w: 1, h: 1, cost: 6000, months: 6, upkeep: 50, staffReq: 4, staffKind: '相談員', wage: 26, hire: 1, capacity: 1, capUnit: '', ageRate: 0.12, renewCost: 2000, renewMonths: 2, renewFactor: 0.5, unique: true },
   // ---- v20：遊び・暮らし・仕事の施設 ----
   weddingHall: { ...base, fam: 'leisure', cat: 'leisure', build: 'invite', name: '結婚式場（ゲストハウス）', owner: 'ブライダル企業', authority: 'attract', note: 'チャペルと庭のある結婚式場。週末は市外からも招待客が来ます。若い夫婦世帯の満足が少し上がります。幹線道路か国道に面した土地が要ります。', w: 2, h: 2, cost: 1500, months: 12, jobs: 60, bizTax: 50, use: 60, visitors: 3000, fame: 2, req: 'arterial' },
   jidokan: { ...city('culture', 'kids'), name: '児童館', note: '0〜18 歳の子どもが自由に遊べる市の施設。放課後の居場所になり、子育て世帯の文化の満足が上がります。', lvMax: 0, w: 1, h: 1, cost: 4000, months: 8, upkeep: 40, staffReq: 4, staffKind: '児童厚生員', wage: 22, hire: 1, capacity: 1, capUnit: '', reach: 40, ageRate: 0.15, renewCost: 1500, renewMonths: 3, renewFactor: 0.5 },
@@ -601,9 +601,9 @@ export const DEFS: Record<Kind, Def> = {
   // ---- v49 宗教・地域の小さな施設 ----
   jizodo: { ...req('religion', 'history', '自治会'), name: '地蔵堂（お地蔵さん）', note: '辻に立つお地蔵さんと小さなお堂。子どもの見守りと、地域の安心の象徴です。', w: 1, h: 1, cost: 100, months: 1 },
   hokora: { ...req('religion', 'history', '氏子'), name: '祠と鳥居（鎮守の森）', note: '小さな祠と鳥居、まわりの木立。地域の鎮守です。', w: 1, h: 1, cost: 100, months: 1, green: 0.5 },
-  mosque: { ...req('religion', 'history', '宗教法人'), name: 'モスク', note: 'イスラム教の礼拝所。外国人住民が暮らしやすくなります。', w: 2, h: 2, cost: 3000, months: 14, visitors: 100 },
+  mosque: { ...req('religion', 'history', '宗教法人'), name: 'モスク', note: 'イスラム教の礼拝所（宗教法人が建てます）。信者の礼拝と交流の場で、見学会や炊き出しで近所との行き来も生まれます。', w: 2, h: 2, cost: 3000, months: 14, visitors: 100 },
   synagogue: { ...req('religion', 'history', '宗教法人'), name: 'シナゴーグ', note: 'ユダヤ教の会堂。', w: 1, h: 1, cost: 1000, months: 10 },
-  hinduTemple: { ...req('religion', 'history', '宗教法人'), name: 'ヒンドゥー寺院', note: '色とりどりの塔をもつヒンドゥー教の寺院。外国人住民が暮らしやすくなります。', w: 2, h: 1, cost: 2000, months: 12, visitors: 100 },
+  hinduTemple: { ...req('religion', 'history', '宗教法人'), name: 'ヒンドゥー寺院', note: '色とりどりの塔をもつヒンドゥー教の寺院（宗教法人が建てます）。祭りの日は見物の人も訪れます。', w: 2, h: 1, cost: 2000, months: 12, visitors: 100 },
   monastery: { ...req('religion', 'history', '修道会'), name: '修道院', note: '回廊に囲まれた修道院。クッキーとバターが名物です。', w: 3, h: 2, cost: 2500, months: 14, visitors: 150, green: 0.5 },
   shinshukyo: { ...req('religion', 'history', '宗教法人'), name: '新宗教の本部', note: '大きな礼拝殿をもつ新宗教の本部。信者が全国から集まり、選挙の票をまとめる力もあります。', w: 4, h: 3, cost: 20000, months: 30, jobs: 200, visitors: 2000, fame: 1 },
   chonaikaikan: { ...city('culture', 'edu'), name: '町内会館', note: '町内会の集会所。祭りの準備とお年寄りの集まりの場。', w: 1, h: 1, cost: 800, months: 4, upkeep: 5, lvMax: 0 },
@@ -739,7 +739,7 @@ export const DEFS: Record<Kind, Def> = {
   // ---- v49 教育・研究・学び ----
   privSchool: { ...req('high', 'edu', '学校法人'), cat: 'edu', name: '私立中高一貫校', note: '中学から高校まで 6 年間の私立校。進学実績が子育て世帯を呼びます。', w: 3, h: 2, cost: 9000, months: 30, capacity: 900, capUnit: '人', jobs: 90, reach: 160, use: 40 },
   intlSchool: { ...req('high', 'edu', '学校法人'), cat: 'edu', name: 'インターナショナルスクール', note: '英語で学ぶ学校。外国人の家族や外資系企業が来やすくなります。', w: 2, h: 2, cost: 5000, months: 20, capacity: 300, capUnit: '人', jobs: 50, reach: 220, use: 30, fame: 1 },
-  foreignSchool: { ...req('high', 'edu', '学校法人'), cat: 'edu', name: '外国人学校', note: '母国の言葉と文化を学ぶ学校。外国人住民が暮らしやすくなります。', w: 2, h: 2, cost: 2500, months: 18, capacity: 250, capUnit: '人', jobs: 30, reach: 220, use: 20 },
+  foreignSchool: { ...req('high', 'edu', '学校法人'), cat: 'edu', name: '外国人学校', note: '母語と母国の課程で学ぶ学校（学校法人・各種学校）。母語での学びを続けられ、通訳や日本語の学校との行き来の支えにもなります（言語の支援が少し上がる）。', w: 2, h: 2, cost: 2500, months: 18, capacity: 250, capUnit: '人', jobs: 30, reach: 220, use: 20 },
   specialSchool: { ...req('school', 'edu', '県'), cat: 'edu', name: '特別支援学校', note: '障害のある子が学ぶ県立の学校。スロープと平らな庭。子育ての安心が上がります。', w: 3, h: 2, cost: 7000, months: 24, capacity: 200, capUnit: '人', jobs: 90, reach: 300, use: 30 },
   teijisei: { ...req('high', 'edu', '県'), cat: 'edu', name: '定時制・通信制高校', note: '働きながら、学び直しながら通える高校。夜の授業もあります。', w: 2, h: 2, cost: 3000, months: 20, capacity: 400, capUnit: '人', jobs: 30, reach: 200, use: 20 },
   kosen: { ...req('high', 'edu', '国（高専機構）'), cat: 'edu', name: '高等専門学校（高専）', note: '5 年間でものづくりを学ぶ国立の学校。工場と研究所が来やすく、ロボコンで知名度も。', w: 4, h: 3, cost: 15000, months: 36, capacity: 1000, capUnit: '人', jobs: 120, reach: 300, use: 60, fame: 1 },
@@ -1045,13 +1045,13 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'foreignWorkers', name: '外国人材の受け入れ拡大', cost: 80, ramp: 12,
     desc: '特定技能の外国人と家族の受け入れを、企業・介護施設と進めます（住まいと仕事の紹介）。',
-    who: '企業・介護・保育', why: '外国人の働き手が 2 倍になり、人手不足の職（保育士・介護・工場）の採用が 1.3 倍になります。支援が足りないと、孤立と不法就労が増えます。',
+    who: '企業・介護・保育', why: '外国人の働き手が 2 倍になり、人手不足の職（保育士・介護・工場）の採用が 1.3 倍になります。相談の窓口と日本語学習が追いつかないと、職場や地域で孤立して定着しにくくなります（採用の定着の倍率が下がる）。',
     effects: [{ key: 'foreign', op: 'mul', v: 2 }, { key: 'hire:保育士', op: 'mul', v: 1.3 }, { key: 'hire:介護職員', op: 'mul', v: 1.3 }],
   },
   {
     id: 'nihongo', name: '日本語教室と生活相談', cost: 40, ramp: 6,
-    desc: '公民館で日本語教室を開き、ごみの出し方・病院・学校の手引きを多言語で配ります。',
-    who: '外国人住民と近所の世帯', why: '外国人住民の支援の水準が上がり、孤立と不法就労が減ります（治安が良くなる）。',
+    desc: '公民館で日本語教室を開き、学校に日本語指導の支援員を置き、ごみの出し方・病院・学校・防災の手引きを多言語とやさしい日本語で配ります。',
+    who: '日本語に不慣れな住民とその子ども、近所の世帯', why: '言語の壁が下がり、医療・防災の情報が届きやすくなり、職場での定着と子どもの就学が支えられます。',
     effects: [{ key: 'support', op: 'add', v: 0.35 }],
   },
   {
@@ -1189,10 +1189,10 @@ export const POLICIES: PolicyDef[] = [
     effects: [{ key: 'outflow', op: 'mul', v: 0.94 }, { key: 'inflow', op: 'mul', v: 1.05 }, { key: 'houseQuality', op: 'add', v: 0.03 }],
   },
   {
-    id: 'tabunka', name: '外国人住民の支援窓口', cost: 80, ramp: 3,
-    desc: '多言語の相談窓口と日本語教室。働き手として来る外国人住民を支えます。',
-    who: '単身・夫婦世帯、企業', why: '単身世帯の転入が 1 割、夫婦世帯が 5% 増え、介護・保育の人手も少し集まりやすくなります。',
-    effects: [{ key: 'inflow:0', op: 'mul', v: 1.1 }, { key: 'inflow:1', op: 'mul', v: 1.05 }, { key: 'hire:保育士', op: 'mul', v: 1.1 }],
+    id: 'tabunka', name: '多言語・やさしい日本語の相談窓口', cost: 80, ramp: 3,
+    desc: '市役所の窓口に通訳（電話・タブレット）を置き、手続きの案内を多言語とやさしい日本語にし、オンラインで申請できる手続きを増やします。誰でも使えます。',
+    who: '転入したばかりの世帯、高齢の人、日本語に不慣れな住民、企業', why: '行政サービスへのアクセスが上がり、言語の壁が少し下がります。相談の利用・採用の定着・転出・災害時の情報に効きます。',
+    effects: [{ key: 'access', op: 'add', v: 0.2 }, { key: 'lang', op: 'add', v: 0.08 }],
   },
   {
     id: 'kodomo', name: '子ども食堂への支援', cost: 60, ramp: 2,

@@ -191,6 +191,26 @@ export function modMul(s: GameState, key: string): number {
   }
   return v;
 }
+/**
+ * v90：行政サービスへのアクセスと言語の支援（住民全体の指標。0〜1）。
+ * - access：相談窓口・手続きの届きやすさ・多言語/やさしい日本語の情報・オンライン手続き
+ * - lang：日本語学習の機会・通訳・学校での支援（1 - lang が「言語の壁」）
+ * - reach：情報が届きにくい住民（高齢のひとり暮らし・障害のある人・転入したばかりの世帯・日本語に不慣れな人）に、
+ *   医療・防災・福祉の情報と相談が届く割合
+ * - retain：人手不足の職の採用と定着への倍率（外国人の働き手が多い街ほど、支援の差が効く）
+ * 外国人住民の人数そのものは、どの値も悪くしない（人数は reach の重みにだけ入る）。
+ */
+export function accessOf(s: GameState, pop: number, foreignTotal: number, aging: number): { access: number; lang: number; reach: number; retain: number; hard: number } {
+  const mc = hasOp(s, 'multicultural');
+  const access = clamp(0.3 + (mc ? 0.25 : 0) + (hasOp(s, 'cityOS') ? 0.05 : 0) + (hasOp(s, 'dxCenter') ? 0.08 : 0) + modAdd(s, 'access'));
+  const lang = clamp(0.15 + (mc ? 0.2 : 0) + 0.6 * modAdd(s, 'support') /* 日本語教室の政策（v89 までの鍵） */ + modAdd(s, 'lang') + (hasOp(s, 'intlSchool') || hasOp(s, 'foreignSchool') ? 0.05 : 0));
+  const fShare = pop > 0 ? Math.min(0.3, foreignTotal / pop) : 0, oShare = clamp(aging * 0.5 + 0.06, 0, 0.5);
+  const gapF = 1 - clamp(0.3 + 0.35 * access + 0.35 * lang), gapO = 1 - clamp(0.45 + 0.5 * access);
+  const hard = fShare + oShare, reach = hard > 0 ? clamp(1 - (fShare * gapF + oShare * gapO) / hard) : 1;
+  const retain = 1 + Math.min(1, fShare * 15) * 0.3 * (0.5 * access + 0.5 * lang - 0.25);
+  const r2 = (v: number) => Math.round(v * 1000) / 1000;
+  return { access: r2(access), lang: r2(lang), reach: r2(reach), retain: r2(retain), hard: r2(hard) };
+}
 export function modAdd(s: GameState, key: string): number {
   let v = streetAdd(s, key) + mayorAdd(s, key) + optAdd(s, key) + intlAdd(s, key) + execAdd(s, key) + routeAdd(s, key);
   { const vp = visionPerk(s); if (vp) { v += vp.p.add[key] ?? 0; if (vp.kind) v += vp.p.kindAdd[key] ?? 0; } }
@@ -804,8 +824,12 @@ export function recompute(s: GameState, lite = false): void {
   const lvSum = [0, 0, 0, 0, 0, 0, 0, 0];
   const partV = new Array(14).fill(0), partDrag = new Array(14).fill(0); let partN = 0; // 満足の内訳（14 項目の平均と、満点からの不足 × 重み）
   let delayNum = 0, delayDen = 0, covered = 0, lvDen = 0;
-  // 外国人住民：工場・農業・介護などで働く技能実習生・特定技能、大学の留学生。支援（日本語教室・多文化共生センター）が足りないと孤立し、
-  // 実習先から失踪した人などの不法滞在が増える。犯罪に効くのは国籍ではなく、孤立・不法就労・支援の不足
+  // 外国人住民：工場・農業・介護などで働く技能実習生・特定技能、大学の留学生（働き手・学ぶ人としての推計）。
+  // v90：国籍や人数そのものは治安に効かせない。代わりに住民全体に効く 2 つの指標を出す。
+  //  - 行政サービスへのアクセス（相談窓口・手続きの届きやすさ・多言語/やさしい日本語の情報・オンライン手続き）
+  //  - 言語の支援（日本語学習の機会・通訳・学校での支援。低いほど「言語の壁」が高い）
+  // これが、情報が届きにくい住民（高齢のひとり暮らし・障害のある人・転入したばかりの世帯・日本語に不慣れな人）への
+  // 情報の到達を決め、相談の利用（福祉の満足・孤立）、採用の定着、災害時の被害、転出に効く。
   {
     const fm = modMul(s, 'foreign');
     let tr = 0, sk = 0, stu = 0;
@@ -818,17 +842,16 @@ export function recompute(s: GameState, lite = false): void {
     }
     tr *= fm; sk *= fm * (1 + 0.3 * Math.max(0, s.econ?.cycle ?? 0));
     const base = popNow * 0.018, total = base + tr + sk + stu;
-    const support = clamp(0.25 + (hasOp(s, 'multicultural') ? 0.35 : 0) + modAdd(s, 'support'));
-    const undoc = tr * 0.05 * (1.4 - support) * (1 + 0.5 * Math.max(0, -(s.econ?.cycle ?? 0))); // 不況のときは失踪がふえる
-    st.foreign = { total: Math.round(total), trainee: Math.round(tr), skilled: Math.round(sk), student: Math.round(stu), undoc: Math.round(undoc), support: Math.round(support * 100) / 100 };
+    const acc = accessOf(s, popNow, total, s.stats?.aging ?? 0.28);
+    st.access = acc;
+    st.foreign = { total: Math.round(total), trainee: Math.round(tr), skilled: Math.round(sk), student: Math.round(stu), support: Math.round((0.5 * acc.access + 0.5 * acc.lang) * 100) / 100 };
   }
   if (s.area) { let yi = 0, yt = 0; for (const r of res) { const n = sumHH(r); yt += n; if (s.area[idx(r.x, r.y)] === 2) yi += n; } st.yudoShare = yt > 0 ? Math.round(yi / yt * 1000) / 1000 : 0; }
-  const fRatio = popNow > 0 ? (st.foreign!.total / popNow) : 0, uRatio = popNow > 0 ? st.foreign!.undoc / popNow : 0;
   // 遊技場とカジノ：近くの治安の不安（店の数で頭打ち）
   const gamble = 0.012 * Math.min(4, countOp(s, 'pachinko')) + (hasOp(s, 'casino') ? 0.035 : 0) + (hasOp(s, 'usBase') ? 0.01 : 0)
     // 夜の街：横丁・繁華街・歓楽街は、けんか・客引き・ぼったくり・暴力団の不安。警察署・交番と防犯の政策で和らぐ
     + (0.005 * Math.min(4, countOp(s, 'yokocho')) + 0.028 * Math.min(2, countOp(s, 'nightDistrict')) + 0.045 * Math.min(2, countOp(s, 'fuzokuDistrict'))) * (hasOp(s, 'police') ? 0.7 : 1) * (1 - 0.1 * Math.min(3, countOp(s, 'koban'))) * (1 - Math.min(0.6, modAdd(s, 'nightSafe')));
-  const crimeBase = clamp(gamble + 0.25 + 0.6 * st.vacancy + 0.2 * (1 - st.shopLevel) - 0.1 * modAdd(s, 'safety') + 1.5 * fRatio * (1 - st.foreign!.support) + 6 * uRatio);
+  const crimeBase = clamp(gamble + 0.25 + 0.6 * st.vacancy + 0.2 * (1 - st.shopLevel) - 0.1 * modAdd(s, 'safety')); // v90：外国人住民の数や割合は治安に入れない
   res.forEach((r, ri) => {
     const hh = r.hh!, i0 = idx(r.x, r.y), d = m.district[i0];
     const tot = sumHH(r);
@@ -867,9 +890,9 @@ export function recompute(s: GameState, lite = false): void {
     if (nb > 0.25) nimbyHH += tot;
     const envLv = clamp(1 - 0.5 * pol[i0] - 0.3 * nb + (nearCanal[i0] ? 0.05 : 0) + (nearNat[i0] ? 0.04 : 0));
     const culture = clamp(0.5 + Math.min(0.5, cultCov[ri] + 0.04 * (s.teams?.length ?? 0)));
-    const welfare = clamp(0.5 + 0.25 * elderRatio + 0.25 * careCov[ri] + 0.06 * Math.min(1, relCov[ri]) - funeralLack);
+    const welfare = clamp(0.5 + 0.25 * elderRatio + 0.25 * careCov[ri] + 0.06 * Math.min(1, relCov[ri]) - funeralLack + 0.08 * (st.access!.reach - 0.6)); // 相談と情報が届くほど、福祉の制度を使える
     sickW += tot * (1.6 - healthLv); elderHH += hh[4];
-    if (welfare < 0.62) lonely += hh[4] * 0.3 * (0.62 - welfare) / 0.62 * 3; // ひとり暮らしの高齢者（高齢世帯の 3 割）で、見守りが届いていない
+    if (welfare < 0.62) lonely += hh[4] * 0.3 * (0.62 - welfare) / 0.62 * 3 * Math.max(0.6, 1 + 0.5 * (0.3 - st.access!.access)); // ひとり暮らしの高齢者（高齢世帯の 3 割）で、見守りが届いていない
     r.sv = [care, school, park, fire, shop, commute, life, healthLv, safetyLv, envLv, culture, welfare];
     const rent = P.rent[r.kind] * rentIndex * (1 + 0.06 * (1 - gasLv));
     r.sat = [];
