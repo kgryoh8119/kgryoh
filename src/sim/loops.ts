@@ -40,7 +40,7 @@ export const INDICATORS: IndicatorDef[] = [
   { id: 'bizTax', name: '事業の税収（月）', unit: '万円', better: 'up', scope: 'city' },
   { id: 'shopSales', name: '市内の小さな店の売上（月）', unit: '万円', better: 'up', scope: 'city' },
   { id: 'shopClosed', name: '閉店した店（直近 12 か月）', unit: '店', better: 'down', scope: 'city' },
-  { id: 'traffic', name: '幹線道路の交通量（平均の混雑率）', unit: '%', better: 'down', scope: 'city' },
+  { id: 'traffic', name: '幹線道路の交通量（混む上位 1 割の区間の平均の混雑率）', unit: '%', better: 'down', scope: 'city' },
   { id: 'envSat', name: '環境（空気・騒音）の満足', unit: '点', better: 'up', scope: 'city' },
   { id: 'satSingle', name: `満足：${HH_NAMES[0]}`, unit: '点', better: 'up', scope: 'city' },
   { id: 'satCouple', name: `満足：${HH_NAMES[1]}`, unit: '点', better: 'up', scope: 'city' },
@@ -88,8 +88,8 @@ export function loopIndicators(s: GameState): Record<IndicatorId, number> {
   let schoolCrowd = 0;
   for (const b of s.buildings) if (fam(b.kind) === 'school' && b.effCap > 0) schoolCrowd = Math.max(schoolCrowd, b.used / b.effCap);
   if (st.schoolKids > 0) schoolCrowd = Math.max(schoolCrowd, st.schoolKids / Math.max(1, st.schoolCap)); // 通学圏の外の子も数える（市全体の在籍 ÷ 定員）
-  let vcN = 0, vcS = 0;
-  for (let i = 0; i < s.road.length; i++) if (s.road[i] >= 2) { vcN++; vcS += s.vc[i] ?? 0; }
+  const trunk: number[] = []; for (let i = 0; i < s.road.length; i++) if (s.road[i] >= 2) trunk.push(s.vc[i] ?? 0);
+  trunk.sort((a, b) => b - a); const top = trunk.slice(0, Math.max(1, Math.ceil(trunk.length / 10))), trafficV = trunk.length ? top.reduce((a, v) => a + v, 0) / top.length : 0;
   const ratio = (c: number, d: number) => (d > 0 ? c / d : 9);
   const life = Math.min(ratio(st.waterCap, st.waterDemand), ratio(st.wasteCap, st.wasteDemand), st.sewageDemand > 0 ? ratio(st.sewageCap, st.sewageDemand) : 9);
   let shopSales = 0; for (const b of s.buildings) if (isShop(b.kind) && b.status === 'operating') shopSales += b.revenue;
@@ -101,7 +101,7 @@ export function loopIndicators(s: GameState): Record<IndicatorId, number> {
     lifeline: Math.round(Math.min(life, 9) * 100), renewal60: Math.round(st.renewal60), waterBill: Math.round(4000 * modMul(s, 'waterFee') * (s.policies.suidoGenmen?.on ? 0.85 : 1)),
     debt: Math.round(st.debt), disasterLoss: disasterLoss(s),
     jobs: Math.round(st.localJobs), bizTax: Math.round(L.taxBusiness), shopSales: Math.round(shopSales), shopClosed: log.closed.filter(m => m > s.month - 12).length,
-    traffic: Math.round(vcN ? (vcS / vcN) * 100 : 0), envSat: r1((st.satParts?.[11] ?? 0) * 100),
+    traffic: Math.round(trafficV * 100), envSat: r1((st.satParts?.[11] ?? 0) * 100),
     satSingle: r1(st.satType[0] * 100), satCouple: r1(st.satType[1] * 100), satFamYoung: r1(st.satType[2] * 100), satFamSchool: r1(st.satType[3] * 100), satSenior: r1(st.satType[4] * 100),
     satDistrictMin: r1(Number.isFinite(dmin) ? dmin * 100 : st.sat * 100),
   } as Record<IndicatorId, number>;

@@ -186,3 +186,72 @@ describe('v90 ループ 2：老朽インフラ', () => {
     expect(i.options.some(o => o.act === 'loop' && o.label.includes('先送り'))).toBe(true);
   });
 });
+
+describe('v90 ループ 3：産業と暮らし', () => {
+  let mallBase: { s: GameState; a: GameState; b: GameState; c: GameState } | null = null;
+  /** 大型店を誘致した街（a）・何もしない街（b）・誘致して商店街を支援した街（c）。開業（24 か月）の 6 か月後 */
+  const mallRun = () => {
+    if (mallBase) return mallBase;
+    const s = newGame(); stepMonth(s);
+    const o = loopOptions(s, 'industry', { expect: false }).find(x => x.id === 'mall')!;
+    const a = structuredClone(s), b = structuredClone(s), c = structuredClone(s);
+    act(a, o.action); act(c, o.action); act(c, { type: 'policy', id: 'shotengai', on: true });
+    go(a, 30); go(b, 30); go(c, 30);
+    return (mallBase = { s, a, b, c });
+  };
+  const nearShops = (x: GameState, m: GameState) => { const mall = m.buildings.find(b => b.kind === 'mall')!; return x.buildings.filter(b => ['bakery', 'shop', 'konbini', 'cafe', 'drugstore', 'supermarket'].includes(b.kind) && b.status === 'operating' && Math.abs(b.x - mall.x) + Math.abs(b.y - mall.y) <= 40); };
+  it('大型店を誘致すると、雇用と税収は増え、近くの商店の売上が下がる', () => {
+    const { a, b } = mallRun();
+    expect(a.buildings.some(x => x.kind === 'mall' && x.status === 'operating')).toBe(true);
+    const A = loopIndicators(a), B = loopIndicators(b);
+    expect(A.jobs).toBeGreaterThan(B.jobs);
+    expect(A.bizTax).toBeGreaterThan(B.bizTax);
+    expect(A.shopSales).toBeLessThan(B.shopSales);
+    const sales = (x: GameState) => nearShops(x, a).reduce((t, y) => t + y.revenue, 0); // 大型店から 40 区画（約 1.2km）以内の店の売上の合計
+    expect(nearShops(b, a).length).toBeGreaterThan(0);
+    expect(sales(a)).toBeLessThan(sales(b) * 0.9);
+  });
+  it('商店街の支援で、その低下が和らぐ（費用は毎月かかる）', () => {
+    const { a, c } = mallRun();
+    expect(loopIndicators(c).shopSales).toBeGreaterThan(loopIndicators(a).shopSales);
+    expect(loopIndicators(c).shopClosed).toBeLessThanOrEqual(loopIndicators(a).shopClosed);
+    expect(c.ledger[c.ledger.length - 1].policy).toBeGreaterThan(a.ledger[a.ledger.length - 1].policy);
+  });
+  it('大型店の得失は世帯類型・地区で分かれる（近くの住民の買物は便利になり、道路は混む）', () => {
+    const { a, b } = mallRun();
+    expect(loopIndicators(a).traffic).toBeGreaterThan(loopIndicators(b).traffic);
+    const A = loopIndicators(a), B = loopIndicators(b);
+    // 働き手の世帯（単身・夫婦のみ）は雇用で得をし、高齢世帯は近くの店の閉店で損をする
+    expect(A.satSingle + A.satCouple).toBeGreaterThan(B.satSingle + B.satCouple);
+    expect(A.satSenior).toBeLessThan(B.satSenior);
+  });
+  it('工場を誘致すると雇用と事業の税収が増え、環境の満足が下がる。環境対策と緩衝緑地で和らぐ', () => {
+    const s = newGame(); stepMonth(s);
+    // 住宅地のすぐそばに工場を置く（立地の条件をつけない場合）
+    const home = s.buildings.filter(x => x.kind === 'house' && x.status === 'operating').sort((x, y) => (x.hh ?? []).reduce((p, q) => p + q, 0) - (y.hh ?? []).reduce((p, q) => p + q, 0)).pop()!;
+    const site = siteNear(s, 'factory', home.x, home.y, 25, 3000)!;
+    const o = { action: { type: 'build', kind: 'factory', x: site.x, y: site.y } as Action };
+    const a = structuredClone(s), b = structuredClone(s), c = structuredClone(s);
+    act(a, o.action); act(c, o.action); act(c, { type: 'policy', id: 'kogaiTaisaku', on: true }); act(c, { type: 'policy', id: 'bufferZone', on: true });
+    go(a, 30); go(b, 30); go(c, 30);
+    const A = loopIndicators(a), B = loopIndicators(b);
+    expect(A.jobs).toBeGreaterThan(B.jobs); expect(A.bizTax).toBeGreaterThan(B.bizTax);
+    // 工場の近く（6 区画以内）の住宅の環境の水準（地区ごとに得失が分かれる：近くは損、市全体は雇用で得）
+    const env = (x: GameState) => { const r = x.buildings.filter(y => y.sv?.length && y.status === 'operating' && Math.abs(y.x - site.x) <= 7 && Math.abs(y.y - site.y) <= 7); return r.reduce((t, y) => t + y.sv[9], 0) / Math.max(1, r.length); };
+    expect(env(a)).toBeLessThan(env(b) - 0.02);
+    expect(env(c)).toBeGreaterThan(env(a));
+  });
+});
+
+describe('v90 基本の回帰', () => {
+  it('3 つのループの対策をすべて入れても、48 か月で主な数値が NaN にならず、状態が正しい', () => {
+    const s = newGame(); stepMonth(s);
+    for (const id of ['devLevy', 'busPlus', 'rentAid', 'longLife', 'waterRate', 'shotengai', 'bufferZone', 'logiRoute', 'localHire', 'kogaiTaisaku']) act(s, { type: 'policy', id, on: true });
+    for (let i = 0; i < 48; i++) stepMonth(s);
+    const v = loopIndicators(s);
+    for (const k of Object.keys(v)) expect(Number.isFinite(v[k as keyof typeof v]), k).toBe(true);
+    for (const k of ['pop', 'households', 'sat', 'waitlist', 'debt'] as const) expect(Number.isFinite(s.stats[k]), k).toBe(true);
+    expect(Number.isFinite(s.cash)).toBe(true);
+    expect(validateState(s)).toBeNull();
+  });
+});

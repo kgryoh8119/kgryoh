@@ -33,8 +33,9 @@ export function renewCostOf(b: Pick<Building, 'kind' | 'age'>, age = b.age): num
   return Math.round(d.renewCost * (1 + DEFER_PREMIUM * Math.max(0, Math.min(20, age - 80)) / 20));
 }
 
-/** 大型店（市内の小さな店と買物客を取り合う）。重みはスーパー（集客力 6）と比べた仮定 */
-export const BIG_STORES: Partial<Record<string, { w: number; R: number }>> = {
-  mall: { w: 9, R: 70 }, outletMall: { w: 5, R: 70 }, department: { w: 6, R: 60 }, warehouseClub: { w: 5, R: 60 },
-  discount: { w: 3, R: 40 }, homeCenter: { w: 2.5, R: 45 }, electronics: { w: 2, R: 45 },
+/** 大型店（市内の小さな店と買物客を取り合う）。w は住民の買物の重み（小さな店の集客力 ÷ (1+距離) と同じ尺度）、R は届く範囲（区画）、
+ *  a は来訪者の買物を店と分け合うときの集客力（スーパー 6 と同じ尺度）。どれもゲームの仮定 */
+export const BIG_STORES: Partial<Record<string, { w: number; R: number; a: number }>> = {
+  mall: { w: 0.9, R: 60, a: 20 }, outletMall: { w: 0.35, R: 60, a: 16 }, department: { w: 0.45, R: 50, a: 10 }, warehouseClub: { w: 0.4, R: 50, a: 6 },
+  discount: { w: 0.25, R: 35, a: 4 }, homeCenter: { w: 0.15, R: 35, a: 3 }, electronics: { w: 0.12, R: 35, a: 3 },
 };

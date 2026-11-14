@@ -636,7 +636,7 @@ export function recompute(s: GameState, lite = false): void {
   for (const t of s.teams ?? []) { const v = SPORTS[t.sport].venue.map(k => B.find(b => b.kind === k && b.status === 'operating' && b.connected)).find(Boolean); if (v) vis += SPORTS[t.sport].visitors * (0.6 + 0.8 * t.fans) * (v.kind === 'gym' ? 0.6 : 1); }
   st.visitors = Math.round(vis * (0.7 + 0.6 * Math.min(1, st.fame / 60)) * modMul(s, 'visitors') * reachK);
   void fameT;
-  const OW = P.outsideWeight * modMul(s, 'outside') * (hasOp(s, 'mall') ? 0.75 : 1); // モールがあると市外へ買物に出る人が減る
+  const OW = P.outsideWeight * modMul(s, 'outside'); // v90：モールが市外への買物を減らす効果は、大型店の重み（bigW）で市内の大型店に流れる形にした
   // 7. 商業：世帯の買物支出を、集客力 ÷ (1+距離) の比で店舗と市外に配分する
   for (const sh of B) if (isShop(sh.kind)) sh.revenue = 0;
   const spend = new Float64Array(nRes);
@@ -655,7 +655,7 @@ export function recompute(s: GameState, lite = false): void {
   });
   // v90：大型店（モール・量販店）は近くの住民の買物を取り合う。近くの小さな店ほど売上が減る（商店街の支援 shopRev で一部を取り戻す）
   const bigW = new Float64Array(nRes);
-  for (const b of B) { const g = BIG_STORES[b.kind]; if (!g || b.status !== 'operating' || !b.connected || b.acc < 0) continue; each(b.acc, g.R, (ri, d) => { bigW[ri] += g.w / (1 + d / 6); }); }
+  for (const b of B) { const g = BIG_STORES[b.kind]; if (!g || b.status !== 'operating' || !b.connected || b.acc < 0) continue; each(b.acc, g.R, (ri, d) => { bigW[ri] += g.w / (1 + d / 8); }); }
   const shopK = modMul(s, 'shopRev');
   shopsOp.forEach((sh, si) => { const c = contrib[si]; for (let k = 0; k < c.ri.length; k++) { const ri = c.ri[k]; sh.revenue += spend[ri] * c.w[k] / (res[ri].shopP + OW + bigW[ri]) * shopK; } });
   // 市営駐車場の近く（180m 以内）の店は、車の客が増える
@@ -666,7 +666,7 @@ export function recompute(s: GameState, lite = false): void {
   const ugp = B.filter(b => b.kind === 'ugParking' && b.status === 'operating'); // v87：地下駐車場（立体駐車場と同じ 1.5 割、範囲は 300m。重ねては効かない）
   if (ugp.length) for (const sh of shopsOp) if (!towers.some(p => Math.abs(p.x + 0.5 - sh.x) <= 8 && Math.abs(p.y + 0.5 - sh.y) <= 8) && ugp.some(p => Math.abs(p.x + 1 - sh.x) <= 10 && Math.abs(p.y + 1 - sh.y) <= 10)) sh.revenue *= 1.15;
   // 来訪者の買物：店の集客力の比で分け合う
-  if (st.visitors > 0 && shopsOp.length) { const tot = shopsOp.reduce((a, b) => a + DEFS[b.kind].attract!, 0); for (const sh of shopsOp) sh.revenue += st.visitors * P.visitorSpend * DEFS[sh.kind].attract! / tot; }
+  if (st.visitors > 0 && shopsOp.length) { const tot = shopsOp.reduce((a, b) => a + DEFS[b.kind].attract!, 0) + B.reduce((a, b) => a + (b.status === 'operating' && b.connected ? BIG_STORES[b.kind]?.a ?? 0 : 0), 0); for (const sh of shopsOp) sh.revenue += st.visitors * P.visitorSpend * DEFS[sh.kind].attract! / tot; } // v90：来訪者の買物は大型店とも分け合う
   res.forEach((r, ri) => { if (r.connected) spendLocal += spend[ri] * (r.shopP + bigW[ri]) / (r.shopP + OW + bigW[ri]); });
   st.shops = shopsOp.length;
   st.shopLevel = spendAll > 0 ? spendLocal / spendAll : 0;
@@ -740,7 +740,7 @@ export function recompute(s: GameState, lite = false): void {
     // 市外から企業・大型施設へ通う人と、来訪者の車（市外の出入口から）
     for (const b of others) {
       const d = DEFS[b.kind], q = node[b.acc]; if (q === undefined || q < 0) continue;
-      const vol = ((d.jobs ?? 0) * 0.35 + (d.visitors ?? 0) * 0.004 + (b.kind === 'logistics' ? 120 : b.kind === 'factory' ? 60 : 0)) * P.peakFactor * peak;
+      const vol = ((d.jobs ?? 0) * 0.35 + (d.visitors ?? 0) * 0.004 + (b.kind === 'logistics' ? 120 : b.kind === 'factory' ? 60 : 0) + (BIG_STORES[b.kind]?.a ?? 0) * 8) * P.peakFactor * peak; // v90：大型店は買物客の車と搬入のトラックを集める
       if (vol > 0) walk(q, T0.d[q] <= T1.d[q] ? T0 : T1, vol * f);
     }
     cum += f;
@@ -854,7 +854,7 @@ export function recompute(s: GameState, lite = false): void {
     const fire = r.connected ? clamp(fireLv[ri] * 0.85 + 0.15 * prepared) : 0;
     if (fireLv[ri] >= 0.99) covered += tot;
     // 買物
-    const shop = Math.min(1, (r.shopP + 0.5 * bigW[ri]) / (r.shopP + OW + 0.5 * bigW[ri]) / 0.85); // v90：近くの大型店は住民の買物を便利にする
+    const shop = Math.min(1, (r.shopP + bigW[ri]) / (r.shopP + OW + bigW[ri]) / 0.85); // v90：近くの大型店は住民の買物を便利にする
     // 通勤
     let commute = 0, ratio = 1;
     if (r.connected) {
