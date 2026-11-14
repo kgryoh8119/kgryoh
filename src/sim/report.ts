@@ -1,7 +1,7 @@
 // v90：施策の予測と結果の記録、年次報告、課題の対策の試算。
 // ここは画面（DOM）に依存しない。記録は s.decisions にだけ書き、街の計算には使わない（記録を取っても取らなくても街の進み方は同じ）。
 // 予測は状態の複製に月次処理（forecast モード：イベント・景気・市政は動かさない）を回して出す。本番の乱数は使わない。
-import { stepMonth } from './step';
+import { stepMonth, monthlyBudget } from './step';
 import { checkPlace } from './actions';
 import { dispatch } from './actions';
 import { DEFS, POLICIES, policyCost, W, H } from './config';
@@ -37,7 +37,7 @@ export const BASE_INDICATORS: IndicatorDef[] = [
   { id: 'wait', name: '保育の待機', unit: '人', better: 'down', tol: 3, get: s => Math.round(s.stats.waitlist) },
   { id: 'schoolOver', name: '学校の過密', unit: '人', better: 'down', tol: 5, get: s => Math.round(Math.max(0, s.stats.schoolKids - s.stats.schoolCap) + Math.max(0, (s.stats.jhsKids ?? 0) - (s.stats.jhsCap ?? 0))) },
   { id: 'maxVc', name: '最大混雑率', unit: '%', better: 'down', tol: 3, get: s => Math.round(s.stats.maxVc * 100) },
-  { id: 'operating', name: '月の収支', unit: '万円', better: 'up', tol: 30, get: s => Math.round(s.ledger.at(-1)?.operating ?? 0) },
+  { id: 'operating', name: '月の収支', unit: '万円', better: 'up', tol: 30, get: s => Math.round(s.ledger.at(-1)?.operating ?? monthlyBudget(s).operating) },
   { id: 'debt', name: '市債残高', unit: '万円', better: 'down', tol: 100, get: s => Math.round(s.stats.debt) },
   { id: 'sat', name: '満足（全体）', unit: '%', better: 'up', tol: 1, digits: 1, get: s => Math.round(s.stats.sat * 1000) / 10 },
   { id: 'satType', name: '満足（いちばん低い世帯類型）', unit: '%', better: 'up', tol: 1.5, digits: 1, get: s => Math.round(minPos(s.stats.satType, k => (s.stats.hhByType?.[k] ?? 0) > 0) * 1000) / 10 },
@@ -244,7 +244,7 @@ export function annualReport(s: GameState, from: number, to: number, title?: str
     { name: '月の収支', unit: '万円', a: a.op, b: b.op, better: 'up' as const, digits: 0 },
     { name: '満足（全体）', unit: '%', a: Math.round(a.sat * 1000) / 10, b: Math.round(b.sat * 1000) / 10, better: 'up' as const, digits: 1 },
   ] : [];
-  const quotes = (s.voices ?? []).slice().sort((x, y) => (x.tone === 'bad' ? 0 : x.tone === 'warn' ? 1 : 2) - (y.tone === 'bad' ? 0 : y.tone === 'warn' ? 1 : 2)).slice(0, 3).map(v => ({ who: v.who + (v.district >= 0 && v.district < DISTRICTS.length ? `（${DISTRICTS[v.district]}）` : ''), text: v.text, tone: v.tone }));
+  const quotes = (s.voices ?? []).slice().sort((x, y) => (x.tone === 'bad' ? 0 : x.tone === 'warn' ? 1 : 2) - (y.tone === 'bad' ? 0 : y.tone === 'warn' ? 1 : 2)).filter((v, k, A) => A.findIndex(x => x.text === v.text) === k).slice(0, 3).map(v => ({ who: v.who + (v.district >= 0 && v.district < DISTRICTS.length ? `（${DISTRICTS[v.district]}）` : ''), text: v.text, tone: v.tone }));
   return { title: title ?? `${Math.floor(from / 12) + 1} 年目の年次報告`, from, to, rows, change, quotes };
 }
 

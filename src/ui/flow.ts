@@ -84,7 +84,8 @@ function resultsHtml(s: GameState, mine: Decision[]): string {
 export function pastResults(s: GameState, shown: Set<string>): string {
   const L = (s.decisions ?? []).filter(d => d.issue && !shown.has(d.issue)).slice(-3).reverse();
   if (!L.length) return '';
-  return `<details class="f90-past"><summary>課題から実行した対策の結果（${L.length} 件）</summary>${L.map(d => { const r = d.results.slice().sort((a, b) => b.at - a.at)[0] ?? null; return `<h4>${esc(d.label)} <small>${dateStr(d.month)}${r ? `・${r.at} か月後` : ''}</small></h4>${gapTable(d, r)}`; }).join('')}</details>`;
+  const fresh = L.some(d => d.results.some(r => !(d.seen ?? []).includes(r.at) && s.month - r.month < 3)); // 課題のカードがないので、新しい結果は 3 か月だけ知らせる
+  return `<details class="f90-past"><summary>課題から実行した対策の結果（${L.length} 件）${fresh ? '<em class="f90-new">結果が出ました</em>' : ''}</summary>${L.map(d => { const r = d.results.slice().sort((a, b) => b.at - a.at)[0] ?? null; return `<h4>${esc(d.label)} <small>${dateStr(d.month)}${r ? `・${r.at} か月後` : ''}</small></h4>${gapTable(d, r)}`; }).join('')}</details>`;
 }
 
 // ---------------------------------------------------------------- 年次報告

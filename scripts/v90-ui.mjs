@@ -14,11 +14,13 @@ const shot = async (n, frames = 2) => { await draw(frames); await page.waitForTi
 await page.evaluate(() => { const S = window.__sumu; S.view.setQuality('low'); S.fixedQuality = true; const g = S.game; g.state.tutorial.done = true; g.state.goalPick = false; g.state.goals = [{ id: 'wait', base: 0, target: 10, diff: 1 }]; S.ui.refresh(); S.ui.renderModal(); });
 await page.waitForTimeout(800);
 const openPanel = async () => { if (phone) { const closed = await page.evaluate(() => document.getElementById('side').classList.contains('closed')); if (closed) await page.click('.tool.panelbtn'); await page.waitForTimeout(300); } };
-const tab = async t => { await openPanel(); await page.click(`#tabs [data-arg="${t}"]`); await page.waitForTimeout(300); };
+const tab = async t => { await closeOther(); await openPanel(); await page.click(`#tabs [data-arg="${t}"]`); await page.waitForTimeout(300); };
 /** はみ出しの機械検査：横スクロールにしていない要素で、文字が箱からはみ出していないか */
 const overflow = () => page.evaluate(() => [...document.querySelectorAll('#panel *, #modal *, #cands *')].filter(e => { const cs = getComputedStyle(e); if (cs.display === 'none' || !e.clientWidth) return false; if (e.closest('.f90-scroll') || ['auto', 'scroll'].includes(cs.overflowX)) return false; if (!e.closest('.f90-box, .f90-pol, .f90-report, .issue, .f90-bf, .f90-past')) return false; return e.scrollWidth > e.clientWidth + 1; }).map(e => `${e.tagName}.${e.className} ${e.scrollWidth}>${e.clientWidth} 「${(e.textContent || '').slice(0, 30)}」`).slice(0, 10));
 const checks = {};
-const advance = n => page.evaluate(n => { const S = window.__sumu, g = S.game; for (let i = 0; i < n; i++) { const s = g.state; for (const e of [...s.events.active]) S.game.act({ type: 'event', id: e.id, option: 0 }); s.pendingElection = null; g.speed = 3; g.tick(1.0001); } g.speed = 0; S.ui.refresh(); return g.state.month; }, n);
+const advance = async n => { const r = await page.evaluate(n => { const S = window.__sumu, g = S.game, clear = () => { const s = g.state; for (const e of [...s.events.active]) S.game.act({ type: 'event', id: e.id, option: 0 }); s.pendingElection = null; s.goalPick = false; }; for (let i = 0; i < n; i++) { clear(); g.speed = 3; g.tick(1.0001); } clear(); g.speed = 0; S.ui.refresh(); S.ui.renderModal(); const m = document.getElementById('modal'), lab = m && !m.hidden ? m.querySelector('.dialog')?.getAttribute('aria-label') : null; return { month: g.state.month, modal: lab }; }, n); console.log('advance', JSON.stringify(r)); return r; };
+/** 年次報告以外のダイアログ（祝い・勲章など）が残っていたら閉じる */
+const closeOther = async () => { const lab = await page.evaluate(() => { const m = document.getElementById('modal'); if (!m || m.hidden || m.querySelector('.f90-report')) return null; const l = m.querySelector('.dialog')?.getAttribute('aria-label'); const b = m.querySelector('.dialog [data-act]:last-of-type'); m.hidden = true; return l; }); if (lab) console.log('closed modal', lab); };
 
 await tab('home');
 await page.evaluate(() => document.querySelector('.issues')?.scrollIntoView());
