@@ -29,6 +29,8 @@ export * from './big';
 export * from './threats';
 export * from './macro';
 export * from './authority';
+export { riskOutlook, floodProbK, slideProbK } from './risk';
+export type { RiskRow, RiskLevel } from './risk';
 export { monthlyIssues, allIssues, careCause, ISSUE_W } from './issues';
 export type { Issue, IssueOption } from './issues';
 export * from './isle';

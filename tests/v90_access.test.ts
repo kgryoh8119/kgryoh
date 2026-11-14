@@ -98,3 +98,15 @@ describe('v90 行政権限', () => {
     expect(OFFICE.gyoseiku.deny!.tax).toBeTruthy();
   });
 });
+
+describe('v90 災害のリスクの見通し', () => {
+  it('主要な災害を幅で返し、浸水の発生の倍率は浸水世帯で変わる', async () => {
+    const { riskOutlook, floodProbK } = await import('../src/sim/risk');
+    const s = newGame({ seed: 5 }); recompute(s);
+    const rows = riskOutlook(s);
+    expect(rows.map(r => r.id)).toEqual(expect.arrayContaining(['flood', 'quake', 'slide']));
+    for (const r of rows) expect(r.perYear[0]).toBeLessThanOrEqual(r.perYear[1]);
+    const k0 = floodProbK(s); s.stats.floodHH = s.stats.households * 0.15;
+    expect(floodProbK(s)).toBeGreaterThan(k0);
+  });
+});

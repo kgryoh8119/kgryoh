@@ -19,6 +19,7 @@ import {
   stationStats, FREQS, DOOR_COST, SUBWAY_COST, BIDS, bidChance, STYLES_M, REC_PLANS, hasOp, terrainOf, isCastaway, missionsFor, calMonth, POSTS, candidates, execOf, landOf, landPrices, routeStats, FREQ, MAX_ROUTES, citsOf, CIT_N, voteForecast, FACTIONS, PLANS, LOBBY_COST, SPEECH_COST, ADS_COST, monthsToElection, campaignOpen, PRESS, grantChance, PETITION_COST, GRANTS, GRANT_COOL, APPLY_COST, FESTS, pyramid, projection,
   authorityLabel, currentOffice,
   dataSource,
+  riskOutlook,
 } from '../sim/index';
 import type { GameState, Building, Kind, Zone, Layer, ForecastSet, Action, TilePlan, Cat, TerraOp, MissionDef } from '../sim/index';
 import { sound } from '../audio/sound';
@@ -894,6 +895,8 @@ export class UI {
       ${st.access ? `<div class="rows"><span title="相談窓口・手続きの届きやすさ・多言語/やさしい日本語の情報・オンライン手続き（住民全体）">行政サービスへのアクセス</span><b style="color:${col(st.access.access < 0.35, st.access.access < 0.55)}">${pct(st.access.access)}</b><span title="日本語学習の機会・通訳・学校での支援が足りないほど高い">言語の壁</span><b style="color:${col(st.access.lang < 0.25, st.access.lang < 0.45)}">${pct(1 - st.access.lang)}</b>
         <span title="高齢のひとり暮らし・障害のある人・転入したばかりの世帯・日本語に不慣れな人に、医療・防災・福祉の情報と相談が届く割合（推計）">情報が届きにくい住民への到達</span><b style="color:${col(st.access.reach < 0.55, st.access.reach < 0.7)}">${pct(st.access.reach)}</b><span title="人手不足の職（介護・保育・工場など）の採用と定着への倍率">採用の定着</span><b>×${st.access.retain.toFixed(2)}</b></div>` : ''}
       <p class="note">人数は推計（ゲーム上の仮定）です。工場・農業・介護・ホテルなどが人手を外国人の働き手に頼るほど増えます。外国人住民の数は治安を悪くしません。暮らしを左右するのは、相談と手続きの届きやすさと言語の壁です。多文化共生センター（誰でも使える相談と情報の拠点）・日本語教室・多言語の相談窓口で、相談の利用（福祉の満足・孤立）、採用の定着、災害時の避難の情報、転出が良くなり、高齢の人や転入したばかりの世帯にも効きます。</p></section>` : ''}
+    <section><h2>災害のリスクの見通し <small>推計・幅で表示</small></h2><table class="t"><tr><th>災害</th><th>リスク</th><th>年に起きる見込み</th><th>影響を受ける世帯</th></tr>${riskOutlook(s).map(r => `<tr title="主な要因：${r.factors}。対策：${r.measures}"><td>${r.name}</td><td style="color:${col(r.level === '高', r.level === '中')}">${r.level}</td><td>${r.perYear[1] > 0 ? `${r.perYear[0]}〜${r.perYear[1]}%` : '条件なし'}</td><td>${n0(r.exposed)}</td></tr>`).join('')}</table>
+      <p class="note">行にカーソルを合わせると、主な要因と対策で下がる分が出ます。確率は地形と街のようすから出したゲーム上の推計で、幅（±4 割）で示します。地震の発生は地域によらず一律の仮定で、被害の大きさが液状化・備え・老朽で変わります。</p></section>
     <section><h2>お産と子育ての医療</h2>
       <div class="rows"><span>市内で出産できる所</span><b style="color:${col(ob < 0.95, ob < 1)}">${ob >= 1.07 ? '周産期母子医療センター' : ob >= 1 ? '産院' : ob >= 0.95 ? '一般の病院だけ' : 'なし（市外へ通う）'}</b><span>出生への効果</span><b>×${ob.toFixed(2)}</b>${s.stats.yudoShare !== undefined ? `<span>居住誘導区域に住む世帯</span><b>${pct(s.stats.yudoShare ?? 0)}</b>` : ''}</div></section>`;
   }

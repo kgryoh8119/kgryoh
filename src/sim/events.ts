@@ -19,6 +19,8 @@ export interface EventDef {
   cond: (s: GameState) => { target: number; detail: string } | null;
   /** 条件を満たした月あたりの発生確率 */
   prob: number;
+  /** v90：発生確率の倍率（地形・人口・対策に結び付ける） */
+  probK?: (s: GameState) => number;
   /** 再発待ち（月） */
   cooldown: number;
   /** 条件がこの月数続いてから発生 */
@@ -37,6 +39,7 @@ const TSP = ['soccer', 'baseball', 'basket'] as const;
 const teamPick = (s: GameState, f: (t: NonNullable<GameState['teams']>[number]) => boolean) => { const l = (s.teams ?? []).filter(t => SPORTS[t.sport] && s.buildings.some(b => SPORTS[t.sport].venue.includes(b.kind) && b.status === 'operating') && f(t)); return l.length ? l[s.month % l.length] : null; };
 const cityNursery = (s: GameState) => s.buildings.filter(b => fam(b.kind) === 'care' && isCity(b.kind) && b.status === 'operating');
 import { threatLv } from './threats';
+import { floodProbK, slideProbK } from './risk';
 const r0 = (v: number) => Math.round(v);
 /** できごとの起きる月を、地図の種と月から決める（0〜1） */
 const hh = (s: GameState, k: number) => { const v = Math.sin(s.seed * 0.0137 * k + s.month * (1.37 + k * 0.211) + k * 7.7) * 43758.5453; return v - Math.floor(v); };
@@ -242,7 +245,7 @@ export const EVENTS: EventDef[] = [
     ],
   },
   {
-    id: 'flood', title: '台風の大雨で浸水した', prob: 0.04, cooldown: 24, minStreak: 0, expire: 3,
+    id: 'flood', title: '台風の大雨で浸水した', prob: 0.04, probK: floodProbK, cooldown: 24, minStreak: 0, expire: 3,
     cond: s => { const m = s.month % 12; return m >= 3 && m <= 6 && s.stats.floodHH >= 5 ? { target: -1, detail: `台風の大雨で川があふれそうになりました。川沿いの低い土地には ${r0(s.stats.floodHH)} 世帯が住んでいます（雨水調整池のある地区は被害が半分）。` } : null; },
     hit: s => damage(s, 'flood', 0.7),
     options: [
@@ -459,7 +462,7 @@ export const EVENTS: EventDef[] = [
     ],
   },
   {
-    id: 'landslide', title: '大雨で土砂崩れが起きた', prob: 0.03, cooldown: 24, minStreak: 0, expire: 2,
+    id: 'landslide', title: '大雨で土砂崩れが起きた', prob: 0.03, probK: s => slideProbK(s), cooldown: 24, minStreak: 0, expire: 2,
     cond: s => { const mm = s.month % 12; if (mm < 3 || mm > 6) return null; const m = getMap(s.seed); const n = s.buildings.filter(b => isRes(b.kind) && b.status === 'operating' && [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dx, dy]) => { const x = b.x + dx, y = b.y + dy; return x >= 0 && y >= 0 && x < W && y < H && m.steep[idx(x, y)]; })).length; return n >= 2 ? { target: -1, detail: `長雨で地盤がゆるみ、斜面が崩れました。斜面に接する住宅は ${n} 棟あります。` } : null; },
     hit: s => damage(s, 'slide', 0.8),
     options: [
@@ -1164,7 +1167,7 @@ function damage0(s: GameState, what: 'quake' | 'flood' | 'fire' | 'snow' | 'slid
     // 土砂崩れ：斜面に接する住宅のうち、最大 3 棟が被害を受ける。斜面沿いの市道も傷む
     const m = getMap(s.seed), near = (b: Building) => { for (let dy = -1; dy <= b.h; dy++) for (let dx = -1; dx <= b.w; dx++) { const x = b.x + dx, y = b.y + dy; if (x >= 0 && y >= 0 && x < W && y < H && m.steep[idx(x, y)]) return true; } return false; };
     const list = s.buildings.filter(b => isRes(b.kind) && b.status === 'operating' && near(b));
-    const n = Math.min(list.length, Math.max(1, Math.round(3 * k)));
+    const n = Math.min(list.length, Math.max(1, Math.round(3 * k * (hasOp(s, 'sabo') ? 0.5 : 1)))); // v90：砂防ダムで被害の棟数が半分
     for (let j = 0; j < n; j++) { const b = list[Math.floor(rngNext(s) * list.length) % list.length]; if (!s.buildings.includes(b)) continue; lost += sumHH(b); removeBuilding(s, b); hit++; }
     for (let i = 0; i < W * H; i++) if (m.steep[i] && (s.road[i] === 1 || s.road[i] === 2)) s.roadAge[i] = Math.min(100, s.roadAge[i] + 30 * k);
     return ` 被害：斜面沿いの住宅 ${hit} 棟が土砂に巻き込まれ、${Math.round(lost)} 世帯が住まいを失いました。備え（避難所・備蓄）の水準 ${Math.round(prep * 100)}%。`;
@@ -1301,7 +1304,7 @@ export function tickEvents(s: GameState): void {
     if (s.streak[def.id] < def.minStreak) continue;
     if (def.once && s.events.log.some(l => l.id === def.id)) continue;
     if (calm && !def.hit) continue;
-    if (def.prob >= 1 || rngNext(s) < def.prob * (def.hit ? Math.min(1, diffOf(s).events * 1.1) : diffOf(s).events)) {
+    if (def.prob >= 1 || rngNext(s) < def.prob * (def.probK ? def.probK(s) : 1) * (def.hit ? Math.min(1, diffOf(s).events * 1.1) : diffOf(s).events)) {
       const extra = def.hit ? def.hit(s, c.target) : '';
       s.events.active.push({ id: def.id, start: s.month, target: c.target, detail: (c.detail + extra).slice(0, 3900) });
       s.events.cooldown[def.id] = s.month + Math.max(def.cooldown, def.once ? 100000 : 0);
