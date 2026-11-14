@@ -12,7 +12,7 @@ export const contestTerrain = (w: number) => TERRAINS[w % 8]; // v88：無人島
 
 const esc = (t: string) => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const hasSave = (id: string) => { try { return !!localStorage.getItem(saveKey(id)); } catch { return false; } };
-const km = (b?: MapEntry['bbox']) => b ? `東西 ${((b.e - b.w) * 111.32 * Math.cos(((b.s + b.n) / 2) * Math.PI / 180)).toFixed(1)}km × 南北 ${((b.n - b.s) * 111.32).toFixed(1)}km` : '76 × 68 区画（東西 2.3km × 南北 2.0km）';
+const km = (b?: MapEntry['bbox']) => b ? `東西 ${((b.e - b.w) * 111.32 * Math.cos(((b.s + b.n) / 2) * Math.PI / 180)).toFixed(1)}km × 南北 ${((b.n - b.s) * 111.32).toFixed(1)}km` : '128 × 112 区画（東西 3.8km × 南北 3.4km）';
 const readFile = (f: File) => new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = () => rej(r.error); r.readAsText(f); });
 
 export function chooseMap(): Promise<Choice> {
@@ -109,7 +109,7 @@ export function chooseMap(): Promise<Choice> {
       const b = (ev.target as HTMLElement).closest('button[data-t]') as HTMLElement | null;
       if (!b || busy) return;
       const id = b.dataset.id!;
-      if (b.dataset.t === 'start' && mapEntry(id)?.kind === 'builtin') { pick = id; render(); return; }
+      if (b.dataset.t === 'start' && mapEntry(id)?.kind === 'builtin') { pick = id; render(); el.querySelector('.tpick')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; } // v88：地形の選択は一覧の上に出るので、そこへ画面を送る（押しても何も起きないように見えていた）
       if (b.dataset.t === 'contest') { const w = contestWeek(); busy = true; msg = '大会の街を準備しています…'; render(); loadRaw(id).then(raw => done({ id, raw: raw ?? null, terrain: contestTerrain(w).id, contest: w })); return; }
       if (b.dataset.t === 'terrain') { const t = b.dataset.tr!; busy = true; msg = '街を準備しています…'; render(); loadRaw(id).then(raw => done({ id, raw: raw ?? null, terrain: t })); return; }
       if (b.dataset.t === 'pickclose') { pick = ''; render(); return; }
