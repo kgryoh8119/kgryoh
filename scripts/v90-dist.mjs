@@ -16,7 +16,7 @@ const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--ena
 const out = {};
 async function newPage(ctxOpts = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...ctxOpts }); const page = await ctx.newPage(); page.setDefaultTimeout(60000);
-  const reqs = []; page.on('request', r => { const m = r.url().match(/maps\/([\w-]+)\.json/); if (m) reqs.push(m[1]); });
+  const reqs = []; page.on('request', r => { const m = r.url().match(/maps\/(?!manifest)([\w-]+)\.json/); if (m) reqs.push(m[1]); });
   return { ctx, page, reqs };
 }
 const built = () => window.__sumu && window.__sumu.view.stats.buildings > 0;

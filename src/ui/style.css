@@ -285,6 +285,10 @@ textarea.io { width: 100%; height: 90px; font-family: ui-monospace, monospace; f
 #title .tfoot .btn { cursor: pointer; }
 #title .tcredit { margin: 0; font-size: 12px; opacity: 0.85; }
 #title .tcredit a { color: #fff; }
+#title .tabout { margin: 8px 0 0; font-size: 12px; color: #fff; opacity: 0.9; }
+#title .tabout summary { cursor: pointer; }
+#title .tabout a { color: #fff; }
+#title .tabout li { margin: 4px 0; line-height: 1.5; }
 @media (max-width: 600px) { #title .tin { padding: 18px 12px 28px; } #title .tlogo h1 { font-size: 30px; } #title .mgrid { grid-template-columns: 1fr; } }
 
 /* おすすめの場所 */

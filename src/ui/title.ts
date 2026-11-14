@@ -67,6 +67,15 @@ export function chooseMap(): Promise<Choice> {
         </div>
         <p class="note tplay">遊び方は「経営」（市長として予算・選挙の中でやりくり）のほかに、街に入ってから「保存・設定」→「遊び方」で、🧱 自由建築（費用・土地の持ち主・選挙なし）・📷 撮影・🚶 街歩き を選べます。</p>
         <p class="note tcredit">実在の地図：© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors（ODbL）・標高 国土地理院。世帯数・施設の定員・予算などはゲームの推計です。</p>
+        <details class="note tabout"><summary>この作品について（出典とライセンス）</summary>
+          <ul>
+            <li>実在の地図の道路・鉄道・川・建物・施設の名前と位置：© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors（Open Database License 1.0）。同梱の地図データはこの派生データベースで、再配布するときも同じ条件（出典の表示・同じ ODbL での提供）に従います。</li>
+            <li>標高：<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a> 標高タイル（出典を明示して利用）。</li>
+            <li>3D 描画：<a href="https://threejs.org/" target="_blank" rel="noopener">three.js</a>（MIT）。</li>
+            <li>文字：Zen Kaku Gothic New・Barlow Semi Condensed（SIL Open Font License 1.1）。Google Fonts から読み込みます。オフラインや読み込めない場合は、端末の日本語フォントで表示します。</li>
+            <li>建物・車・樹木・名所のモデルは作者が Blender で作ったもの、音は Web Audio でその場で合成したもの（音源ファイルなし）です。人の歩く・立つ動きの角度は Adobe Mixamo の動きから取り出した数値を使っています。</li>
+            <li>世帯数・人口・施設の定員・予算・価格などはゲームの推計・仮定で、自治体の統計ではありません。詳しくは docs/ASSETS.md。</li>
+          </ul></details>
       </div>`;
     };
     const done = (c: Choice) => { el.remove(); resolve(c); };
