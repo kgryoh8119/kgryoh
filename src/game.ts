@@ -4,6 +4,7 @@ import { eventDef, initLocks, syncTerrain, recompute, ACTION_NAMES, seedForTerra
 /** 取り消せる操作（つくる・変える操作。選挙やできごとの選択は取り消せない） */
 const UNDOABLE = new Set(['road', 'unroad', 'tunnel', 'bridge', 'overpass', 'footbridge', 'canal', 'area', 'busStop', 'levee', 'terra', 'widen', 'flyover', 'rail', 'railgrade', 'unrail', 'repair', 'zone', 'build', 'demolish', 'renew', 'staff', 'suspend', 'policy', 'upgrade', 'buyout', 'tax', 'option', 'style', 'expand', 'move', 'annex', 'sandboxPlace']);
 import type { GameState, Action, Result, ForecastSet } from './sim/index';
+import { RECORD_KIND, recordDecision, fillForecast, updateDecisions, indicatorValues, actionLabel, type Decision, type DecisionResult } from './sim/report';
 import { autoResolve, autoEvent, autoTurn, type AutoNote } from './autoplay';
 
 /** 速度ごとの「1 秒あたりの月数」。経営の進行は経過時間の合計だけで決まり、フレームレートに依存しない */
@@ -53,6 +54,7 @@ export class Game {
     while (this.acc >= 1) {
       this.acc -= 1;
       stepMonth(this.state);
+      this.afterMonth();
       n++;
       if (this.auto && !this.draft) { this.autoUnblock(); this.note(autoTurn(this.state)); }
       if (this.blocked) { this.acc = 0; break; }
@@ -61,6 +63,25 @@ export class Game {
     return n;
   }
 
+  /** v90：施策の結果（3・6・12 か月後）が新しく出たもの。画面が読んだら空にする */
+  newResults: { d: Decision; r: DecisionResult }[] = [];
+  /** v90：年次報告を出す区切り（年度末と任期末）。画面が出したら null にする */
+  reportDue: { from: number; to: number; title: string } | null = null;
+  private afterMonth(): void {
+    const s = this.state;
+    const res = updateDecisions(s);
+    if (res.length) { this.newResults.push(...res); if (this.newResults.length > 20) this.newResults.splice(0, this.newResults.length - 20); for (const { d, r } of res) if (r.at === 12 || d.issue) s.notes.push(`📊 施策「${d.label}」の ${r.at} か月後の結果が出ました（概要タブの課題・年次報告で見られます）`); }
+    if (s.mode !== 'term') return;
+    if (s.pendingElection) this.reportDue = { from: s.termStart, to: s.month, title: `任期 ${s.term} 期目のまとめ（任期末の報告）` };
+    else if (s.month > 0 && s.month % 12 === 0) this.reportDue = { from: s.month - 12, to: s.month, title: `${s.month / 12} 年目の年次報告（年度末）` };
+  }
+  /** v90：主要な操作を、実行前の指標と 12 か月の予測つきで記録する。予測は画面を止めないよう少しあとで計算する */
+  private record(a: Action, before: Record<string, number>, issue?: string, label?: string): void {
+    const s = this.state; if (s.mode !== 'term') return;
+    const d = recordDecision(s, label ?? actionLabel(s, a), RECORD_KIND[a.type] ?? '計画案', before, { issue, forecast: false, action: a });
+    const fill = () => { if (this.state === s && !d.expect && s.decisions?.includes(d)) fillForecast(s, d); };
+    if (typeof setTimeout === 'function') setTimeout(fill, 60); else fill();
+  }
   /** 取り消し用：操作の前の状態（同じ月のあいだだけ。3 手まで） */
   undoStack: { state: GameState; label: string }[] = [];
   get canUndo(): boolean { return !this.draft && this.undoStack.length > 0 && this.undoStack.at(-1)!.state.month === this.state.month; }
@@ -71,9 +92,11 @@ export class Game {
     this.changed();
     return { ok: true, msg: `取り消しました：${u.label}` };
   }
-  act(a: Action): Result {
+  act(a: Action, opts: { issue?: string } = {}): Result {
     const snap = !this.draft && UNDOABLE.has(a.type) ? structuredClone(this.state) : null;
+    const before = !this.draft && RECORD_KIND[a.type] ? indicatorValues(this.state) : null;
     const r = dispatch(this.view, a);
+    if (r.ok && before) this.record(a, before, opts.issue);
     if (r.ok && snap) { this.undoStack = this.undoStack.filter(u => u.state.month === this.state.month); this.undoStack.push({ state: snap, label: ACTION_NAMES[a.type] ?? '操作' }); if (this.undoStack.length > 3) this.undoStack.shift(); }
     if (r.ok && this.draft) this.draft.actions.push(a);
     if (r.ok) this.changed();
@@ -102,7 +125,8 @@ export class Game {
       syncTerrain(this.draft.state);
       return { ok: false, failed, msg: `実行していません（本番は変わっていません）。${failed.index + 1} 件目「${failed.name}」が通りません：${failed.msg}。計画案は残してあります。その操作をやり直すか、計画を破棄してください` };
     }
-    this.draft = null; this.state = trial; syncTerrain(this.state); recompute(this.state); this.state.roadVersion++; this.state.bVersion++;
+    const before0 = indicatorValues(before);
+    this.draft = null; this.state = trial; this.record(actions[0], before0, undefined, `計画案（${actions.length} 件：${[...new Set(actions.map(a => ACTION_NAMES[a.type] ?? '操作'))].slice(0, 3).join('・')}）`); syncTerrain(this.state); recompute(this.state); this.state.roadVersion++; this.state.bVersion++;
     this.undoStack = this.undoStack.filter(u => u.state.month === before.month); this.undoStack.push({ state: before, label: `計画案（${actions.length} 件）` }); if (this.undoStack.length > 3) this.undoStack.shift();
     this.changed();
     return { ok: true, msg: `計画案の ${actions.length} 件を実行しました（まとめて 1 回で取り消せます）` };
