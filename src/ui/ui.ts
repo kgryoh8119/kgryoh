@@ -673,7 +673,8 @@ export class UI {
       case 'unsaved': this.menu = true; this.menuTab = 'save'; this.menuMsg = g.saveFail?.msg ?? ''; this.confirmNew = ''; this.renderModal(); break;
       case 'savefile': this.download(`sumucity-${(this.s.cityName ?? 'save').replace(/[\\/:*?"<>|\s]/g, '_')}-${Math.floor(this.s.month / 12) + 1}年目.json`, g.exportText(), 'application/json'); g.noteExported(); this.menuMsg = 'ファイルに書き出しました（ダウンロードの場所に入ります）。読み込むときは「ファイルから読み込む」を使います'; this.toast('ファイルに書き出しました'); this.renderModal(); break;
       case 'saveretry': { const w = g.saveFail?.where ?? '', m = /^枠 (\d)$/.exec(w); const r = m ? g.saveSlot(Number(m[1])) : w === '自動保存' ? g.saveSlot('auto') : g.saveLocal(); this.menuMsg = r.msg; this.toast(r.msg, !r.ok); this.renderModal(); break; }
-      case 'export': { const ta = $('iotext') as HTMLTextAreaElement; ta.value = g.exportText(); ta.select(); navigator.clipboard?.writeText(ta.value).then(() => this.toast('保存データをコピーしました'), () => this.toast('下の欄のテキストを選択してコピーしてください')); this.download('sumucity-save.json', ta.value, 'application/json'); g.noteExported(); break; }
+      case 'export': { const text = g.exportText(); g.noteExported(); // v90：noteExported がメニューを描き直して欄が空になっていたので、描き直したあとの欄に入れる
+        const ta = $('iotext') as HTMLTextAreaElement; ta.value = text; ta.select(); navigator.clipboard?.writeText(text).then(() => this.toast('保存データをコピーしました'), () => this.toast('下の欄のテキストを選択してコピーしてください')); this.download('sumucity-save.json', text, 'application/json'); break; }
       case 'import': this.loadText(($('iotext') as HTMLTextAreaElement).value); break;
       case 'title': if (this.confirmNew === 'title') toTitle(); else { this.confirmNew = 'title'; this.renderModal(); } break;
       case 'titlesave': { const r = g.saveLocal(); if (r.ok) toTitle(); else { this.menuMsg = r.msg; this.renderModal(); } break; }

@@ -252,7 +252,7 @@ export function annualReport(s: GameState, from: number, to: number, title?: str
     { name: '人口', unit: '人', a: a.pop, b: b.pop, better: 'up' as const, digits: 0 },
     { name: '保育の待機', unit: '人', a: a.wait, b: b.wait, better: 'down' as const, digits: 0 },
     { name: '最大混雑率', unit: '%', a: Math.round(a.maxVc * 100), b: Math.round(b.maxVc * 100), better: 'down' as const, digits: 0 },
-    { name: '月の収支', unit: '万円', a: a.op, b: b.op, better: 'up' as const, digits: 0 },
+    { name: '月の収支', unit: '万円', a: a.op || (H.find(h => h.month > a.month)?.op ?? 0), b: b.op, /* はじめの月は収支の記録が 0 なので、最初の月の実績を使う */ better: 'up' as const, digits: 0 },
     { name: '満足（全体）', unit: '%', a: Math.round(a.sat * 1000) / 10, b: Math.round(b.sat * 1000) / 10, better: 'up' as const, digits: 1 },
   ] : [];
   const quotes = (s.voices ?? []).slice().sort((x, y) => (x.tone === 'bad' ? 0 : x.tone === 'warn' ? 1 : 2) - (y.tone === 'bad' ? 0 : y.tone === 'warn' ? 1 : 2)).filter((v, k, A) => A.findIndex(x => x.text === v.text) === k).slice(0, 3).map(v => ({ who: v.who + (v.district >= 0 && v.district < DISTRICTS.length ? `（${DISTRICTS[v.district]}）` : ''), text: v.text, tone: v.tone }));
