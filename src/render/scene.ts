@@ -119,7 +119,7 @@ import VEH2 from '../assets/vehicles2.json';
 const VM2 = VEH2 as unknown as Record<'coach' | 'loco' | 'express', CarMesh>;
 const VM = VEH as unknown as Record<'bus' | 'truck' | 'shin_mid' | 'shin_nose' | 'pole' | 'vending' | 'postbox', CarMesh>;
 import { lmPad, carMesh, CAR_PART, carKindOf, type CarMesh, MODEL, MODEL_H, modelConstruction, modelScaffold, makeSignCanvas, rng, tree, sign, DETAIL, type Ctx } from './models';
-import { W, H, TILE, DEFS, isRes, isShop, isCity, fam, floodRisk, getMap, heightAt, idx, inMap, hash, buildable, GATEWAYS, roadInfo, REAL, LOT_KINDS, railBlocks, onMapChange, MAP_ID, mapEntry, baseEntry, ropewayTop, blockOf, altitude, tsunamiDepth, designWave, seaDist, terrainOf, landPrices, routeCarK, isleOX, isleOY, inExt, EXT_PONDS, FIC_V87_W } from '../sim/index';
+import { W, H, TILE, DEFS, isRes, isShop, isCity, fam, floodRisk, getMap, heightAt, idx, inMap, hash, buildable, GATEWAYS, roadInfo, REAL, LOT_KINDS, railBlocks, onMapChange, MAP_ID, mapEntry, baseEntry, ropewayTop, blockOf, altitude, tsunamiDepth, designWave, seaDist, terrainOf, landPrices, routeCarK, isleOX, isleOY, extWater, EXT_PONDS, FIC_V87_W } from '../sim/index';
 import { realTerrain, realStatic, realRoads, realPaths, drawRealTile, drawRealGround, drawRealStation, drawRealLot, drawRealStore, looksBuiltUp, REAL_CHUNK } from './real';
 import type { GameState, Building, Kind, Layer, MapDef } from '../sim/index';
 import { stationStats } from '../sim/index';
@@ -612,9 +612,9 @@ export class View {
     const water = new THREE.Mesh(wg, this.matWater); water.position.set(MAPW / 2, -1.55, (RY - 0.2) * TILE + wd / 2); this.scene.add(water);
     { const pg = new THREE.CircleGeometry(2.35 * TILE, 40); pg.rotateX(-Math.PI / 2); const pond = new THREE.Mesh(pg, this.matWater); pond.position.set(44.5 * TILE, -0.7, 50.5 * TILE); this.scene.add(pond);
       if (W > 76) { const p2 = new THREE.Mesh(new THREE.CircleGeometry(2.75 * TILE, 40).rotateX(-Math.PI / 2), this.matWater); p2.position.set(112.5 * TILE, -0.7, 72.5 * TILE); this.scene.add(p2); }
-      // v92：さらに広げた土地のため池。水面の高さは岸（半径の 0.8 倍）のいちばん低い所に合わせる（丘のふもとでも水面が地面に埋もれないよう）
-      if (W > FIC_V87_W && T !== 'mountain' && T !== 'inland') for (const [px, py, r] of EXT_PONDS) { let lo = Infinity; for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; lo = Math.min(lo, heightAt(this.map, (px + Math.cos(a) * r * 0.8) * TILE, (py + Math.sin(a) * r * 0.8) * TILE)); }
-        const p3 = new THREE.Mesh(new THREE.CircleGeometry(r * 0.95 * TILE, 40).rotateX(-Math.PI / 2), this.matWater); p3.position.set(px * TILE, lo - 0.25, py * TILE); this.scene.add(p3); } } // 南原のため池（v87：新田のため池も）
+      // v92：さらに広げた土地のため池。水面の高さは岸（半径の 0.95 倍）の低い所に合わせる（丘のふもとでも水面が地面に埋もれないよう）
+      if (W > FIC_V87_W && T !== 'mountain' && T !== 'inland') for (const [px, py, r] of EXT_PONDS) { const hs: number[] = []; for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; hs.push(heightAt(this.map, (px + Math.cos(a) * r * 0.95) * TILE, (py + Math.sin(a) * r * 0.95) * TILE)); } hs.sort((a, b) => a - b); const lo = hs[3]; // 用水路の溝が岸を切るので、いちばん低い所でなく下から 4 番目に合わせる
+        const p3 = new THREE.Mesh(new THREE.CircleGeometry(r * 0.95 * TILE, 40).rotateX(-Math.PI / 2), this.matWater); p3.position.set(px * TILE, lo - 0.3, py * TILE); this.scene.add(p3); } } // 南原のため池（v87：新田のため池も）
   }
 
   // ---- v70：田んぼ（田園・山あい・盆地の空き地）。季節で水→緑→金→刈り跡と色が変わる ----
@@ -726,10 +726,10 @@ export class View {
         if (!m.water[i]) continue; const S = W + 1, lo = Math.min(m.heights[y * S + x], m.heights[y * S + x + 1], m.heights[(y + 1) * S + x], m.heights[(y + 1) * S + x + 1]); if (lo < -1.2) continue;
         wg.quad([x * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, y * TILE], [x * TILE, lo + 0.35, y * TILE], 0x3f7fa6); continue;
       }
-      if (!dug && !wet && !REAL && inExt(x, y) && y < H - 4 && m.water[i] && !(m.base && !m.base.water[i])) { // v92：さらに広げた土地の用水路・谷川（地面の高さに合わせる。海・大河の続きは下の低い水面で）
+      if (!dug && !wet && !REAL && m.water[i] && extWater(tId, x, y)) { // v92：さらに広げた土地の用水路・谷川（地面の高さに合わせる。ため池は円の水面で別に描く）
+        if (tId !== 'mountain' && tId !== 'inland' && EXT_PONDS.some(([px, py, r]) => Math.hypot(x + 0.5 - px, y + 0.5 - py) < r)) continue;
         const S = W + 1, lo = Math.min(m.heights[y * S + x], m.heights[y * S + x + 1], m.heights[(y + 1) * S + x], m.heights[(y + 1) * S + x + 1]);
-        if (lo > -2.0) { if (tId !== 'mountain' && tId !== 'inland' && EXT_PONDS.some(([px, py, r]) => Math.hypot(x + 0.5 - px, y + 0.5 - py) < r)) continue;
-          wg.quad([x * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, y * TILE], [x * TILE, lo + 0.35, y * TILE], 0x3f7fa6); continue; }
+        wg.quad([x * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, y * TILE], [x * TILE, lo + 0.35, y * TILE], 0x3f7fa6); continue;
       }
       if (!dug && !wet) { // 地形の水面（大河・湖・島の海）。南の川とため池は別に描く
         if (!m.water[i] || REAL || tId === 'coast' || y >= H - 4 || Math.hypot(x + 0.5 - 44.5, y + 0.5 - 50.5) < 2.1 || (W > 76 && Math.hypot(x + 0.5 - 112.5, y + 0.5 - 72.5) < 2.5) || (m.base && !m.base.water[i])) continue;
@@ -1524,7 +1524,22 @@ export class View {
     const lim = (this.quality === 'high' ? 1800 : this.quality === 'mid' ? 1100 : 650) * (this.lite ? 0.6 : 1), CH = 6, NCX = Math.ceil(W / CH), cam = this.camera.position;
     // 歩く人は、遠くからだと点にしか見えないので描かない（1 人 900 三角形あるため）
     { const hide = this.mode === 'orbit' && this.dist > (this.lite ? 520 : this.quality === 'high' ? 1400 : 900); for (const P of [this.pedP, this.crowdP, this.lifeP]) if (P) P.mesh.visible = !hide && (P !== this.crowdP || P.mesh.count > 0); }
-    for (const [k, meshes] of this.chunkMeshes) { const low = this.chunkLow.get(k); if (!low) { for (const m of meshes) m.visible = true; continue; } const cx = ((k % NCX) + 0.5) * CH * TILE, cz = (Math.floor(k / NCX) + 0.5) * CH * TILE, far = Math.hypot(cx - cam.x, cz - cam.z, cam.y * 0.6) > lim && this.mode === 'orbit'; for (const m of meshes) m.visible = !far; low.visible = far; }
+    let made = 0;
+    for (const [k, meshes] of this.chunkMeshes) { const low = this.chunkLow.get(k); if (!low) { for (const m of meshes) m.visible = true; continue; } const cx = ((k % NCX) + 0.5) * CH * TILE, cz = (Math.floor(k / NCX) + 0.5) * CH * TILE, d = Math.hypot(cx - cam.x, cz - cam.z, cam.y * 0.6), far = d > lim && this.mode === 'orbit';
+      // v92：何もない塊（空き地だけ）は、近づいたときに細かい版を作る（地図を広げて、細かい版をすべて持つとメモリが 1.5GB を超えたため）
+      if (!far && this.lazyChunks.has(k)) { const st = this.getState(); if (st && made < 4 && d < lim * 1.2) { made++; this.lazyChunks.delete(k); this.buildPlain(st, k); low.visible = false; continue; } low.visible = true; continue; }
+      for (const m of meshes) m.visible = !far; low.visible = far; }
+  }
+  /** 細かい版を後で作る、空き地だけの塊 */
+  private lazyChunks = new Set<number>();
+  /** 空き地だけの塊の細かい版（草・木・田畑など） */
+  private buildPlain(s: GameState, k: number): void {
+    const CH = 6, NCX = Math.ceil(W / CH), cx0 = (k % NCX) * CH, cy0 = Math.floor(k / NCX) * CH, c = this.ctx(1);
+    for (let y = Math.max(2, cy0); y < Math.min(H - 4, cy0 + CH); y++) for (let x = cx0; x < Math.min(W, cx0 + CH); x++) this.drawEmpty(c, s, x, y);
+    const keep = this.groups.town; this.groups.town = [];
+    this.addCtx(c, 'town');
+    for (const mesh of this.groups.town) { mesh.geometry.computeBoundingSphere(); mesh.frustumCulled = true; }
+    this.chunkMeshes.set(k, this.groups.town); this.groups.town = keep;
   }
   /** glb の名所を置く場所の一覧（線路と一緒に描く駅は、線路側で決めた駅舎の位置） */
   private lmList(s: GameState): LmItem[] {
@@ -1562,6 +1577,7 @@ export class View {
       this.chunkSig.set(k, sig); rebuilt++;
       for (const mesh of this.chunkMeshes.get(k) ?? []) { this.scene.remove(mesh); mesh.geometry.dispose(); }
       { const old = this.chunkLow.get(k); if (old) { this.scene.remove(old); old.geometry.dispose(); this.chunkLow.delete(k); } }
+      this.lazyChunks.delete(k);
       // 遠くから見るときの簡略版（建物は箱 1 つ、空き地は板 1 枚）。三角形が 1 割ほどになる
       { const lg = new Geo(), cx0 = (k % NCX) * CH, cy0 = Math.floor(k / NCX) * CH;
         for (const b of blds.get(k) ?? []) { if (lmIds.has(b.id)) continue; const p = this.place(s, b), hh = Math.max(1.5, (MODEL_H[b.kind] ?? 6) * (b.status === 'operating' ? 1 : 0.6)), d = DEFS[b.kind], cat = d.cat as string;
@@ -1574,6 +1590,11 @@ export class View {
         for (let y = Math.max(2, cy0); y < Math.min(H - 4, cy0 + CH); y++) for (let x = cx0; x < Math.min(W, cx0 + CH); x++) { const i = idx(x, y); if (s.road[i] || s.occ[i] || !buildable(m, i)) continue; const r = hash(x, y, 77), cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE, top = heightAt(m, cx, cz);
           if (s.zone[i]) { lg.at(cx, top, cz); lg.box(0, -2, 0, 27, 2.05, 27, 0xa8997c); } else if (r < (y >= 40 ? 0.72 : 0.5) && y < H - 6 && !(m.sand?.[i] || m.desert?.[i] || m.snow?.[i])) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, r < 0.3 ? 0x8cbc5c : 0x5f9445); } }
         if (lg.pos.length) { const lm = new THREE.Mesh(lg.build(false), LOD_MAT); lm.receiveShadow = true; lm.visible = false; this.scene.add(lm); this.chunkLow.set(k, lm); } }
+      // v92：空き地だけの塊で、いまカメラから遠いものは、細かい版を後で（近づいたとき）作る
+      if (!(blds.get(k)?.length) && arr.every(v => v === 'z0') && this.chunkLow.has(k)) {
+        const cam = this.camera.position, ccx = ((k % NCX) + 0.5) * CH * TILE, ccz = (Math.floor(k / NCX) + 0.5) * CH * TILE, lim = (this.quality === 'high' ? 1800 : this.quality === 'mid' ? 1100 : 650) * (this.lite ? 0.6 : 1);
+        if (Math.hypot(ccx - cam.x, ccz - cam.z, cam.y * 0.6) > lim * 1.2) { this.lazyChunks.add(k); this.chunkMeshes.set(k, []); this.chunkLow.get(k)!.visible = true; continue; }
+      }
       const c = this.ctx(1);
       for (const b of blds.get(k) ?? []) this.drawBuilding(c, s, b);
       const cx0 = (k % NCX) * CH, cy0 = Math.floor(k / NCX) * CH;

@@ -265,12 +265,13 @@ function extHeight(T: string, x: number, y: number, h: number, seed: number): nu
   for (const [hx, hy, r, a] of EXT_HILLS) add += a * smooth(1 - Math.hypot(x - hx, y - hy) / r);
   for (const [px, py, r] of EXT_PONDS) add -= 2.6 * smooth(1 - Math.hypot(x - px, y - py) / r);
   // 用水路の溝
-  if (y > 25 && y < 121) add -= 1.8 * (1 - smooth((Math.abs(x - canal1X(y)) - 0.35) / 1.2));
-  if (x > 89 && x < 153) add -= 1.8 * (1 - smooth((Math.abs(y - canal2Y(x)) - 0.35) / 1.2));
+  if (y > 25 && y < 121) add -= 1.8 * (1 - smooth((Math.abs(x - canal1X(y)) - 0.35) / 0.8));
+  if (x > 89 && x < 153) add -= 1.8 * (1 - smooth((Math.abs(y - canal2Y(x)) - 0.35) / 0.8));
   if (T === 'rural') add *= 0.5;
   return h + add * ex;
 }
-function extWater(T: string, x: number, y: number): boolean {
+/** さらに広げた土地に足した水面（ため池・用水路・谷川）か。描画で地面の高さに水面を置くのに使う */
+export function extWater(T: string, x: number, y: number): boolean {
   if (!inExt(x, y)) return false;
   const cx = x + 0.5, cy = y + 0.5;
   if (mtn(T)) return (x > FIC_V87_W + 4 && Math.abs(cy - valleyY(cx)) < 0.75) || (x < 145 && Math.abs(cy - valley2Y(cx)) < 0.75) || Math.hypot(cx - 160, cy - (valleyY(160) - 4.5)) < 2.0;
