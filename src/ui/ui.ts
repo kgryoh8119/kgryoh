@@ -15,7 +15,7 @@ import {
   SISTERS, SIS, EXCHANGES, MAX_SISTERS, altitude, hasSea, seaDist, tsunamiDepth, designWave, liquefyRisk,
   CHALLENGES, CH, maxLv, stageName, upgradeBlock, expandCost, optionsFor, optSlots, optCost, STYLES, STYLE_COST, sponsorOf, moveCost,
   LEVELS, MEDALS, RANK_CATS, N_CITIES, mayorDiff, MAYOR_DIFF, levelOf, blockRect, blockName, annexable, BX, BY,
-  planStreet, planRailKind, rerunRules, RERUN, monthlyIssues, allIssues, type Issue, WIN_VOTE, voteText, fiscalWatch, RAILKIND_NAME, modAdd, THREATS, SECTORS, sectorOf, industryBalance, rateAdd, type Macro, REAL, MAP_ID, mapEntry, baseEntry, TILE, monthlyBudget, pledgeStatus, GOALS, VISIONS, CAT_NAMES, BUILD_KINDS, fam, lvOf, LV_CAP, SV_NAMES, goalProgress, visionProgress, electionOutlook, upgradeCost, buildCost, CIVIC, isBiz, NEIGHBOR_SEED, DIFFS, diffOf, rerunCheck, teamCheck, teamVenue, SPORTS, upkeepOf, staffReq, designCap, sumHH, roadCapacity, checkPlace, lineTiles, rectTiles, planRoad, planTunnel, planBridge, planOverpass, planFootbridge, planCanal, planBusStop, planLevee, planArea, planTerra, planWiden, planFlyover, TERRA_NAMES, planUnroad, planRepair, planZone, planRail, planRailGrade, planUnrail, fiscalCrisis, tempDebt, ledgerGap, stationUpCheck, shinCheck, eventDef, forecastAsync, modMul,
+  planStreet, planRailKind, rerunRules, RERUN, monthlyIssues, allIssues, loopTopics, loopEntryIssue, type Issue, WIN_VOTE, voteText, fiscalWatch, RAILKIND_NAME, modAdd, THREATS, SECTORS, sectorOf, industryBalance, rateAdd, type Macro, REAL, MAP_ID, mapEntry, baseEntry, TILE, monthlyBudget, pledgeStatus, GOALS, VISIONS, CAT_NAMES, BUILD_KINDS, fam, lvOf, LV_CAP, SV_NAMES, goalProgress, visionProgress, electionOutlook, upgradeCost, buildCost, CIVIC, isBiz, NEIGHBOR_SEED, DIFFS, diffOf, rerunCheck, teamCheck, teamVenue, SPORTS, upkeepOf, staffReq, designCap, sumHH, roadCapacity, checkPlace, lineTiles, rectTiles, planRoad, planTunnel, planBridge, planOverpass, planFootbridge, planCanal, planBusStop, planLevee, planArea, planTerra, planWiden, planFlyover, TERRA_NAMES, planUnroad, planRepair, planZone, planRail, planRailGrade, planUnrail, fiscalCrisis, tempDebt, ledgerGap, stationUpCheck, shinCheck, eventDef, forecastAsync, modMul,
   stationStats, FREQS, DOOR_COST, SUBWAY_COST, BIDS, bidChance, STYLES_M, REC_PLANS, hasOp, terrainOf, isCastaway, missionsFor, calMonth, POSTS, candidates, execOf, landOf, landPrices, routeStats, FREQ, MAX_ROUTES, citsOf, CIT_N, voteForecast, FACTIONS, PLANS, LOBBY_COST, SPEECH_COST, ADS_COST, monthsToElection, campaignOpen, PRESS, grantChance, PETITION_COST, GRANTS, GRANT_COOL, APPLY_COST, FESTS, pyramid, projection,
   authorityLabel, currentOffice,
   dataSource,
@@ -1093,7 +1093,7 @@ export class UI {
   /** 街が発展するのに必要なものの充足（0〜1）。足りないものから順に */
   /** v90：課題の導線（① 原因を見る → ② 対策を試算 → ③ 実行 → ④ 結果）。③で押すまで街は変わらない */
   private issueAct(arg: string): void {
-    const [cmd, key, n] = arg.split('|'), g = this.game, s = g.state, iss = allIssues(s).find(i => i.key === key);
+    const [cmd, key, n] = arg.split('|'), g = this.game, s = g.state, iss = allIssues(s).find(i => i.key === key) ?? loopEntryIssue(s, key);
     const f = this.ix?.key === key ? this.ix : (this.ix = { key, open: null, opts: [], pick: -1, trial: null, busy: false, confirm: false });
     if (cmd === 'close') { this.ix = null; this.renderSide(); return; }
     if (cmd === 'cause') {
@@ -1122,14 +1122,25 @@ export class UI {
     const tag = (i: Issue) => { const p = i.parts, t: string[] = []; if (p.deadline >= 0.5) t.push('期限が近い'); if (p.trend >= 0.4) t.push('悪化している'); if (p.hard >= 0.6) t.push('放置すると戻しにくい'); return t.map(x => `<em class="itag">${x}</em>`).join(''); };
     const card = (i: Issue, k: number) => `<div class="issue"><h3><b class="inum">${k + 1}</b>${esc(i.title)}${tag(i)}</h3>
       <dl><dt>何が</dt><dd>${esc(i.what)}</dd><dt>どこ</dt><dd>${esc(i.where)}${i.tile >= 0 || i.layer !== 'none' ? ` <button class="btn small" data-act="${i.tile >= 0 ? 'focus' : 'layer'}" data-arg="${i.tile >= 0 ? `${i.tile}:${i.layer}` : i.layer}">地図へ</button>` : ''}</dd><dt>主因</dt><dd>${esc(i.cause)}</dd>
-      <dt>対策</dt><dd class="iopts">${i.options.map(o => `<span><button class="btn small" data-act="${o.act}" data-arg="${o.arg}">${esc(o.label)}</button>${o.note ? `<small>${esc(o.note)}</small>` : ''}</span>`).join('')}</dd></dl>${this.game.draft ? '' : issueSteps(this.s, i, this.ix, k === firstK)}</div>`;
+      <dt>対策</dt><dd class="iopts">${i.options.map(o => `<span><button class="btn small" data-act="${o.act === 'loop' ? 'ix' : o.act}" data-arg="${o.act === 'loop' ? `trial|${esc(i.key)}` : o.arg}">${esc(o.label)}</button>${o.note ? `<small>${esc(o.note)}</small>` : ''}</span>`).join('')}</dd></dl>${this.game.draft ? '' : issueSteps(this.s, i, this.ix, k === firstK)}</div>`;
     // v90：はじめての人には 1 件を「まずこれ」と示す（案内が終わってから。施策をまだ課題から実行していない最初の 2 年）
     const s0 = this.s, firstK = s0.mode === 'term' && s0.tutorial.done && s0.month < 24 && !(s0.decisions ?? []).some(d => d.issue) && list.length ? Math.max(0, list.findIndex(i => i.key === 'care' || i.key === 'aging' || i.key.startsWith('cap:'))) : -1;
     return `<section class="needtop issues"><h2>今月の街の課題 <small>${list.length ? `${list.length} 件（重要な順${all.length > list.length ? `・候補 ${all.length} 件から` : ''}）` : '大きな課題はありません'}</small></h2>
       ${this.game.speed === 0 && !this.game.blocked ? '<p class="note">時間が止まっています。右上の ▶ で進みます（止めたまま準備しても構いません）。 <button class="btn small" data-act="issue" data-arg="go">時間を進める</button></p>' : ''}${list.length ? list.map(card).join('') : '<p class="note">いまは急いで手を打つ課題がありません。公約やビジョンを進めるか、街を広げる時期です。［声］で住民の様子を確かめられます。</p>'}
+      ${this.loopTopicsHtml(list)}
       ${pastResults(this.s, new Set(list.map(i => i.key)))}
       <div class="btnrow"><button class="btn small" data-act="report" data-arg="year">📘 年次報告（今年度の施策と結果）</button></div>
       <p class="note">影響を受ける人の多さを基本に、悪化の傾向・期限の近さ・戻しにくさを足して並べています。対策のボタンは道具や資料を開くだけで、建設や政策の変更はあなたが決めます（②の試算も、③を押すまで街は変わりません）。</p></section>`;
+  }
+  /** v91：街の 3 つの論点（駅前・老朽インフラ・産業と暮らし）。上位 3 件に入口の課題がなくても、いつでも対策を比べられる */
+  private loopTopicsHtml(list: Issue[]): string {
+    const s = this.s; if (s.mode !== 'term' && s.mode !== 'sandbox') return '';
+    let T: ReturnType<typeof loopTopics>; try { T = loopTopics(s); } catch { return ''; }
+    const shown = new Set(list.map(i => i.loop).filter(Boolean)), open = this.ix?.key.startsWith('loop:') ? this.ix.key : '';
+    const row = (t: ReturnType<typeof loopTopics>[number]) => { const iss = open === t.key ? loopEntryIssue(s, t.key) : undefined;
+      return `<div class="ltopic"><h4>${esc(t.title)}${shown.has(t.id) ? '<em class="itag">上の課題にも</em>' : ''}</h4><p class="note">${esc(t.summary)}</p>
+        ${iss && !this.game.draft ? issueSteps(s, iss, this.ix, false) : `<button class="btn small" data-act="ix" data-arg="trial|${t.key}">対策を比べる</button>`}</div>`; };
+    return `<section class="ltopics"><h3>街の 3 つの論点 <small>課題の上位に出ていなくても、ここから対策を比べられます</small></h3>${T.map(row).join('')}</section>`;
   }
   private needs(): { name: string; r: number; text: string; btn?: [string, string, string] }[] {
     const s = this.s, st = s.stats, out: { name: string; r: number; text: string; btn?: [string, string, string] }[] = [];

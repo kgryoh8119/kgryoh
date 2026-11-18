@@ -618,6 +618,9 @@ body:not(.explain) #panel p.note, body:not(.explain) #panel .fold p.note { displ
 .issue .inum{display:inline-grid;place-items:center;width:1.5em;height:1.5em;border-radius:50%;background:var(--warn,#c98a12);color:#fff;font-size:.85em;flex:none}
 .issue .itag{font-style:normal;font-size:.72em;font-weight:700;padding:1px 6px;border-radius:9px;background:rgba(179,38,30,.12);color:var(--bad,#b3261e)}
 .issue dl{display:grid;grid-template-columns:2.6em 1fr;gap:3px 8px;margin:0;font-size:.86em;line-height:1.5}
+.ltopics{margin-top:10px;border-top:1px solid var(--line,#d8dde3);padding-top:8px}.ltopics h3{margin:0 0 6px;font-size:.92em}.ltopics h3 small{font-weight:400;color:var(--mute,#6b7480)}
+.ltopic{padding:6px 0;border-bottom:1px dashed var(--line,#d8dde3)}.ltopic h4{margin:0;font-size:.88em;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.ltopic .note{margin:2px 0 4px;font-size:.82em}
+.ltopic .itag{font-style:normal;font-size:.72em;font-weight:700;padding:1px 6px;border-radius:9px;background:rgba(30,90,179,.12);color:var(--accent,#1e5ab3)}
 .issue dt{color:var(--mute,#6b7480);font-weight:700}.issue dd{margin:0}
 .issue .iopts{display:flex;flex-direction:column;gap:4px}.issue .iopts span{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.issue .iopts small{color:var(--mute,#6b7480)}
 

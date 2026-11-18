@@ -316,6 +316,7 @@ export function loopOptions(s: GameState, id: LoopId, opts: LoopOptionsOpts = {}
 
 /** 課題（issues）の鍵から、どのループの入口か */
 export function loopOfIssue(key: string): LoopId | undefined {
+  if (key.startsWith('loop:')) { const id = key.slice(5); return id === 'station' || id === 'aging' || id === 'industry' ? id : undefined; } // v91：街の 3 つの論点
   // 満足の要因の鍵は 'sat:' + SAT_PARTS の番号（0 住宅負担・1 通勤・2 保育・3 学校・5 買物・7 ライフライン・8 雇用・11 環境）
   if (['care', 'traffic', 'housing', 'school', 'stationCrowd', 'cap:school', 'sat:0', 'sat:1', 'sat:2', 'sat:3'].includes(key)) return 'station';
   if (['aging', 'cap:water', 'cap:waste', 'cap:sewage', 'sat:7'].includes(key)) return 'aging';

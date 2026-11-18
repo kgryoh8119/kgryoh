@@ -7,7 +7,7 @@ import { DEFS, GOALS, P, SAT_PARTS, W } from './config';
 import { getMap, isCastaway } from './map';
 import { isleNext, foodSelf } from './isle';
 import { designCap, staffReq } from './core';
-import { loopOfIssue, loopIssueSeeds, type LoopId } from './loops';
+import { loopOfIssue, loopIssueSeeds, loopIndicators, LOOPS, type LoopId } from './loops';
 import { goalProgress, tempDebt, fiscalCrisis, monthlyBudget, electionOutlook, voteText, WIN_VOTE } from './step';
 
 /** 対策の候補。押すと道具・資料を開くだけ（実行はプレイヤーが決める） */
@@ -209,3 +209,27 @@ export function allIssues(s: GameState): Issue[] {
 
 /** 今月の課題（最大 3 件）。重要度が低すぎるものは出さない（何も問題がなければ 0 件） */
 export function monthlyIssues(s: GameState, max = 3): Issue[] { return allIssues(s).filter(i => i.score >= 6).slice(0, max); }
+
+// ---- v91：街の 3 つの論点（駅前・老朽インフラ・産業と暮らし）。上位 3 件の課題に入口が出ていなくても、いつでも対策を比べられるように
+const LOOP_TOPIC: Record<LoopId, { title: string; what: string }> = {
+  station: { title: '駅前（住宅・保育・学校・混雑）', what: '駅の近くに住宅を増やすと、転入と税収が伸びる一方で、家賃・保育・学校・混雑に響きます' },
+  aging: { title: '老朽インフラ（維持・更新・先送り）', what: '水道・下水・ごみ処理などは年数とともに傷みます。更新は大きな出費、先送りは割増しと故障の危険を招きます' },
+  industry: { title: '産業と暮らし（雇用・店・環境）', what: '大型店や工場は雇用と税収を生む一方で、近くの小さな店・道路・空気に響きます' },
+};
+/** 論点の要約（いまの指標を 3 つ） */
+export function loopTopics(s: GameState): { id: LoopId; key: string; title: string; summary: string }[] {
+  const v = loopIndicators(s), n0 = (x: number) => Math.round(x).toLocaleString();
+  const old = s.buildings.filter(b => DEFS[b.kind].renewCost > 0 && b.age >= 70 && (b.status === 'operating' || b.status === 'suspended')).length;
+  const sum: Record<LoopId, string> = {
+    station: `転入 ${v.inflowHH} 世帯/月・保育の待機 ${n0(v.careWait)} 人・駅の朝の混雑 ${v.stationCrowd}%`,
+    aging: `水道などの余力 ${v.lifeline}%・老朽度 70 以上の施設 ${old} か所・5 年の更新費 ${n0(v.renewal60)} 万円`,
+    industry: `市内の雇用 ${n0(v.jobs)} 人・店の売上 ${n0(v.shopSales)} 万円/月・この 1 年の閉店 ${v.shopClosed} 軒`,
+  };
+  return LOOPS.map(l => ({ id: l.id, key: 'loop:' + l.id, title: LOOP_TOPIC[l.id].title, summary: sum[l.id] }));
+}
+/** 論点を課題の形にしたもの（課題の導線①〜④をそのまま使う。重要度は付けない） */
+export function loopEntryIssue(s: GameState, key: string): Issue | undefined {
+  const id = /^loop:(\w+)$/.exec(key)?.[1] as LoopId | undefined; if (!id || !LOOP_TOPIC[id]) return undefined;
+  const t = loopTopics(s).find(x => x.id === id)!;
+  return { key, title: t.title, what: LOOP_TOPIC[id].what, where: '市全体', cause: `いまの指標：${t.summary}`, causeKind: 'loop', options: [], tile: -1, layer: 'none', parts: { people: 0, trend: 0, deadline: 0, hard: 0 }, affected: '', score: 0, loop: id };
+}
