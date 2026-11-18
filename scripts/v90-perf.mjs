@@ -24,13 +24,13 @@ const built = () => window.__sumu && window.__sumu.view.stats.buildings > 0;
 /** 1 回の計測：ページを開く → タイトル → 地図を選ぶ → 街 → （任意）別の地図へ切り替え → ヒープ・品質別の負荷 */
 async function once(c) {
   const ctx = await browser.newContext(c.mobile ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : { viewport: { width: 1280, height: 800 } });
-  const page = await ctx.newPage(); page.setDefaultTimeout(600000); const errors = [];
+  const page = await ctx.newPage(); page.setDefaultTimeout(420000); const errors = [];
   page.on('pageerror', e => errors.push(e.message)); const cdp = await ctx.newCDPSession(page);
   await cdp.send('Performance.enable');
   if (c.cpu) await cdp.send('Emulation.setCPUThrottlingRate', { rate: c.cpu });
   if (c.net) await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 150, downloadThroughput: 1.6e6 / 8, uploadThroughput: 0.75e6 / 8 }); // Fast 3G 相当
   const heap = async () => { const m = await cdp.send('Performance.getMetrics'); return (m.metrics.find(x => x.name === 'JSHeapUsedSize')?.value ?? 0) / 1e6; };
-  const r = {};
+  const r = {}; try {
   const url = c.file ? 'file://' + path.join(root, c.page) : base + c.page;
   const t0 = Date.now(); await page.goto(url, { waitUntil: 'commit' });
   await page.waitForFunction(() => document.querySelector('#title .mcard'), null, { polling: 25 }); r.titleMs = Date.now() - t0;
@@ -45,7 +45,8 @@ async function once(c) {
   r.pickMs = await pick(c.map); await page.waitForTimeout(2500); r.heapCity = await heap();
   if (c.second) { // マップ切替：街 → タイトル → 別の地図
     await page.evaluate(() => document.querySelector('[data-act="tutskip"]')?.click());
-    const t = Date.now(); await page.click('#top .plate'); await page.waitForTimeout(300); await page.click('[data-act="titlesave"]');
+    // 描画が重くて画面の操作が通らないことがあるため、ページ内から「タイトルへ戻る」と同じ印（sessionStorage）を付けて読み込み直す
+    const t = Date.now(); await page.evaluate(() => { sessionStorage.setItem('sumu-title', '1'); location.reload(); });
     await page.waitForFunction(() => document.querySelector('#title .mcard'), null, { polling: 25 }); r.backMs = Date.now() - t;
     r.switchMs = await pick(c.second); await page.waitForTimeout(2500); r.heapSwitch = await heap();
   }
@@ -62,12 +63,14 @@ async function once(c) {
     while (Date.now() - t < 45000) { await page.waitForTimeout(2000); const q = await page.evaluate(() => window.__sumu.view.quality); if (q !== seq[seq.length - 1]) { seq.push(q); r.auto.steps.push({ at: sec(Date.now() - t), q }); } }
     r.auto.end = seq[seq.length - 1]; r.auto.fps = await page.evaluate(() => window.__sumu.view.stats.fps);
   }
-  r.errors = errors.length; await ctx.close(); return r;
+  } catch (e) { r.error = String(e).slice(0, 160); }
+  r.errors = errors.length; await ctx.close().catch(() => {}); return r;
 }
 const CONDS = [
-  { name: 'split-sumino', page: 'index.html', map: 'sumino', quality: true },
-  { name: 'split-hodogaya-d', page: 'index.html', map: 'hodogaya-d', second: 'shibuya-d', quality: true },
-  { name: 'split-hodogaya', page: 'index.html', map: 'hodogaya', quality: true },
+  { name: 'split-sumino', page: 'index.html', map: 'sumino' },
+  { name: 'split-hodogaya-d', page: 'index.html', map: 'hodogaya-d', },
+  { name: 'split-hodogaya', page: 'index.html', map: 'hodogaya' },
+  { name: 'quality-hodogaya-d', page: 'index.html', map: 'hodogaya-d', quality: true, runs: 1 },
   { name: 'standalone-hodogaya-d', page: 'sumucity-standalone.html', map: 'hodogaya-d', second: 'shibuya-d' },
   { name: 'standalone-file-hodogaya-d', page: 'sumucity-standalone.html', file: true, map: 'hodogaya-d' },
   { name: 'artifact-hodogaya-d', page: 'sumucity-artifact.html', map: 'hodogaya-d' },
@@ -80,7 +83,7 @@ const CONDS = [
 const result = fs.existsSync(OUT) ? JSON.parse(fs.readFileSync(OUT, 'utf8')) : {};
 for (const c of CONDS) {
   const runs = []; for (let i = 0; i < (c.runs ?? RUNS); i++) { try { runs.push(await once(c)); } catch (e) { runs.push({ error: String(e).slice(0, 200) }); } console.error(new Date().toISOString().slice(11, 19), c.name, i, JSON.stringify(runs[runs.length - 1]).slice(0, 400)); }
-  const ok = runs.filter(r => !r.error), m = k => median(ok.map(r => r[k])), q = {};
+  const ok = runs.filter(r => r.pickMs != null), m = k => median(ok.map(r => r[k])), q = {};
   if (c.quality) for (const k of ['low', 'mid', 'high']) q[k] = { tris: median(ok.map(r => r.q?.[k]?.tris)), calls: median(ok.map(r => r.q?.[k]?.calls)) };
   result[c.name] = { runs: runs.length, ok: ok.length, title_s: sec(m('titleMs')), pick_s: sec(m('pickMs')), back_s: sec(m('backMs')), switch_s: sec(m('switchMs')), html_resp_ms: median(ok.map(r => r.nav?.respEnd)), dcl_ms: median(ok.map(r => r.nav?.dcl)), load_ms: median(ok.map(r => r.nav?.load)), wire_MB: ok[0]?.nav?.bytes ? Math.round(ok[0].nav.bytes / 1e5) / 10 : null, heapTitle_MB: m('heapTitle') && Math.round(m('heapTitle')), heapCity_MB: m('heapCity') && Math.round(m('heapCity')), heapSwitch_MB: m('heapSwitch') && Math.round(m('heapSwitch')), q, auto: ok[0]?.auto, errors: ok.reduce((a, r) => a + r.errors, 0), raw: runs };
   fs.writeFileSync(OUT, JSON.stringify(result, null, 1));
