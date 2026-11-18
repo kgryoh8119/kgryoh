@@ -1,6 +1,6 @@
 // v90：ゲームループ（loops.ts）の指標と対策を、予測と結果の記録・対策の試算・年次報告（report.ts）につなぐ。
 // 予測の画面と結果の画面が同じ関数（loopIndicators）から指標を出すようにするための、つなぎだけの層。
-import { INDICATORS, LOOPS, loopIndicators, loopOptions, loopOfIssue, expectOf, type IndicatorId } from './loops';
+import { INDICATORS, LOOPS, loopIndicators, loopOptions, loopOfIssue, expectOf, mainIndicatorOf, optionFit, type IndicatorId } from './loops';
 import { registerIndicators, registerIssueIndicators, registerTrialOptions, onIndicatorValues, BASE_INDICATORS } from './report';
 import type { GameState } from './types';
 
@@ -29,8 +29,9 @@ export function housingBlocked(s: GameState): string {
   return `いまは水道に余力がないため、容積を上げても住宅は建ちません（水道の能力 ${Math.round(st.waterCap).toLocaleString()} ÷ 需要 ${Math.round(st.waterDemand).toLocaleString()}、着工には 1.02 倍以上が必要）。先に浄水場を更新・増設してください`;
 }
 registerTrialOptions((s, issue) => { const lp = issue.loop ?? loopOfIssue(issue.key); if (!lp) return [];
-  const loop = LOOPS.find(l => l.id === lp)!;
+  const loop = LOOPS.find(l => l.id === lp)!, main = mainIndicatorOf(issue.key);
   return loopOptions(s, lp, { expect: false }).filter(o => o.ok).map(o => ({ label: o.label, actions: [o.action], cost: o.cost,
+    ...(main ? (() => { const f = optionFit(o.id, main); return { fit: f.v, trade: f.trade || undefined }; })() : {}),
     warn: o.id === 'upzone' ? housingBlocked(s) || undefined : undefined,
     range: () => expectOf(s, lp, o.action, 12).filter(e => !have.has(e.indicator) && (e.lo || e.hi)).map(e => ({ id: e.indicator, lo: e.lo, hi: e.hi })),
     note: [o.monthly ? monthlyText(o.monthly) : '', o.months ? `効くまで ${o.months} か月` : '', `決めるのは${o.authority}`, o.side.length ? `副作用：${o.side.join('、')}` : '', `（${loop.name}の対策）`].filter(Boolean).join('・') })); });

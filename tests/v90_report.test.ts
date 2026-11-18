@@ -1,6 +1,6 @@
 // v90：施策の予測と結果の記録・年次報告・課題の対策の試算
 import { describe, it, expect } from 'vitest';
-import { newGame, dispatch, stepMonth, eventDef, serialize, deserialize, monthlyIssues } from '../src/sim/index';
+import { newGame, dispatch, stepMonth, eventDef, serialize, deserialize, monthlyIssues, loopEntryIssue } from '../src/sim/index';
 import { recordDecision, updateDecisions, indicatorValues, gapsOf, annualReport, registerIndicators, indicators, trialOptions, compareTrial, actionLabel, policyTarget, BASE_INDICATORS } from '../src/sim/report';
 import type { GameState, Action } from '../src/sim/types';
 
@@ -80,7 +80,7 @@ describe('v90 施策の記録と年次報告', () => {
     for (const k of [0, 1, 2]) { s.rng = (r0 + k * 7919) | 0; const t = compareTrial(s, [{ type: 'policy', id: 'roadCare', on: true }], 'traffic'); diffs.push(t.with[12].maxVc[1] - t.without[12].maxVc[1]); }
     expect(new Set(diffs).size).toBe(1);
     s.rng = r0;
-    const iss = monthlyIssues(s).find(i => i.key === 'care')!, up = trialOptions(s, iss).find(o => /容積を上げる/.test(o.label));
+    const iss = loopEntryIssue(s, 'loop:station')!, up = trialOptions(s, iss).find(o => /容積を上げる/.test(o.label)); // v91：保育の課題では容積を上げる案は逆効果として外すので、駅前の論点から
     expect(!!up?.warn).toBe(!!housingBlocked(s));
     expect(monthlyText(-120)).toMatch(/120 万円の収入/);
   });

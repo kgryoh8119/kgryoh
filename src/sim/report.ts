@@ -264,7 +264,17 @@ export interface TrialOption { label: string; actions: Action[] | null; note: st
   /** 実行しても効かない条件があるときの注意（例：水道に余力がなく住宅が建たない）。試算の結果の上に目立たせて出す */
   warn?: string;
   /** 転入の楽観〜慎重で、何もしない場合との差の幅を出す（重い。押したときだけ呼ぶ） */
-  range?: () => { id: string; lo: number; hi: number }[] }
+  range?: () => { id: string; lo: number; hi: number }[];
+  /** v91：課題の主な指標に効く向きと強さ（+1 よく効く・0 ほぼ効かない・負は悪化）。未設定は課題に合わせて用意した対策（建設・更新など） */
+  fit?: number;
+  /** v91：課題そのものは良くならないが、財源・先送りとして比べる選択肢 */
+  trade?: boolean;
+  /** v91：この課題への効き方の短い説明（効果は小さい・財源の選択肢） */
+  fitNote?: string }
+/** v91：課題の対策の候補を見せる数（残りは「ほかの候補を見る」に畳む） */
+export const TRIAL_SHOW = 5;
+/** 課題に効く弱い政策（課題の主な指標にほとんど効かないもの） */
+const ISSUE_POLICY_FIT: Record<string, number> = { roadCare: 0.1 };
 /** 課題ごとの、効く政策 */
 const ISSUE_POLICY: Record<string, string[]> = {
   care: ['careStaff', 'familyMove'], traffic: ['roadCare'], housing: ['homeReform'], fiscal: ['furusatoPR'], 'sat:5': ['shopStart'], 'sat:0': ['homeReform'], 'sat:13': ['homeReform'],
@@ -303,10 +313,23 @@ export function trialOptions(s: GameState, issue: Issue): TrialOption[] {
   }
   for (const id of ISSUE_POLICY[issue.key] ?? []) {
     const p = POLICIES.find(x => x.id === id); if (!p || s.policies[id]?.on) continue;
-    out.push({ label: `政策「${p.name}」を始める`, actions: [{ type: 'policy', id, on: true }], note: `月 ${policyCost(s, p)} 万円。効果は ${p.ramp} か月かけて出そろいます`, cost: policyCost(s, p) });
+    out.push({ label: `政策「${p.name}」を始める`, actions: [{ type: 'policy', id, on: true }], note: `月 ${policyCost(s, p)} 万円。効果は ${p.ramp} か月かけて出そろいます`, cost: policyCost(s, p), ...(ISSUE_POLICY_FIT[id] !== undefined ? { fit: ISSUE_POLICY_FIT[id] } : {}) });
   }
   for (const f of TRIAL_SRC) { try { out.push(...f(s, issue)); } catch { /* 足した側の誤りで課題の画面を止めない */ } }
-  return out;
+  return rankTrial(out);
+}
+/** v91：課題の主な指標に効く順に並べ、悪化させる候補は外す。財源・先送りの選択肢と、効果の小さいものは下に。同じ名前の候補は 1 つに */
+export function rankTrial(out: TrialOption[]): TrialOption[] {
+  const seen = new Set<string>(), keep: TrialOption[] = [];
+  for (const o of out) {
+    if (seen.has(o.label)) continue; seen.add(o.label);
+    if (o.fit !== undefined && o.fit < -0.15 && !o.trade) continue; // その課題の主な指標を悪化させる（混雑の課題での「容積を上げる」など）
+    if (o.trade) o.fitNote = 'この課題は良くならない（財源・先送りとして比べる選択肢）';
+    else if (o.fit !== undefined && o.fit <= 0.15) o.fitNote = 'この課題への効果は小さい';
+    keep.push(o);
+  }
+  const rank = (o: TrialOption) => (o.trade ? -1 : o.fit === undefined ? 1.1 : o.fit <= 0.15 ? -2 : o.fit) - (o.actions ? 0 : 0.05);
+  return keep.map((o, k) => ({ o, k })).sort((a, b) => rank(b.o) - rank(a.o) || a.k - b.k).map(x => x.o);
 }
 const TRIAL_SRC: ((s: GameState, issue: Issue) => TrialOption[])[] = [];
 /** 課題の対策の候補を外から足す（ループ担当の loopOptions をつなぐ入口） */

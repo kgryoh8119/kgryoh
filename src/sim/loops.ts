@@ -314,6 +314,47 @@ export function loopOptions(s: GameState, id: LoopId, opts: LoopOptionsOpts = {}
   });
 }
 
+/** v91：対策ごとに、どの指標をどちら向きに動かすか（+1 良くする・−1 悪くする。0.3 以下は弱い）。課題の候補の並べ替えと絞り込みに使う。
+ *  値は各ループの対策の副作用の説明（side）と、v90 の 12 か月の試算（変更記録）の向きから。trade は「課題は良くならないが、財源・先送りとして比べる選択肢」 */
+export const OPTION_EFFECT: Record<string, Partial<Record<IndicatorId, number>> & { trade?: boolean }> = {
+  upzone: { inflowHH: 1, taxRevenue: 1, rentBurden: -0.5, careWait: -1, schoolCrowd: -1, stationCrowd: -1, roadVc: -1, traffic: -0.5 },
+  zoneDown: { inflowHH: -1, taxRevenue: -0.5, rentBurden: 0.3, careWait: 0.3, schoolCrowd: 0.3, stationCrowd: 0.3, roadVc: 0.3 },
+  devLevy: { levy: 1, inflowHH: -1, rentBurden: -0.5, careWait: 0.3, schoolCrowd: 0.5, stationCrowd: 0.3, roadVc: 0.3 },
+  nursery: { careWait: 1, satFamYoung: 1 },
+  schoolUp: { schoolCrowd: 1, satFamSchool: 0.5 }, schoolNew: { schoolCrowd: 1, satFamSchool: 0.5 },
+  busPlus: { roadVc: 0.5, traffic: 0.5, stationCrowd: 0.1 },
+  railfreq: { stationCrowd: 1, inflowHH: 0.3, roadVc: 0.2 },
+  rentAid: { rentBurden: 1, inflowHH: 0.5, satSingle: 0.5, satFamYoung: 0.5 },
+  renew: { lifeline: 1, renewal60: 1, disasterLoss: 1 },
+  borrow: { debt: -1, trade: true },
+  consolidate: { lifeline: -1, disasterLoss: -0.5, trade: true },
+  longLife: { lifeline: 0.5, renewal60: 0.5, disasterLoss: 0.3 },
+  deferRenew: { lifeline: -0.5, renewal60: -1, disasterLoss: -0.5, trade: true },
+  waterRate: { waterBill: -1, satSingle: -0.3, satSenior: -0.3, trade: true },
+  roadRepair: { roadVc: 0.1, traffic: 0.1, disasterLoss: 0.3 },
+  mall: { jobs: 1, bizTax: 1, shopSales: -1, shopClosed: -1, traffic: -0.5, roadVc: -0.5 },
+  factory: { jobs: 1, bizTax: 1, envSat: -1, traffic: -0.5, roadVc: -0.3 },
+  nightEcon: { shopSales: 0.5, bizTax: 0.5, jobs: 0.3 },
+  shotengai: { shopSales: 1, shopClosed: 1, satSenior: 0.3 },
+  bufferZone: { envSat: 1, jobs: -0.2 },
+  logiRoute: { traffic: 1, roadVc: 0.5 },
+  localHire: { jobs: 0.5, satSingle: 0.3, satCouple: 0.3 },
+  kogaiTaisaku: { envSat: 1 },
+};
+/** v91：課題の主な指標（ループの指標の名前で）。対策の候補をこの指標に効く順に並べる */
+export function mainIndicatorOf(key: string): IndicatorId | undefined {
+  const M: Record<string, IndicatorId> = { care: 'careWait', 'sat:2': 'careWait', traffic: 'roadVc', 'sat:1': 'roadVc', stationCrowd: 'stationCrowd', housing: 'inflowHH', 'sat:0': 'rentBurden', 'sat:13': 'rentBurden',
+    school: 'schoolCrowd', 'cap:school': 'schoolCrowd', 'sat:3': 'schoolCrowd', aging: 'lifeline', 'cap:water': 'lifeline', 'cap:waste': 'lifeline', 'cap:sewage': 'lifeline', 'sat:7': 'lifeline',
+    shops: 'shopSales', 'sat:5': 'shopSales', nimby: 'envSat', 'sat:11': 'envSat', 'sat:8': 'jobs' };
+  return M[key];
+}
+/** 対策（ループの対策の id、または政策の id）が課題の主な指標に効く向きと強さ。表にないものは 0（効果は小さい） */
+export function optionFit(optId: string, main: IndicatorId): { v: number; trade: boolean } {
+  const e = OPTION_EFFECT[optId.replace(/^stop:/, '')]; if (!e) return { v: 0, trade: false };
+  const v = (e[main] ?? 0) * (optId.startsWith('stop:') ? -1 : 1);
+  return { v, trade: !!e.trade };
+}
+
 /** 課題（issues）の鍵から、どのループの入口か */
 export function loopOfIssue(key: string): LoopId | undefined {
   if (key.startsWith('loop:')) { const id = key.slice(5); return id === 'station' || id === 'aging' || id === 'industry' ? id : undefined; } // v91：街の 3 つの論点
