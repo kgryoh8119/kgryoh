@@ -17,8 +17,8 @@ import {
   LEVELS, MEDALS, RANK_CATS, N_CITIES, mayorDiff, MAYOR_DIFF, levelOf, blockRect, blockName, annexable, BX, BY,
   planStreet, planRailKind, rerunRules, RERUN, monthlyIssues, allIssues, loopTopics, loopEntryIssue, type Issue, WIN_VOTE, voteText, fiscalWatch, RAILKIND_NAME, modAdd, THREATS, SECTORS, sectorOf, industryBalance, rateAdd, type Macro, REAL, MAP_ID, mapEntry, baseEntry, TILE, monthlyBudget, pledgeStatus, GOALS, VISIONS, CAT_NAMES, BUILD_KINDS, fam, lvOf, LV_CAP, SV_NAMES, goalProgress, visionProgress, electionOutlook, upgradeCost, buildCost, CIVIC, isBiz, NEIGHBOR_SEED, DIFFS, diffOf, rerunCheck, teamCheck, teamVenue, SPORTS, upkeepOf, staffReq, designCap, sumHH, roadCapacity, checkPlace, lineTiles, rectTiles, planRoad, planTunnel, planBridge, planOverpass, planFootbridge, planCanal, planBusStop, planLevee, planArea, planTerra, planWiden, planFlyover, TERRA_NAMES, planUnroad, planRepair, planZone, planRail, planRailGrade, planUnrail, fiscalCrisis, tempDebt, ledgerGap, stationUpCheck, shinCheck, eventDef, forecastAsync, modMul,
   stationStats, FREQS, DOOR_COST, SUBWAY_COST, BIDS, bidChance, STYLES_M, REC_PLANS, hasOp, terrainOf, isCastaway, missionsFor, calMonth, POSTS, candidates, execOf, landOf, landPrices, routeStats, FREQ, MAX_ROUTES, citsOf, CIT_N, voteForecast, FACTIONS, PLANS, LOBBY_COST, SPEECH_COST, ADS_COST, monthsToElection, campaignOpen, PRESS, grantChance, PETITION_COST, GRANTS, GRANT_COOL, APPLY_COST, FESTS, pyramid, projection,
-  authorityLabel, currentOffice,
-  dataSource,
+  authorityLabel, currentOffice, prefOf,
+  dataSource, DATA_REAL, DATA_EST,
   riskOutlook, renewCostOf,
 } from '../sim/index';
 import type { GameState, Building, Kind, Zone, Layer, ForecastSet, Action, TilePlan, Cat, TerraOp, MissionDef } from '../sim/index';
@@ -1139,6 +1139,12 @@ export class UI {
       <div class="btnrow"><button class="btn small" data-act="report" data-arg="year">📘 年次報告（今年度の施策と結果）</button></div>
       <p class="note">影響を受ける人の多さを基本に、悪化の傾向・期限の近さ・戻しにくさを足して並べています。対策のボタンは道具や資料を開くだけで、建設や政策の変更はあなたが決めます（②の試算も、③を押すまで街は変わりません）。</p></section>`;
   }
+  /** v91：実在マップの「出典・取得日・実データと推計（ゲーム上の仮定）・役と権限の主体」を、概要の「街のいま」に文字で出す（前は見出しの小さなラベルと、押さないと出ない説明だけだった） */
+  private realNote(): string {
+    if (!REAL) return '';
+    const ds = dataSource(), e = mapEntry(MAP_ID) ?? baseEntry(MAP_ID), pf = prefOf(), office = currentOffice();
+    return `<p class="note realsrc">📍 ${esc(e ? `${e.area}をもとにした街` : '実在の地図をもとにした街')}。<b>実データ</b>：${esc(DATA_REAL)}（出典：${esc(ds.credits || 'OpenStreetMap')}${ds.date ? `、取得日 ${esc(ds.date)}` : ''}）。<b>推計</b>：${esc(DATA_EST)}は<b>ゲーム上の仮定</b>で、実在の自治体の統計ではありません。<br>あなたの役：${esc(e?.role ?? office.role)}${REAL.deformed ? '（まちづくり版。市長として遊びます）' : ''}。警察は${esc(pf ? (pf === '東京都' ? '警視庁' : pf + '警察') : '都道府県警察')}、鉄道は鉄道事業者が決め、市は要望・協議します（施設を選ぶと「市の権限」に出ます）。</p>`;
+  }
   /** v91：街の 3 つの論点（駅前・老朽インフラ・産業と暮らし）。上位 3 件に入口の課題がなくても、いつでも対策を比べられる */
   private loopTopicsHtml(list: Issue[]): string {
     const s = this.s; if (s.mode !== 'term' && s.mode !== 'sandbox') return '';
@@ -1223,6 +1229,7 @@ export class UI {
       <div><small>暮らしの満足</small><b style="color:var(--${st.sat >= 0.7 ? 'good' : st.sat >= 0.6 ? 'warn' : 'bad'})">${Math.round(st.sat * 100)}<i>%</i></b></div>
       ${o ? `<div><small>再選の見込み</small><b style="color:var(--${o.win >= 0.6 ? 'good' : o.win >= 0.4 ? 'warn' : 'bad'})">${Math.round(o.win * 100)}<i>%</i></b><em>支持率 ${pct(s.approval)}</em></div>` : ''}
       <div><small>毎月の収支</small><b style="color:var(--${monthlyBudget(s).operating >= 0 ? 'good' : 'bad'})">${yen(monthlyBudget(s).operating, true)}</b></div></div>
+      ${this.realNote()}
       <div class="btnrow"><button class="btn small" data-act="stats">📈 推移をグラフで見る</button><button class="btn small" data-act="people">👥 住民に会う</button></div>
       <p class="note">下の項目は、見出しを押すと開きます。</p></section>`;
     const body = `
@@ -1653,7 +1660,7 @@ export class UI {
     }
     const b = s.buildings.find(o => o.id === sel.b)!, d = DEFS[b.kind];
     const al = authorityLabel(b.kind), auth = `${al.name}（${al.actor}）— ${al.how}${al.why ? '。' + al.why : ''}`; // v90：5 つの行動種別
-    let h = `<h3>${b.name ? `${bname(b)} <small class="note">${d.name}</small>` : d.name}${b.sandbox ? ' <span class="tag">直接配置</span>' : ''}${close}</h3><p class="own">所有・運営：${d.owner}<br>市の権限：${auth}</p>${b.osm ? '<p class="note">地図の建物から推計した街区です（30m 四方の区画ごと）。戸数・世帯構成はゲームの推計で、実際の値ではありません。</p>' : b.name ? '<p class="note">名前と位置は OpenStreetMap（実データ）。定員・職員・老朽度・費用などはゲーム上の仮定で、実際の施設の値ではありません。</p>' : ''}`;
+    let h = `<h3>${b.name ? `${bname(b)} <small class="note">${d.name}</small>` : d.name}${b.sandbox ? ' <span class="tag">直接配置</span>' : ''}${close}</h3><p class="own">所有・運営：${d.owner}<br>市の権限：${auth}</p>${b.osm ? '<p class="note">地図の建物から推計した街区です（30m 四方の区画ごと）。戸数・世帯構成はゲームの推計で、実際の値ではありません。</p>' : REAL && !b.name ? `<p class="note">ゲームで置いた${isRes(b.kind) ? '住宅' : '施設'}です（実在の${isRes(b.kind) ? '建物' : '施設'}ではありません）。${isRes(b.kind) ? '戸数・世帯' : '定員・職員・老朽度・費用'}などは推計（ゲーム上の仮定）です。地形・道路・鉄道は実データ（出典：${esc(dataSource().credits || 'OpenStreetMap')}${dataSource().date ? `、取得日 ${esc(dataSource().date)}` : ''}）。</p>` : b.name ? '<p class="note">名前と位置は OpenStreetMap（実データ）。定員・職員・老朽度・費用などはゲーム上の仮定で、実際の施設の値ではありません。</p>' : ''}`;
     { const ai = idx(b.x, b.y), td = hasSea(s) ? tsunamiDepth(s, designWave(s))[ai] : 0; h += `<p class="note elev">⛰ 海抜 ${altitude(s, ai).toFixed(1)}m${hasSea(s) ? `・海から ${n0(Math.max(0, seaDist(s, ai)) * 30)}m・想定の津波（${designWave(s)}m）で${td > 0.05 ? `<b style="color:var(--bad)">浸水 ${td.toFixed(1)}m</b>` : '浸水しない'}` : ''}${liquefyRisk(s, ai) ? '・<b style="color:var(--warn)">液状化のおそれ</b>' : ''}</p>`; }
     if (b.status === 'construction') h += `<p><span class="tag">工事中</span> 残り ${b.remain} か月（工期 ${b.total} か月）</p>`;
     else if (b.status === 'renewing') h += `<p><span class="tag warn">更新工事中</span> 残り ${b.remain} か月。工事中の能力は ${pct(d.renewFactor)}</p>`;
