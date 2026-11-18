@@ -62,8 +62,8 @@ const trialAndRun = async (key, re, name, run = true) => {
   const opened = await page.$(`${cardOf(key)} .f90-opts`);
   if (!opened) await page.click(`${cardOf(key)} [data-act="ix"][data-arg="trial|${key}"]`);
   await page.waitForSelector(`${cardOf(key)} .f90-opts`);
-  const labels = await page.$$eval(`${cardOf(key)} .f90-opt`, e => e.map(x => x.textContent.trim().slice(0, 40)));
-  const k = labels.findIndex(l => re.test(l));
+  const labels = await page.$$eval(`${cardOf(key)} .f90-opt`, e => e.map(x => (x.querySelector('input')?.disabled ? '(自動では試せない) ' : '') + x.textContent.trim().slice(0, 40)));
+  const k = labels.findIndex(l => !l.startsWith('(自動') && re.test(l));
   if (k < 0) { step(`${name}: 対策 ${re} が候補にない`, false, labels.join(' / ')); return null; }
   await page.click(`${cardOf(key)} input[data-arg="pick|${key}|${k}"]`);
   await page.waitForSelector(`${cardOf(key)} .f90-cmp`, { timeout: 120000 });

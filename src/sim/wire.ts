@@ -20,7 +20,12 @@ registerIssueIndicators(key => { const lp = loopOfIssue(key); return lp ? (LOOPS
 export const monthlyText = (m: number) => m > 0 ? `毎月 ${Math.round(m).toLocaleString()} 万円の支出` : `毎月 ${Math.abs(Math.round(m)).toLocaleString()} 万円の収入・支出減`;
 /** 水道に余力がないと民間の住宅は着工しない（step.ts の privateHousing）。容積を上げる前に知らせる */
 export function housingBlocked(s: GameState): string {
-  const st = s.stats; if (st.waterCap >= st.waterDemand * 1.02) return '';
+  const st = s.stats;
+  if (st.waterCap >= st.waterDemand * 1.02) { // 下水・電力に余力がなくても着工しない（同じ関数の条件）
+    if (st.sewageCap < st.sewageDemand) return 'いまは下水に余力がないため、容積を上げても住宅は建ちません。先に下水処理場を増設・更新してください';
+    if (st.powerCap < st.powerDemand) return 'いまは電力に余力がないため、容積を上げても住宅は建ちません。先に発電所を増設してください';
+    return '';
+  }
   return `いまは水道に余力がないため、容積を上げても住宅は建ちません（水道の能力 ${Math.round(st.waterCap).toLocaleString()} ÷ 需要 ${Math.round(st.waterDemand).toLocaleString()}、着工には 1.02 倍以上が必要）。先に浄水場を更新・増設してください`;
 }
 registerTrialOptions((s, issue) => { const lp = issue.loop ?? loopOfIssue(issue.key); if (!lp) return [];
