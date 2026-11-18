@@ -69,13 +69,14 @@ export function chooseMap(): Promise<Choice> {
         <p class="note tcredit">実在の地図：© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors（ODbL）・標高 国土地理院。世帯数・施設の定員・予算などはゲームの推計です。</p>
         <details class="note tabout"><summary>この作品について（出典とライセンス）</summary>
           <ul>
-            <li>実在の地図の道路・鉄道・川・建物・施設の名前と位置：© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors（Open Database License 1.0）。同梱の地図データはこの派生データベースで、再配布するときも同じ条件（出典の表示・同じ ODbL での提供）に従います。</li>
-            <li>標高：<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a> 標高タイル（出典を明示して利用）。</li>
+            <li>実在の地図の道路・鉄道・川・建物・施設の名前と位置：地図データ © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors。同梱の地図データ（実在の街の JSON）は OpenStreetMap からの派生データベースで、<a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">Open Database License（ODbL）1.0</a> で提供します。地図データそのものは、分割版では maps フォルダの JSON、単体版ではページの中に埋め込んだ JSON です（取り出し方と作り方は下の全文・配布物の LICENSE-map-data.md）。</li>
+            <li>標高：<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a> 標高タイルを加工して作成。</li>
+            <li>地図データ以外（ゲームのプログラム・3D モデル・音・画面）は OpenStreetMap のデータではなく、ODbL の対象ではありません。</li>
             <li>3D 描画：<a href="https://threejs.org/" target="_blank" rel="noopener">three.js</a>（MIT）。</li>
             <li>文字：Zen Kaku Gothic New・Barlow Semi Condensed（SIL Open Font License 1.1）。Google Fonts から読み込みます。オフラインや読み込めない場合は、端末の日本語フォントで表示します。</li>
-            <li>建物・車・樹木・名所のモデルは作者が Blender で作ったもの、音は Web Audio でその場で合成したもの（音源ファイルなし）です。人の歩く・立つ動きの角度は Adobe Mixamo の動きから取り出した数値を使っています。</li>
+            <li>建物・車・樹木・名所のモデルは作者が Blender で作ったもの、音は Web Audio でその場で合成したもの（音源ファイルなし）です。人の歩く・立つ動きの関節角度は、Adobe Mixamo のアニメーションから取り出した数値を、ゲームの中で人を動かすためだけに使っています（素材としての再配布はしていません）。</li>
             <li>世帯数・人口・施設の定員・予算・価格などはゲームの推計・仮定で、自治体の統計ではありません。詳しくは docs/ASSETS.md。</li>
-          </ul></details>
+          </ul>${(() => { const t = document.getElementById('sumu-license-map')?.textContent; return t ? `<details class="tlicense"><summary>地図データのライセンス（全文）</summary><pre style="white-space:pre-wrap;max-height:40vh;overflow:auto">${esc(t.replace(/&lt;/g, '<'))}</pre></details>` : ''; })()}</details>
       </div>`;
     };
     const done = (c: Choice) => { el.remove(); resolve(c); };
