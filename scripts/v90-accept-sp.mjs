@@ -4,8 +4,9 @@ import { open } from './shot.mjs';
 import fs from 'fs';
 const OUT = process.env.OUT ?? 'docs/shots/v90';
 fs.mkdirSync(OUT, { recursive: true });
-process.env.MOBILE = '1';
-const { browser, page, errors } = await open(390, 844, 'sumino');
+const PC = !!process.env.PC, TAG = PC ? 'pcx' : 'sp'; // PC=1 で 1280×800（任期末の報告と選挙だけ撮り直すとき）
+if (!PC) process.env.MOBILE = '1';
+const { browser, page, errors } = await open(PC ? 1280 : 390, PC ? 800 : 844, 'sumino');
 const R = { overflow: [], steps: [] };
 await page.evaluate(() => { const S = window.__sumu, v = S.view; v.__frame = v.frame; v.frame = () => {}; v.setQuality('low'); S.fixedQuality = true; });
 const draw = (n = 2) => page.evaluate(n => { const v = window.__sumu.view; for (let i = 0; i < n; i++) v.__frame.call(v, 0.25); }, n);
@@ -14,10 +15,10 @@ const overflow = () => page.evaluate(() => {
     .map(e => `${e.tagName}.${String(e.className).slice(0, 30)} ${e.scrollWidth}>${e.clientWidth}「${(e.textContent || '').trim().slice(0, 24)}」`);
   return { els: bad.slice(0, 8), n: bad.length, page: document.documentElement.scrollWidth > innerWidth };
 });
-const shot = async name => { await draw(); await page.waitForTimeout(150); await page.screenshot({ path: `${OUT}/sp-${name}.png` }); const o = await overflow(); R.overflow.push({ name, ...o }); console.log('shot', name, o.n ? `はみ出し ${o.n} ${o.els.join(' / ')}` : '', o.page ? '横スクロールあり' : ''); };
+const shot = async name => { await draw(); await page.waitForTimeout(150); await page.screenshot({ path: `${OUT}/${TAG}-${name}.png` }); const o = await overflow(); R.overflow.push({ name, ...o }); console.log('shot', name, o.n ? `はみ出し ${o.n} ${o.els.join(' / ')}` : '', o.page ? '横スクロールあり' : ''); };
 const step = (name, ok, d = '') => { R.steps.push({ name, ok, d }); console.log(ok ? '✓' : '✗', name, d); };
 const label = () => page.evaluate(() => { const m = document.getElementById('modal'); return m && !m.hidden ? m.querySelector('.dialog')?.getAttribute('aria-label') ?? '?' : null; });
-const panel = async () => { if (await page.evaluate(() => document.getElementById('side').classList.contains('closed'))) await page.click('.tool.panelbtn'); await page.waitForTimeout(250); };
+const panel = async () => { if (!PC && await page.evaluate(() => document.getElementById('side').classList.contains('closed'))) await page.click('.tool.panelbtn'); await page.waitForTimeout(250); };
 const tab = async t => { await panel(); await page.click(`#tabs [data-arg="${t}"]`); await page.waitForTimeout(250); };
 const modals = async (keepReport = false) => { for (let g = 0; g < 8; g++) { const l = await label(); if (!l) return; if (keepReport && await page.$('#modal .f90-report')) return; if (await page.$('#modal .f90-report')) { await page.click('#modal [data-act="report"][data-arg="close"]'); continue; } if (await page.$('#modal .opt:not([disabled])')) { await page.click('#modal .opt:not([disabled])'); await page.waitForTimeout(150); continue; } if (l === '開票速報' || await page.$('#modal [data-act="election"]')) return; const b = await page.$('#modal button:text-is("閉じる"), #modal [data-act$="close"]') ?? await page.$('#modal .btnrow .btn.primary'); if (b) { await b.click(); await page.waitForTimeout(150); continue; } return; } };
 const advance = async (n, keepReport = false) => { for (let i = 0; i < n; i++) { const el = await page.evaluate(() => { const g = window.__sumu.game; g.speed = 3; g.tick(1.0001); g.speed = 0; window.__sumu.ui.refresh(); window.__sumu.ui.renderModal(); return !!g.state.pendingElection; }); if (keepReport && await page.$('#modal .f90-report')) return 'report'; await modals(); if (el) return 'el'; } return null; };
@@ -44,6 +45,7 @@ try {
   await page.waitForFunction(() => !document.getElementById('pol-deferRenew')?.closest('.card')?.textContent.includes('試算しています'), null, { timeout: 120000 });
   await page.evaluate(() => document.getElementById('pol-deferRenew')?.closest('.card')?.scrollIntoView());
   await shot('06-policy-defer');
+  await page.click('#pol-careStaff'); await page.waitForTimeout(300); // 施策の記録を 1 件つくる（記録がないと年次報告は出ない）
   const r = await advance(12, true);
   step('年次報告（12 か月）', r === 'report' || !!(await page.$('#modal .f90-report')), String(r));
   if (await page.$('#modal .f90-report')) { await shot('07-report'); await page.click('#modal [data-act="report"][data-arg="close"]'); }
@@ -53,7 +55,7 @@ try {
   if ((await label()) === '開票速報') { await page.waitForTimeout(3000); await page.evaluate(() => window.__sumu.ui.renderModal()); await shot('09-count'); const sk = await page.$('#modal [data-act="countskip"]'); if (sk) await sk.click(); await page.waitForTimeout(300); }
   step('選挙の結果', !!(await page.$('#modal [data-act="election"]')), await label());
   await shot('10-election');
-} catch (e) { step('途中で止まった', false, String(e).slice(0, 300)); await page.screenshot({ path: `${OUT}/sp-zz-error.png` }); }
-R.errors = errors; fs.writeFileSync(`${OUT}/accept-sp.json`, JSON.stringify(R, null, 1));
+} catch (e) { step('途中で止まった', false, String(e).slice(0, 300)); await page.screenshot({ path: `${OUT}/${TAG}-zz-error.png` }); }
+R.errors = errors; fs.writeFileSync(`${OUT}/accept-${TAG}.json`, JSON.stringify(R, null, 1));
 console.log('errors', errors.length, errors.slice(0, 5)); console.log('overflow', R.overflow.filter(o => o.n || o.page).map(o => o.name + ':' + o.n + (o.page ? '+page' : '')));
 await browser.close();

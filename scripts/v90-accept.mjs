@@ -7,7 +7,7 @@ import fs from 'fs';
 const OUT = process.env.OUT ?? 'docs/shots/v90';
 fs.mkdirSync(OUT, { recursive: true });
 const MAP = process.env.MAPID ?? 'sumino', real = MAP !== 'sumino', P = real ? 'real-' : 'pc-';
-process.env.TITLESHOT = `${OUT}/${P}00-title.png`;
+if (!real) process.env.TITLESHOT = `${OUT}/${P}00-title.png`; // 実在マップは読み込みが重く、タイトルの撮影が時間切れになるので撮らない
 const t0 = Date.now();
 const { browser, page, errors } = await open(1280, 800, MAP);
 const R = { map: MAP, openMs: Date.now() - t0, steps: [], metrics: [], overflow: [], decisions: [], notes: [] };

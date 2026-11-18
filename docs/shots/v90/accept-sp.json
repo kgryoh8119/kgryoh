@@ -1,0 +1,82 @@
+{
+ "overflow": [
+  {
+   "name": "01-pledge",
+   "els": [],
+   "n": 0,
+   "page": false
+  },
+  {
+   "name": "02-tutorial",
+   "els": [],
+   "n": 0,
+   "page": false
+  },
+  {
+   "name": "03-issues",
+   "els": [],
+   "n": 0,
+   "page": false
+  },
+  {
+   "name": "04-trial",
+   "els": [],
+   "n": 0,
+   "page": false
+  },
+  {
+   "name": "05-trial-upzone-warn",
+   "els": [],
+   "n": 0,
+   "page": false
+  },
+  {
+   "name": "06-policy-defer",
+   "els": [],
+   "n": 0,
+   "page": false
+  },
+  {
+   "name": "07-report",
+   "els": [],
+   "n": 0,
+   "page": false
+  },
+  {
+   "name": "08-term-report",
+   "els": [],
+   "n": 0,
+   "page": false
+  },
+  {
+   "name": "09-count",
+   "els": [],
+   "n": 0,
+   "page": false
+  },
+  {
+   "name": "10-election",
+   "els": [],
+   "n": 0,
+   "page": false
+  }
+ ],
+ "steps": [
+  {
+   "name": "容積を上げる試算に水道の注意",
+   "ok": false,
+   "d": ""
+  },
+  {
+   "name": "年次報告（12 か月）",
+   "ok": true,
+   "d": "report"
+  },
+  {
+   "name": "選挙の結果",
+   "ok": true,
+   "d": "選挙結果"
+  }
+ ],
+ "errors": []
+}
