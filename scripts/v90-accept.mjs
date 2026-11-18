@@ -213,6 +213,11 @@ try {
     await advance(6, '17-report-24m');
     await metric('36か月');
   } else {
+    // 実在風マップのラベル：各タブの本文に「推計」「ゲーム上の仮定」「出典」「取得日」と権限主体（区・市・県警など）が出るか
+    const words = ['推計', 'ゲーム上の仮定', '出典', '取得日', '区長', '市長', '県警', '都道府県'], found = {};
+    for (const tb of await page.$$eval('#tabs [data-arg]', e => e.map(b => b.dataset.arg))) { await tab(tb); const txt = await page.evaluate(() => document.getElementById('panel')?.innerText ?? ''); for (const w of words) if (txt.includes(w)) (found[w] ??= []).push(tb); }
+    R.realLabels = found; note('  実在マップのラベル：' + JSON.stringify(found));
+    await tab('home');
     await advance(12, 'report-24m'); await metric('24か月');
   }
 
