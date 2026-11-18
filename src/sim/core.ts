@@ -383,10 +383,12 @@ function pollution(s: GameState, B: Building[], G: RoadInfo, load: Float64Array)
   for (let i = 0; i < N; i++) if (m.forest[i] || (m.park && m.park[i])) green[i] = 1;
   for (const b of B) { const gv = DEFS[b.kind].green ?? (fam(b.kind) === 'park' ? 1 : 0); if (gv && b.status === 'operating') for (let dy = 0; dy < b.h; dy++) for (let dx = 0; dx < b.w; dx++) green[idx(b.x + dx, b.y + dy)] = Math.max(green[idx(b.x + dx, b.y + dy)], gv); }
   const blur = (a: Float32Array, r: number) => {
-    const t = new Float32Array(N);
-    for (let y = 0; y < H; y++) { let acc = 0; for (let x = -r; x < W + r; x++) { if (x + r < W && x + r >= 0) acc += a[y * W + x + r]; if (x - r - 1 >= 0 && x - r - 1 < W) acc -= a[y * W + x - r - 1]; if (x >= 0 && x < W) t[y * W + x] = acc / (2 * r + 1); } }
-    const o = new Float32Array(N);
-    for (let x = 0; x < W; x++) { let acc = 0; for (let y = -r; y < H + r; y++) { if (y + r < H && y + r >= 0) acc += t[(y + r) * W + x]; if (y - r - 1 >= 0 && y - r - 1 < H) acc -= t[(y - r - 1) * W + x]; if (y >= 0 && y < H) o[y * W + x] = acc / (2 * r + 1); } }
+    const W_ = W, H_ = H, t = new Float32Array(W_ * H_), k = 2 * r + 1; // v92：地図の大きさは手元の変数に（毎回の参照が重い環境があるため。計算は同じ）
+    for (let y = 0; y < H_; y++) { const row = y * W_; let acc = 0; for (let x = 0; x < r && x < W_; x++) acc += a[row + x];
+      for (let x = 0; x < W_; x++) { if (x + r < W_) acc += a[row + x + r]; if (x - r - 1 >= 0) acc -= a[row + x - r - 1]; t[row + x] = acc / k; } }
+    const o = new Float32Array(W_ * H_);
+    for (let x = 0; x < W_; x++) { let acc = 0; for (let y = 0; y < r && y < H_; y++) acc += t[y * W_ + x];
+      for (let y = 0; y < H_; y++) { if (y + r < H_) acc += t[(y + r) * W_ + x]; if (y - r - 1 >= 0) acc -= t[(y - r - 1) * W_ + x]; o[y * W_ + x] = acc / k; } }
     return o;
   };
   const p1 = blur(blur(e, 2), 2), g1 = blur(green, 3);

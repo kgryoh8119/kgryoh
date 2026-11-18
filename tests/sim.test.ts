@@ -1435,14 +1435,19 @@ describe('v26：海抜・津波・液状化', () => {
     for (let i = 0; i < W * H; i++) if (!m.water[i] && seaDist(s, i) === 1 && !s.occ[i]) s.levee.push(i);
     expect(area(6)).toBeLessThan(before);
   });
-  it('巨大地震と津波のできごとで、海辺の住宅が被害を受け、状態は正しいまま', () => {
+  it('巨大地震と津波のできごとで、海辺の住宅が被害を受け、状態は正しいまま', async () => {
     const s = newGame(); s.month = 40; s.cash = 1e9;
+    // v92：地図が南へ広がり、海ははじめの町から約 3km 離れた。海辺（南の端の近く）に家並みを建ててから、12m の津波で確かめる
+    const { addBuilding } = await import('../src/sim/events'); const m = getMap(s.seed); let put = 0;
+    for (let y = H - 9; y < H - 6; y++) for (let x = 40; x < 80; x++) { const i = idx(x, y); if (!buildable(m, i) || s.occ[i] || s.road[i]) continue; const b = addBuilding(s, 'house', x, y, 'operating', 0); b.hh = [0, 1, 0, 1, 1]; s.zone[i] = 1; put++; }
+    expect(put).toBeGreaterThan(20);
+    recompute(s);
     const hh0 = s.stats.households;
-    const r = damage(s, 'tsunami', 24); // v87：海が南へ 1.3km 離れたので、はじめの町まで届く大きな津波で確かめる
+    const r = damage(s, 'tsunami', 12);
     expect(r).toContain('津波');
     recompute(s);
     expect(s.stats.households).toBeLessThan(hh0);
-    expect(s.lastTsunami?.h).toBe(24);
+    expect(s.lastTsunami?.h).toBe(12);
     expect(validateState(s)).toBeNull();
   });
 });
