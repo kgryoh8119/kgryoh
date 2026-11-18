@@ -60,3 +60,19 @@ describe('v91 容積の試算の水道の注意', () => {
     if (t.stall!.months) expect(['water', 'sewage', 'power']).toContain(t.stall!.by);
   });
 });
+
+describe('v91 政策タブで始めた施策の記録の指標', () => {
+  it('主に見る指標は、その施策が効く指標から選ぶ（保育人材支援に更新費の見通しを出さない）。関係が分からなければ汎用の指標', async () => {
+    const { recordDecision, indicatorValues, actionIndicators, GENERIC_FOCUS } = await import('../src/sim/report');
+    const s = newGame(); run(s, 1);
+    const a = { type: 'policy', id: 'careStaff', on: true } as const;
+    expect(actionIndicators(s, a)).toContain('wait');
+    const before = indicatorValues(s); dispatch(s, a);
+    const d = recordDecision(s, '保育人材支援', '政策', before, { action: a });
+    expect(d.focus.length).toBeGreaterThan(0);
+    expect(d.focus).not.toContain('renewal60'); expect(d.focus).not.toContain('disasterLoss');
+    for (const id of d.focus) expect(actionIndicators(s, a)).toContain(id);
+    const d2 = recordDecision(s, '何か', '計画案', indicatorValues(s), { action: { type: 'demolish', id: -1 } as never });
+    for (const id of d2.focus) expect(GENERIC_FOCUS).toContain(id);
+  });
+});

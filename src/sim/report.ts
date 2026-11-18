@@ -176,6 +176,7 @@ export function recordDecision(s: GameState, label: string, kind: string, before
     return last;
   }
   const d: Decision = { id: (last?.id ?? 0) + 1, month: s.month, label, kind, issue: opts.issue, before, expect: null, focus: opts.issue ? issueIndicators(opts.issue) : [], checkAt: [...CHECK_AT], results: [], econ: s.econ?.cycle ?? 0 };
+  if (!d.focus.length && opts.action) REL.set(d, actionIndicators(s, opts.action)); // v91：主に見る指標の候補を、その施策が効く指標に絞る
   L.push(d);
   if (L.length > MAX_DECISIONS) L.splice(0, L.length - MAX_DECISIONS);
   if (opts.forecast !== false) fillForecast(s, d);
@@ -186,10 +187,51 @@ export function fillForecast(s: GameState, d: Decision): void {
   const p = projectBands(s);
   d.expect = p.expect;
   if (!d.focus.length) {
-    const e12 = p.expect[12] ?? {};
-    d.focus = REG.map(x => ({ id: x.id, r: Math.abs((e12[x.id]?.[1] ?? 0) - (d.before[x.id] ?? 0)) / x.tol })).sort((a, b) => b.r - a.r).slice(0, 3).map(x => x.id);
+    // v91：施策が効く指標（政策の定義・ループの対策の向き・建設の種類）の中から、予測で大きく動くものを選ぶ。関係が分からない施策は汎用の 3 つ（人口・満足・月の収支）
+    const e12 = p.expect[12] ?? {}, rel = REL.get(d);
+    const pool = rel?.length ? REG.filter(x => rel.includes(x.id)) : REG.filter(x => GENERIC_FOCUS.includes(x.id));
+    d.focus = pool.map(x => ({ id: x.id, r: Math.abs((e12[x.id]?.[1] ?? 0) - (d.before[x.id] ?? 0)) / x.tol })).sort((a, b) => b.r - a.r).slice(0, 3).map(x => x.id);
+    REL.delete(d);
   }
 }
+/** v91：記録した施策が効く指標（予測を入れるまでのあいだだけ持つ。保存には入れない） */
+const REL = new WeakMap<Decision, string[]>();
+/** v91：関係の分からない施策で見る汎用の指標 */
+export const GENERIC_FOCUS = ['pop', 'sat', 'operating'];
+/** v91：操作が効く指標（主に見る指標の候補）。政策の効果の鍵・建設する施設の種類から。足りない分は外から足せる（ループの対策の向き） */
+export function actionIndicators(s: GameState, a: Action): string[] {
+  const out = new Set<string>();
+  const byKey = (k: string) => {
+    if (/保育士|care|nursery/.test(k)) out.add('wait');
+    if (/^sat:/.test(k)) { out.add('sat'); out.add('satType'); }
+    if (/inflow|outflow|foreign|lang/.test(k)) { out.add('netMig'); out.add('pop'); }
+    if (/house|housing|rent/.test(k)) out.add('burden');
+    if (/road|peakTrips|access/.test(k)) out.add('maxVc');
+    if (/safety|nightSafe|ijime|support|bukka|approval/.test(k)) out.add('sat');
+    if (/furusato|fee|Fee/.test(k)) out.add('operating');
+    if (/ageRate|elder/.test(k)) out.add('satType');
+  };
+  if (a.type === 'policy') {
+    const p = POLICIES.find(x => x.id === a.id);
+    for (const e of p?.effects ?? []) byKey(e.key);
+    out.add('operating');
+  } else if (a.type === 'build' || a.type === 'upgrade' || a.type === 'renew' || a.type === 'expand') {
+    const kind = a.type === 'build' ? a.kind : s.buildings.find(b => b.id === (a as { id: number }).id)?.kind;
+    const f = kind ? DEFS[kind]?.fam ?? kind : '';
+    if (/nursery|care/.test(f)) { out.add('wait'); out.add('satType'); }
+    else if (/school|jhs/.test(f)) { out.add('schoolOver'); out.add('satType'); }
+    else if (f) { out.add('sat'); out.add('satDist'); }
+    out.add('operating');
+  } else if (a.type === 'zone' || a.type === 'area') { out.add('pop'); out.add('netMig'); out.add('burden'); }
+  else if (a.type === 'road' || a.type === 'widen') { out.add('maxVc'); out.add('sat'); }
+  else if (a.type === 'tax') { out.add('operating'); out.add('sat'); out.add('netMig'); }
+  else if (a.type === 'borrow' || a.type === 'repayTemp') { out.add('debt'); out.add('operating'); }
+  for (const f of ACTION_IND) { try { for (const id of f(s, a)) out.add(id); } catch { /* 足した側の誤りで記録を止めない */ } }
+  return [...out].filter(id => REG.some(x => x.id === id));
+}
+const ACTION_IND: ((s: GameState, a: Action) => string[])[] = [];
+/** 操作が効く指標を外から足す（ループの対策の向き：loops.ts の OPTION_EFFECT） */
+export function registerActionIndicators(f: (s: GameState, a: Action) => string[]): void { ACTION_IND.push(f); }
 
 /** 毎月の終わりに呼ぶ：3・6・12 か月たった記録に実績を入れる。新しく出た結果を返す */
 export function updateDecisions(s: GameState): { d: Decision; r: DecisionResult }[] {

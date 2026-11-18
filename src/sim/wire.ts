@@ -1,7 +1,7 @@
 // v90：ゲームループ（loops.ts）の指標と対策を、予測と結果の記録・対策の試算・年次報告（report.ts）につなぐ。
 // 予測の画面と結果の画面が同じ関数（loopIndicators）から指標を出すようにするための、つなぎだけの層。
-import { INDICATORS, LOOPS, loopIndicators, loopOptions, loopOfIssue, expectOf, mainIndicatorOf, optionFit, type IndicatorId } from './loops';
-import { registerIndicators, registerIssueIndicators, registerTrialOptions, onIndicatorValues, BASE_INDICATORS } from './report';
+import { INDICATORS, LOOPS, loopIndicators, loopOptions, loopOfIssue, expectOf, mainIndicatorOf, optionFit, OPTION_EFFECT, type IndicatorId } from './loops';
+import { registerIndicators, registerIssueIndicators, registerTrialOptions, registerActionIndicators, onIndicatorValues, BASE_INDICATORS } from './report';
 import type { GameState } from './types';
 
 /** 単位ごとの「ほぼ予測どおり」とみなす幅 */
@@ -35,3 +35,11 @@ registerTrialOptions((s, issue) => { const lp = issue.loop ?? loopOfIssue(issue.
     warn: o.id === 'upzone' ? housingBlocked(s) || undefined : undefined,
     range: () => expectOf(s, lp, o.action, 12).filter(e => !have.has(e.indicator) && (e.lo || e.hi)).map(e => ({ id: e.indicator, lo: e.lo, hi: e.hi })),
     note: [o.monthly ? monthlyText(o.monthly) : '', o.months ? `効くまで ${o.months} か月` : '', `決めるのは${o.authority}`, o.side.length ? `副作用：${o.side.join('、')}` : '', `（${loop.name}の対策）`].filter(Boolean).join('・') })); });
+// v91：政策・建設・更新が効く指標に、ループの対策の向き（OPTION_EFFECT）を足す。保育の待機・道路の混雑率は汎用の指標の名前で
+const SAME: Partial<Record<IndicatorId, string>> = { careWait: 'wait', roadVc: 'maxVc' };
+const BUILD_OPT: Record<string, string> = { nurseryS: 'nursery', nursery: 'nursery', school: 'schoolNew', mall: 'mall', factory: 'factory' };
+registerActionIndicators((s, a) => {
+  const id = a.type === 'policy' ? a.id : a.type === 'build' ? BUILD_OPT[a.kind] : a.type === 'renew' ? 'renew' : a.type === 'upgrade' && s.buildings.find(b => b.id === a.id)?.kind === 'school' ? 'schoolUp' : a.type === 'zone' ? (a.zone === 3 ? 'upzone' : '') : '';
+  const e = id ? OPTION_EFFECT[id] : undefined; if (!e) return [];
+  return (Object.entries(e) as [string, unknown][]).filter(([k, v]) => k !== 'trade' && typeof v === 'number' && Math.abs(v) >= 0.3).map(([k]) => SAME[k as IndicatorId] ?? k);
+});
