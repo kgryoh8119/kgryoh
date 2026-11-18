@@ -1,0 +1,288 @@
+{
+ "split-sumino": {
+  "runs": 1,
+  "ok": 1,
+  "title_s": 1.714,
+  "pick_s": 20.183,
+  "back_s": null,
+  "switch_s": null,
+  "html_resp_ms": 915.6000000000058,
+  "dcl_ms": 1555.6000000000058,
+  "load_ms": 0,
+  "wire_MB": 2.1,
+  "heapTitle_MB": 12,
+  "heapCity_MB": 56,
+  "heapSwitch_MB": null,
+  "q": {},
+  "errors": 0,
+  "raw": [
+   {
+    "titleMs": 1714,
+    "nav": {
+     "respEnd": 915.6000000000058,
+     "dcl": 1555.6000000000058,
+     "load": 0,
+     "bytes": 2083404
+    },
+    "heapTitle": 11.608948,
+    "pickMs": 20183,
+    "heapCity": 56.472076,
+    "errors": 0
+   }
+  ]
+ },
+ "split-hodogaya-d": {
+  "runs": 1,
+  "ok": 1,
+  "title_s": 0.917,
+  "pick_s": 10.287,
+  "back_s": null,
+  "switch_s": null,
+  "html_resp_ms": 256.5,
+  "dcl_ms": 828.2999999998137,
+  "load_ms": 0,
+  "wire_MB": 2.1,
+  "heapTitle_MB": 12,
+  "heapCity_MB": 151,
+  "heapSwitch_MB": null,
+  "q": {},
+  "errors": 0,
+  "raw": [
+   {
+    "titleMs": 917,
+    "nav": {
+     "respEnd": 256.5,
+     "dcl": 828.2999999998137,
+     "load": 0,
+     "bytes": 2083404
+    },
+    "heapTitle": 11.686164,
+    "pickMs": 10287,
+    "heapCity": 151.136392,
+    "errors": 0
+   }
+  ]
+ },
+ "quality-hodogaya-d": {
+  "runs": 1,
+  "ok": 1,
+  "title_s": 0.646,
+  "pick_s": 10.277,
+  "back_s": null,
+  "switch_s": null,
+  "html_resp_ms": 89,
+  "dcl_ms": 546.2000000001863,
+  "load_ms": 0,
+  "wire_MB": 2.1,
+  "heapTitle_MB": 12,
+  "heapCity_MB": 310,
+  "heapSwitch_MB": null,
+  "q": {
+   "low": {
+    "tris": null,
+    "calls": null
+   },
+   "mid": {
+    "tris": null,
+    "calls": null
+   },
+   "high": {
+    "tris": null,
+    "calls": null
+   }
+  },
+  "errors": 0,
+  "raw": [
+   {
+    "titleMs": 646,
+    "nav": {
+     "respEnd": 89,
+     "dcl": 546.2000000001863,
+     "load": 0,
+     "bytes": 2083404
+    },
+    "heapTitle": 11.558332,
+    "pickMs": 10277,
+    "heapCity": 309.62708,
+    "q": {},
+    "error": "TimeoutError: page.waitForFunction: Timeout 180000ms exceeded.",
+    "errors": 0
+   }
+  ]
+ },
+ "standalone-hodogaya-d": {
+  "runs": 1,
+  "ok": 1,
+  "title_s": 2.363,
+  "pick_s": 10.337,
+  "back_s": 314.764,
+  "switch_s": 8.601,
+  "html_resp_ms": 2048.5,
+  "dcl_ms": 2281.7999999998137,
+  "load_ms": 0,
+  "wire_MB": 13,
+  "heapTitle_MB": 11,
+  "heapCity_MB": 111,
+  "heapSwitch_MB": 346,
+  "q": {},
+  "errors": 0,
+  "raw": [
+   {
+    "titleMs": 2363,
+    "nav": {
+     "respEnd": 2048.5,
+     "dcl": 2281.7999999998137,
+     "load": 0,
+     "bytes": 12962013
+    },
+    "heapTitle": 11.260052,
+    "pickMs": 10337,
+    "heapCity": 111.023728,
+    "backMs": 314764,
+    "switchMs": 8601,
+    "heapSwitch": 345.771432,
+    "errors": 0
+   }
+  ]
+ },
+ "cpu4-hodogaya-d": {
+  "runs": 1,
+  "ok": 0,
+  "title_s": null,
+  "pick_s": null,
+  "back_s": null,
+  "switch_s": null,
+  "html_resp_ms": null,
+  "dcl_ms": null,
+  "load_ms": null,
+  "wire_MB": null,
+  "heapTitle_MB": null,
+  "heapCity_MB": null,
+  "heapSwitch_MB": null,
+  "q": {},
+  "errors": 0,
+  "raw": [
+   {
+    "error": "TimeoutError: page.click: Timeout 240000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('#title [data-t=\"start\"][data-id=\"hodogaya-d\"]')\u001b[22m\n\u001b[2m    - locator resolved to <button data-t=\"start\" cl"
+   }
+  ]
+ },
+ "fast3g-split-hodogaya-d": {
+  "runs": 1,
+  "ok": 1,
+  "title_s": 11.419,
+  "pick_s": 44.32,
+  "back_s": null,
+  "switch_s": null,
+  "html_resp_ms": 11016.899999999907,
+  "dcl_ms": 11410.199999999953,
+  "load_ms": 0,
+  "wire_MB": 2.1,
+  "heapTitle_MB": 11,
+  "heapCity_MB": 69,
+  "heapSwitch_MB": null,
+  "q": {},
+  "errors": 0,
+  "raw": [
+   {
+    "titleMs": 11419,
+    "nav": {
+     "respEnd": 11016.899999999907,
+     "dcl": 11410.199999999953,
+     "load": 0,
+     "bytes": 2083404
+    },
+    "heapTitle": 11.201952,
+    "pickMs": 44320,
+    "heapCity": 68.643172,
+    "errors": 0
+   }
+  ]
+ },
+ "mobile-hodogaya-d": {
+  "runs": 1,
+  "ok": 1,
+  "title_s": 0.671,
+  "pick_s": 5.211,
+  "back_s": null,
+  "switch_s": null,
+  "html_resp_ms": 77.79999999981374,
+  "dcl_ms": 563.8999999999069,
+  "load_ms": 0,
+  "wire_MB": 2.1,
+  "heapTitle_MB": 12,
+  "heapCity_MB": 288,
+  "heapSwitch_MB": null,
+  "q": {},
+  "errors": 0,
+  "raw": [
+   {
+    "titleMs": 671,
+    "nav": {
+     "respEnd": 77.79999999981374,
+     "dcl": 563.8999999999069,
+     "load": 0,
+     "bytes": 2083404
+    },
+    "heapTitle": 11.615008,
+    "pickMs": 5211,
+    "heapCity": 288.080904,
+    "errors": 0
+   }
+  ]
+ },
+ "auto-quality-sumino": {
+  "runs": 1,
+  "ok": 1,
+  "title_s": 0.679,
+  "pick_s": 13.46,
+  "back_s": null,
+  "switch_s": null,
+  "html_resp_ms": 67.39999999990687,
+  "dcl_ms": 601.3999999999069,
+  "load_ms": 0,
+  "wire_MB": 2.1,
+  "heapTitle_MB": 11,
+  "heapCity_MB": 51,
+  "heapSwitch_MB": null,
+  "q": {},
+  "auto": {
+   "start": "high",
+   "steps": [
+    {
+     "at": 34.118,
+     "q": "mid"
+    }
+   ],
+   "end": "mid",
+   "fps": 2
+  },
+  "errors": 0,
+  "raw": [
+   {
+    "titleMs": 679,
+    "nav": {
+     "respEnd": 67.39999999990687,
+     "dcl": 601.3999999999069,
+     "load": 0,
+     "bytes": 2083404
+    },
+    "heapTitle": 11.339868,
+    "pickMs": 13460,
+    "heapCity": 50.63248,
+    "auto": {
+     "start": "high",
+     "steps": [
+      {
+       "at": 34.118,
+       "q": "mid"
+      }
+     ],
+     "end": "mid",
+     "fps": 2
+    },
+    "errors": 0
+   }
+  ]
+ }
+}
