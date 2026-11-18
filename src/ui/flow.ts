@@ -68,13 +68,20 @@ function trialHtml(s: GameState, i: Issue, f: IssueFlow): string {
       : f.opts[f.pick]?.range ? `<button class="btn small" data-act="ix" data-arg="range|${k}">転入が多い・少ない場合の幅も見る（数秒）</button>` : '';
     const o = f.opts[f.pick];
     t = `<p class="f90-sub">${CALC} 12 か月後の予測（太字は基準、小さい数字は予測の幅）。できごとや景気の変化は入っていません</p>
-      ${o?.warn ? `<p class="note bad f90-warn">⚠ ${esc(o.warn)}</p>` : ''}
+      ${o?.warn ? `<p class="note bad f90-warn">⚠ ${esc(o.warn)}</p>` : stallWarn(T, o?.actions ?? null)}
       <div class="f90-scroll"><table class="t f90-cmp"><tr><th>指標</th><th>いま</th><th>しない場合</th><th>する場合</th><th>差</th></tr>${rows}</table></div>
       ${quiet.length ? `<p class="f90-sub">差が予測の誤差より小さい指標（表から省略）：${quiet.map(esc).join('・')}</p>` : ''}${rgHtml}
       <div class="btnrow"><button class="btn small ${f.confirm ? 'danger' : 'primary'}" data-act="ix" data-arg="run|${k}">${f.confirm ? `本当に実行する（もう一度押す）` : `③「${esc(o?.label ?? '')}」を実行する`}</button><button class="btn small" data-act="ix" data-arg="close|${k}">やめる</button></div>
       ${f.confirm ? `<p class="note">実行すると、費用がかかり、取り消しは同じ月のうちだけです。3・6・12 か月後に、このカードの「④ 数か月後の結果」に予測との差が出ます。</p>` : ''}`;
   }
   return `<div class="f90-box"><h4>対策を選んで試算</h4><div class="f90-opts">${list}</div>${t}</div>`;
+}
+
+/** v91：住宅を増やす対策（用途の指定）で、試算の期間に水道・下水・電力の余力が切れて着工できない月が多いとき。いまは余力があっても 1〜2 か月で切れる場合に気づけるように */
+function stallWarn(T: TrialResult, actions: TrialOption['actions']): string {
+  const st = T.stall; if (!st || st.months < 3 || !(actions ?? []).some(a => a.type === 'zone')) return '';
+  const what = st.by === 'sewage' ? '下水' : st.by === 'power' ? '電力' : '水道';
+  return `<p class="note bad f90-warn">⚠ 試算の 12 か月のうち ${st.months} か月は${what}に余力がなく、民間の住宅が着工しません（容積を上げても建たない）。先に${what === '電力' ? '発電所・変電所' : what === '下水' ? '下水処理場' : '浄水場'}を更新・増設してください</p>`;
 }
 
 /** 施策 1 件の、予測と実績の表 */

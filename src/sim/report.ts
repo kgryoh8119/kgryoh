@@ -90,14 +90,23 @@ export type Expect = Record<number, Record<string, Band>>;
 /** 試算の k か月目の乱数の種。比べる 2 本（しない／する）で同じ値になるので、施策で乱数を引く回数が変わっても翌月には揃い直す */
 export function commonRng(anchor: number, k: number): number { let h = (anchor ^ Math.imul(k + 1, 0x9e3779b1)) | 0; h = Math.imul(h ^ (h >>> 16), 0x85ebca6b); h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35); return (h ^ (h >>> 16)) | 0; }
 /** 状態 s のまま（または actions を加えて）months か月進めた試算。基準 1 本を回し、幅は変化量の係数と指標ごとの最小幅で出す */
-export function projectBands(s: GameState, actions: Action[] = [], months = 12, at: number[] = CHECK_AT): { ok: boolean; msg: string; expect: Expect; start: Record<string, number> } {
+/** v91：民間の住宅が着工できない月か（step.ts の privateHousing と同じ条件：水道は 1.02 倍、下水・電力は需要以上の余力が要る） */
+export function housingStalled(st: GameState['stats']): '' | 'water' | 'sewage' | 'power' {
+  if (st.waterCap < st.waterDemand * 1.02 || (st.waterDemand > 0 && st.waterCap < st.waterDemand)) return 'water';
+  if (st.sewageCap < st.sewageDemand) return 'sewage';
+  if (st.powerCap < st.powerDemand) return 'power';
+  return '';
+}
+export function projectBands(s: GameState, actions: Action[] = [], months = 12, at: number[] = CHECK_AT): { ok: boolean; msg: string; expect: Expect; start: Record<string, number>; stall?: { months: number; by: string } } {
   const c: GameState = structuredClone(s);
   delete (c as any).decisions;
   let msg = '';
   for (const a of actions) { const r = dispatch(c, a); if (!r.ok) return { ok: false, msg: r.msg, expect: {}, start: {} }; msg = r.msg; }
-  const start = indicatorValues(c), expect: Expect = {}, anchor = s.rng;
+  const start = indicatorValues(c), expect: Expect = {}, anchor = s.rng, by: Record<string, number> = {};
+  let stall = 0;
   for (let k = 1; k <= months; k++) {
     c.rng = commonRng(anchor, k); // しない場合とする場合で、毎月同じ乱数の列から始める（差が施策の効果だけになるように）
+    { const h = housingStalled(c.stats); if (h) { stall++; by[h] = (by[h] ?? 0) + 1; } } // v91：この月の着工の判定に使う余力（月の計算の前の状態）
     stepMonth(c, { forecast: true });
     if (at.includes(k)) {
       const v = indicatorValues(c), o: Record<string, Band> = {};
@@ -105,7 +114,7 @@ export function projectBands(s: GameState, actions: Action[] = [], months = 12, 
       expect[k] = o;
     }
   }
-  return { ok: true, msg, expect, start };
+  return { ok: true, msg, expect, start, stall: { months: stall, by: Object.entries(by).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '' } };
 }
 const round = (v: number, d: IndicatorDef) => { const p = 10 ** (d.digits ?? 0); return Math.round(v * p) / p; };
 
@@ -334,12 +343,14 @@ export function rankTrial(out: TrialOption[]): TrialOption[] {
 const TRIAL_SRC: ((s: GameState, issue: Issue) => TrialOption[])[] = [];
 /** 課題の対策の候補を外から足す（ループ担当の loopOptions をつなぐ入口） */
 export function registerTrialOptions(f: (s: GameState, issue: Issue) => TrialOption[]): void { TRIAL_SRC.push(f); }
-export interface TrialResult { ok: boolean; msg: string; ids: string[]; now: Record<string, number>; without: Expect; with: Expect }
+export interface TrialResult { ok: boolean; msg: string; ids: string[]; now: Record<string, number>; without: Expect; with: Expect;
+  /** v91：する場合の 12 か月のうち、水道・下水・電力の余力がなく民間の住宅が着工できない月数と、主な理由 */
+  stall?: { months: number; by: string } }
 /** 対策を実行した場合としない場合の 12 か月後（同じ指標で並べる） */
 export function compareTrial(s: GameState, actions: Action[], issueKey: string): TrialResult {
   const now = indicatorValues(s), a = projectBands(s, [], 12, [12]), b = projectBands(s, actions, 12, [12]);
   const ids = issueKey === '*' ? REG.map(d => d.id) : [...new Set([...issueIndicators(issueKey), 'operating', 'sat', 'pop'])];
-  return { ok: b.ok, msg: b.ok ? '' : b.msg, ids, now, without: a.expect, with: b.expect };
+  return { ok: b.ok, msg: b.ok ? '' : b.msg, ids, now, without: a.expect, with: b.expect, stall: b.stall };
 }
 
 // ---------------------------------------------------------------- 政策カードの数値
