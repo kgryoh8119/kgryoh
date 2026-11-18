@@ -760,6 +760,10 @@ describe('v92：さらに広くなった住野市（192×168）', () => {
       let land = 0, d8 = 0, d9 = 0; for (let i = 0; i < W * H; i++) { const x = i % W, y = (i / W) | 0; if ((x >= FIC_V87_W || y >= FIC_V87_H) && buildable(m, i)) land++; if (m.district[i] === 8) d8++; if (m.district[i] === 9) d9++; }
       expect(d8 > 0 && d9 > 0, t.id).toBe(true);
       if (t.id !== 'mountain' && t.id !== 'inland') expect(land, t.id).toBeGreaterThan(5000);
+      // 広げた土地に、ため池・用水路（山あい・盆地は谷川）と林、田畑・草地・屋敷林・空き地の見た目がある（単調な草地にしない）
+      let wat = 0, fo = 0; const kinds = new Set<number>(); for (let i = 0; i < W * H; i++) { const x = i % W, y = (i / W) | 0; if (!(x >= FIC_V87_W || y >= FIC_V87_H) || y >= H - 8) continue; if (m.water[i]) wat++; if (m.forest[i]) fo++; if (m.deco?.[i]) kinds.add(m.deco[i]); }
+      expect(wat, t.id).toBeGreaterThan(60); expect(fo, t.id).toBeGreaterThan(40);
+      for (const k of [2, 6, 7, 8]) expect(kinds.has(k), t.id + ' deco ' + k).toBe(true);
       // はじめの区域は v91 と同じ場所（1 区域 32×28 区画）
       expect(s.unlocked!.every(b => b % BX < 4 && Math.floor(b / BX) < 4), t.id).toBe(true);
     }

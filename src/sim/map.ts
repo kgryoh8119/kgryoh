@@ -174,6 +174,7 @@ export function baseMap(seed: number): MapDef {
     if (T === 'lake') { const dl = V2 ? lakeD(x, y) : Math.hypot(x - 62, y - 46) / 8.5; h = h * smooth(dl - 0.85) - 2.8 * (1 - smooth(dl - 0.85));
       if (V2) { h += 3.2 * smooth(1 - Math.hypot(x - 67, y - 41) / 2.2); h += 18 * smooth((x - 73) / 4) * smooth((y - 16) / 6); } } // 湖の小島と、向こう岸の山
     if (T === 'island') { const e1 = smooth((x - (W - 6.5)) / 1.6) * (y >= 13.5 && y <= 17.5 ? 0 : 1), e2 = smooth((3.5 - x) / 1.6) * smooth((y - 24) / 2); const e = Math.max(e1, e2); h = h * (1 - e) - 3.2 * e; }
+    h = extHeight(T, x, y, h, seed);
     // ゆるい起伏（地図の縁では 0 にして外側の地面とつなぐ）
     const edge = smooth(Math.min(x, y, W - x) / 3);
     const gx = Math.floor(x / 4), gy = Math.floor(y / 4), fx = (x % 4) / 4, fy = (y % 4) / 4;
@@ -195,6 +196,7 @@ export function baseMap(seed: number): MapDef {
     if (T === 'lake' && lakeD(x + 0.5, y + 0.5) < (V2 ? 0.93 : 1) && !(V2 && Math.hypot(x + 0.5 - 67, y + 0.5 - 41) < 1.6)) water[i] = 1;
     if (T === 'island' && ((x >= W - 5 && (y < 14 || y > 16)) || (x <= 2 && y >= 25))) water[i] = 1;
     if (Math.hypot(x + 0.5 - 44.5, y + 0.5 - 50.5) < 2.1 || Math.hypot(x + 0.5 - 112.5, y + 0.5 - 72.5) < 2.5) water[i] = 1; // ため池（v87：新田にもう 1 つ）
+    if (extWater(T, x, y)) water[i] = 1; // v92：さらに広げた土地のため池・用水路・谷川
     // 線路は GameState の rail（市が敷き直せる）。地形としての鉄道用地は持たない
     if (hi - lo > 3.5) steep[i] = 1;
     const d2 = Math.hypot(x + 0.5 - 39.5, y + 0.5 - 9) / 5;
@@ -203,6 +205,7 @@ export function baseMap(seed: number): MapDef {
     const d7 = Math.hypot(x + 0.5 - 103, y + 0.5 - 30) / 9, d8 = Math.hypot(x + 0.5 - 90, y + 0.5 - 88) / 7.5;
     if ((d2 < 0.9 && y > 1) || d3 < 0.75 || d4 < 0.8 || d7 < 0.62 || d8 < 0.7 || y === (noSea ? H - 5 : H - 6) || y === (noSea ? H - 4 : H - 5)) forest[i] = 1;
     if ((T === 'mountain' || T === 'inland') && lo > 12 && !water[i]) forest[i] = 1;
+    if (extForest(T, x, y)) forest[i] = 1; // v92：さらに広げた土地の丘の林
     if (water[i]) forest[i] = 0;
     // v87：広げた東（76 列目から）は東野、南（66 行目から）は新田。v86 までの区画の地区は変えない
     // v92：さらに広げた東（128 列目から）は朝日、南（112 行目から）は南野
@@ -218,13 +221,68 @@ export function baseMap(seed: number): MapDef {
     else if (T === 'lake' && nearW(x, y, 1) && hm < 1.0 && y < H - 6) deco[i] = 1;
     else if (T === 'river' && y < H - 6 && nearW(x, y, 1) && hm < 0.4) deco[i] = 4;
     const snowT = T === 'mountain' ? (V2 ? 118 : 40) : 30, rockT = T === 'mountain' && V2 ? 92 : 20;
-    if (hm > snowT) { deco[i] = 5; if (V2) forest[i] = 0; } else if (hm > rockT && (!forest[i] || V2)) { deco[i] = 3; if (V2) forest[i] = 0; }
+    if (extForest(T, x, y)) { /* v92：広げた土地の丘の林は、湖の向こう岸の台地の上でも岩肌・雪にしない */ } else if (hm > snowT) { deco[i] = 5; if (V2) forest[i] = 0; } else if (hm > rockT && (!forest[i] || V2)) { deco[i] = 3; if (V2) forest[i] = 0; }
     if (!deco[i] && !forest[i] && !steep[i] && (T === 'rural' || ((T === 'mountain' || T === 'inland') && hm > 2 && hm < 16)) && hash(x >> 1, y >> 1, seed + 77) < (T === 'rural' ? 0.85 : 0.55)) deco[i] = 2;
   }
   if (W > FIC_PREV_W) extDeco(seed, T, heights, water, forest, steep, deco);
   const m: MapDef = { seed, heights, water, rail, forest, steep, district, deco };
   cache.set(seed, m);
   return m;
+}
+
+// ---------------------------------------------------------------- v92：さらに広げた土地（128 列目から東・112 行目から南）の地形
+// v91 までの範囲（128×112）の地形は変えない（古い保存データの建てられる土地・浸水の計算が変わらないよう、この範囲では 0 にする）。
+/** さらに広げた土地か（区画・頂点の座標） */
+export const inExt = (x: number, y: number) => W > FIC_V87_W && (x >= FIC_V87_W || y >= FIC_V87_H);
+/** v91 までの範囲の境目から 6 区画で 0 → 1 に上がる重み（境目に段差を作らない） */
+const extMask = (x: number, y: number) => (W > FIC_V87_W ? Math.max(smooth((x - FIC_V87_W) / 6), smooth((y - FIC_V87_H) / 6)) : 0);
+/** 丘：[x, y, 半径, 高さ, 頂に林を置くか] */
+export const EXT_HILLS: [number, number, number, number, boolean][] = [[150, 44, 9, 18, true], [176, 92, 8, 14, true], [112, 141, 8, 12, true], [60, 139, 10, 8, false], [170, 147, 6, 10, true], [140, 78, 6, 6, false]];
+/** ため池：[x, y, 半径]（水面は半径の 0.8 倍） */
+export const EXT_PONDS: [number, number, number][] = [[164, 24, 2.6], [154, 122, 2.8], [88, 128, 2.4], [134, 157, 2.3]];
+/** 山あい・盆地の東の谷：谷の中心の行と、谷川 */
+const valleyY = (x: number) => 27 + 5 * Math.sin(x / 11) + 2 * Math.sin(x / 4.3);
+/** 南の谷（西の端から東へ、南の山の中を通る）の中心の行 */
+const valley2Y = (x: number) => 140 + 4 * Math.sin(x / 9) + 1.5 * Math.sin(x / 3.7);
+const mtn = (T: string) => T === 'mountain' || T === 'inland';
+/** 用水路（ため池をつなぐ）。1 本目は北東のため池から南のため池へ、2 本目は南西のため池から東へ */
+const canal1X = (y: number) => { const k = (y - 24) / 98; return 164 - 10 * k + 3.5 * Math.sin(Math.PI * 3 * k); };
+const canal2Y = (x: number) => { const k = (x - 88) / 66; return 128 - 6 * k + 2 * Math.sin(Math.PI * 2 * k); };
+function extHeight(T: string, x: number, y: number, h: number, seed: number): number {
+  const ex = extMask(x, y); if (ex <= 0) return h;
+  if (mtn(T)) {
+    // 東の山の中に、国道に沿った谷（谷底の田畑と集落の跡）と谷川。谷の入口は v91 までの境目からなだらかに
+    const dv1 = Math.abs(y - valleyY(x)), v1 = smooth((10 - dv1) / 5) * smooth((x - FIC_V87_W) / 16);
+    const dv2 = Math.abs(y - valley2Y(x)), v2 = smooth((9 - dv2) / 5) * smooth((150 - x) / 14) * ex; // 南の谷（西の端から）
+    const v = Math.max(v1, v2), dv = v1 >= v2 ? dv1 : dv2;
+    const floor = (T === 'mountain' ? 7 : 4.5) + 0.03 * Math.abs(x - FIC_V87_W) + 2.5 * (hash(Math.floor(x / 6), Math.floor(y / 6), seed + 911) - 0.5);
+    h = h * (1 - v) + floor * v;
+    if ((v1 >= v2 && x > FIC_V87_W + 3) || (v2 > v1 && x < 146)) h -= 2.2 * (1 - smooth((dv - 0.4) / 1.3)) * v;
+    const pd = Math.hypot(x - 160, y - (valleyY(160) - 4.5)) / 2.6; h -= 2.4 * smooth(1 - pd) * v; // 谷のため池
+    return h;
+  }
+  let add = 0;
+  for (const [hx, hy, r, a] of EXT_HILLS) add += a * smooth(1 - Math.hypot(x - hx, y - hy) / r);
+  for (const [px, py, r] of EXT_PONDS) add -= 2.6 * smooth(1 - Math.hypot(x - px, y - py) / r);
+  // 用水路の溝
+  if (y > 25 && y < 121) add -= 1.8 * (1 - smooth((Math.abs(x - canal1X(y)) - 0.35) / 1.2));
+  if (x > 89 && x < 153) add -= 1.8 * (1 - smooth((Math.abs(y - canal2Y(x)) - 0.35) / 1.2));
+  if (T === 'rural') add *= 0.5;
+  return h + add * ex;
+}
+function extWater(T: string, x: number, y: number): boolean {
+  if (!inExt(x, y)) return false;
+  const cx = x + 0.5, cy = y + 0.5;
+  if (mtn(T)) return (x > FIC_V87_W + 4 && Math.abs(cy - valleyY(cx)) < 0.75) || (x < 145 && Math.abs(cy - valley2Y(cx)) < 0.75) || Math.hypot(cx - 160, cy - (valleyY(160) - 4.5)) < 2.0;
+  for (const [px, py, r] of EXT_PONDS) if (Math.hypot(cx - px, cy - py) < r * 0.8) return true;
+  if (cy > 25.5 && cy < 120.5 && Math.abs(cx - canal1X(cy)) < 0.55) return true;
+  if (cx > 89.5 && cx < 152.5 && Math.abs(cy - canal2Y(cx)) < 0.55) return true;
+  return false;
+}
+function extForest(T: string, x: number, y: number): boolean {
+  if (!inExt(x, y) || mtn(T)) return false;
+  for (const [hx, hy, r, , f] of EXT_HILLS) if (f && Math.hypot(x + 0.5 - hx, y + 0.5 - hy) / r < 0.6) return true;
+  return false;
 }
 
 /** v88：v87 で広げた土地（76 列目から東・68 行目から南）の見た目。一様な草地に見えないよう、田んぼ・畑・草地・屋敷林・空き地を
@@ -237,9 +295,17 @@ function extDeco(seed: number, T: string, heights: Float32Array, water: Uint8Arr
   const MIX: Record<string, number[]> = { coast: [0.34, 0.2, 0.22, 0.08, 0.04], inland: [0.38, 0.22, 0.16, 0.1, 0.02], rural: [0.5, 0.22, 0.1, 0.1, 0.02], river: [0.42, 0.16, 0.2, 0.08, 0.04],
     lake: [0.3, 0.18, 0.28, 0.1, 0.04], mountain: [0.3, 0.26, 0.16, 0.16, 0.02], urban: [0.1, 0.14, 0.3, 0.06, 0.22], island: [0.18, 0.26, 0.3, 0.1, 0.04] };
   const mix = MIX[T] ?? MIX.coast;
+  // v92：さらに広げた土地の集落の跡（屋敷林に囲まれた、家の跡の空き地）。シードごとに 9 か所
+  const hamlets: [number, number][] = [];
+  if (W > FIC_V87_W) for (let k = 0; hamlets.length < 9 && k < 60; k++) {
+    const south = k % 3 === 0, hx = south ? 6 + hash(k, 1, seed + 517) * (W - 12) : FIC_V87_W + 4 + hash(k, 1, seed + 517) * (W - FIC_V87_W - 10), hy = south ? FIC_V87_H + 4 + hash(k, 2, seed + 517) * (H - FIC_V87_H - 14) : 20 + hash(k, 2, seed + 517) * (FIC_V87_H - 20);
+    const i = idx(Math.floor(hx), Math.floor(hy)); if (water[i] || forest[i] || steep[i] || hamlets.some(([a, b]) => Math.hypot(a - hx, b - hy) < 14)) continue;
+    hamlets.push([hx, hy]);
+  }
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     if (x < FIC_PREV_W && y < FIC_PREV_H) continue;
     const i = idx(x, y); if (water[i] || forest[i] || steep[i] || deco[i]) continue;
+    { let hd = 9; for (const [a, b] of hamlets) hd = Math.min(hd, Math.hypot(x + 0.5 - a, y + 0.5 - b)); if (hd < 2.6) { deco[i] = hash(x, y, seed + 519) < (hd < 1.2 ? 0.25 : 0.6) ? 8 : hd < 1.6 ? 9 : 6; continue; } }
     const hm = (hv(x, y) + hv(x + 1, y) + hv(x, y + 1) + hv(x + 1, y + 1)) / 4;
     // 区画：3×2 の田畑を、行ごとにずらして並べる。まとまり（10 区画ほど）ごとに田んぼの多い所・草地の多い所が分かれる
     const py = y >> 1, px = Math.floor((x + Math.floor(hash(py, 3, seed + 301) * 3)) / 3), r = hash(px, py, seed + 303), reg = vn(x, y, 11, 1);

@@ -119,7 +119,7 @@ import VEH2 from '../assets/vehicles2.json';
 const VM2 = VEH2 as unknown as Record<'coach' | 'loco' | 'express', CarMesh>;
 const VM = VEH as unknown as Record<'bus' | 'truck' | 'shin_mid' | 'shin_nose' | 'pole' | 'vending' | 'postbox', CarMesh>;
 import { lmPad, carMesh, CAR_PART, carKindOf, type CarMesh, MODEL, MODEL_H, modelConstruction, modelScaffold, makeSignCanvas, rng, tree, sign, DETAIL, type Ctx } from './models';
-import { W, H, TILE, DEFS, isRes, isShop, isCity, fam, floodRisk, getMap, heightAt, idx, inMap, hash, buildable, GATEWAYS, roadInfo, REAL, LOT_KINDS, railBlocks, onMapChange, MAP_ID, mapEntry, baseEntry, ropewayTop, blockOf, altitude, tsunamiDepth, designWave, seaDist, terrainOf, landPrices, routeCarK, isleOX, isleOY } from '../sim/index';
+import { W, H, TILE, DEFS, isRes, isShop, isCity, fam, floodRisk, getMap, heightAt, idx, inMap, hash, buildable, GATEWAYS, roadInfo, REAL, LOT_KINDS, railBlocks, onMapChange, MAP_ID, mapEntry, baseEntry, ropewayTop, blockOf, altitude, tsunamiDepth, designWave, seaDist, terrainOf, landPrices, routeCarK, isleOX, isleOY, inExt, EXT_PONDS, FIC_V87_W } from '../sim/index';
 import { realTerrain, realStatic, realRoads, realPaths, drawRealTile, drawRealGround, drawRealStation, drawRealLot, drawRealStore, looksBuiltUp, REAL_CHUNK } from './real';
 import type { GameState, Building, Kind, Layer, MapDef } from '../sim/index';
 import { stationStats } from '../sim/index';
@@ -611,7 +611,10 @@ export class View {
     const wd = (H - RY + 0.2) * TILE + (sea ? far : 60), wg = new THREE.PlaneGeometry(far * 2 + MAPW, wd); wg.rotateX(-Math.PI / 2);
     const water = new THREE.Mesh(wg, this.matWater); water.position.set(MAPW / 2, -1.55, (RY - 0.2) * TILE + wd / 2); this.scene.add(water);
     { const pg = new THREE.CircleGeometry(2.35 * TILE, 40); pg.rotateX(-Math.PI / 2); const pond = new THREE.Mesh(pg, this.matWater); pond.position.set(44.5 * TILE, -0.7, 50.5 * TILE); this.scene.add(pond);
-      if (W > 76) { const p2 = new THREE.Mesh(new THREE.CircleGeometry(2.75 * TILE, 40).rotateX(-Math.PI / 2), this.matWater); p2.position.set(112.5 * TILE, -0.7, 72.5 * TILE); this.scene.add(p2); } } // 南原のため池（v87：新田のため池も）
+      if (W > 76) { const p2 = new THREE.Mesh(new THREE.CircleGeometry(2.75 * TILE, 40).rotateX(-Math.PI / 2), this.matWater); p2.position.set(112.5 * TILE, -0.7, 72.5 * TILE); this.scene.add(p2); }
+      // v92：さらに広げた土地のため池。水面の高さは岸（半径の 0.8 倍）のいちばん低い所に合わせる（丘のふもとでも水面が地面に埋もれないよう）
+      if (W > FIC_V87_W && T !== 'mountain' && T !== 'inland') for (const [px, py, r] of EXT_PONDS) { let lo = Infinity; for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; lo = Math.min(lo, heightAt(this.map, (px + Math.cos(a) * r * 0.8) * TILE, (py + Math.sin(a) * r * 0.8) * TILE)); }
+        const p3 = new THREE.Mesh(new THREE.CircleGeometry(r * 0.95 * TILE, 40).rotateX(-Math.PI / 2), this.matWater); p3.position.set(px * TILE, lo - 0.25, py * TILE); this.scene.add(p3); } } // 南原のため池（v87：新田のため池も）
   }
 
   // ---- v70：田んぼ（田園・山あい・盆地の空き地）。季節で水→緑→金→刈り跡と色が変わる ----
@@ -722,6 +725,11 @@ export class View {
       if (!dug && !wet && tId === 'castaway') { // v88：無人島の沢と湧水の池（海は地図の外の海面が覆う）
         if (!m.water[i]) continue; const S = W + 1, lo = Math.min(m.heights[y * S + x], m.heights[y * S + x + 1], m.heights[(y + 1) * S + x], m.heights[(y + 1) * S + x + 1]); if (lo < -1.2) continue;
         wg.quad([x * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, y * TILE], [x * TILE, lo + 0.35, y * TILE], 0x3f7fa6); continue;
+      }
+      if (!dug && !wet && !REAL && inExt(x, y) && y < H - 4 && m.water[i] && !(m.base && !m.base.water[i])) { // v92：さらに広げた土地の用水路・谷川（地面の高さに合わせる。海・大河の続きは下の低い水面で）
+        const S = W + 1, lo = Math.min(m.heights[y * S + x], m.heights[y * S + x + 1], m.heights[(y + 1) * S + x], m.heights[(y + 1) * S + x + 1]);
+        if (lo > -2.0) { if (tId !== 'mountain' && tId !== 'inland' && EXT_PONDS.some(([px, py, r]) => Math.hypot(x + 0.5 - px, y + 0.5 - py) < r)) continue;
+          wg.quad([x * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, y * TILE], [x * TILE, lo + 0.35, y * TILE], 0x3f7fa6); continue; }
       }
       if (!dug && !wet) { // 地形の水面（大河・湖・島の海）。南の川とため池は別に描く
         if (!m.water[i] || REAL || tId === 'coast' || y >= H - 4 || Math.hypot(x + 0.5 - 44.5, y + 0.5 - 50.5) < 2.1 || (W > 76 && Math.hypot(x + 0.5 - 112.5, y + 0.5 - 72.5) < 2.5) || (m.base && !m.base.water[i])) continue;
