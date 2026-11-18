@@ -7,7 +7,7 @@ export const NHH = 5;
 import { REAL, onMapChange } from './real';
 /** 地区名（4 つ）。地図を選ぶと変わる */
 export let DISTRICTS: readonly string[] = [];
-onMapChange(() => { DISTRICTS = REAL ? REAL.districts.map(d => d.name) : ['駅前', '本町', '丘陵台', '西新町', '東台', '南原', '東野', '新田']; });
+onMapChange(() => { DISTRICTS = REAL ? REAL.districts.map(d => d.name) : ['駅前', '本町', '丘陵台', '西新町', '東台', '南原', '東野', '新田', '朝日', '南野']; });
 
 /** 0 なし / 1 低層住宅 / 2 中層住宅 / 3 高層住宅 / 4 商業 */
 export type Zone = 0 | 1 | 2 | 3 | 4 | 5 | 6;

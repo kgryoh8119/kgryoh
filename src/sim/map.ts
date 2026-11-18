@@ -1,5 +1,5 @@
 // 地形。シードから毎回同じものを作るので GameState には保存しない。
-import { W, H, TILE, FIC_PREV_W, FIC_PREV_H } from './config';
+import { W, H, TILE, FIC_PREV_W, FIC_PREV_H, FIC_V87_W, FIC_V87_H } from './config';
 import { REAL, RF, onMapChange } from './real';
 
 export interface MapDef {
@@ -205,7 +205,8 @@ export function baseMap(seed: number): MapDef {
     if ((T === 'mountain' || T === 'inland') && lo > 12 && !water[i]) forest[i] = 1;
     if (water[i]) forest[i] = 0;
     // v87：広げた東（76 列目から）は東野、南（66 行目から）は新田。v86 までの区画の地区は変えない
-    district[i] = y >= 66 ? 7 : x >= 76 ? 6 : y < 15 ? (x < 13 ? 3 : x < 44 ? 0 : 4) : y >= 40 ? 5 : x < 22 ? 1 : x < 44 ? 2 : 4;
+    // v92：さらに広げた東（128 列目から）は朝日、南（112 行目から）は南野
+    district[i] = y >= FIC_V87_H ? 9 : x >= FIC_V87_W ? 8 : y >= 66 ? 7 : x >= 76 ? 6 : y < 15 ? (x < 13 ? 3 : x < 44 ? 0 : 4) : y >= 40 ? 5 : x < 22 ? 1 : x < 44 ? 2 : 4;
   }
   // v70：見た目だけの印（砂浜・田んぼ・岩肌・河原・雪の頂）。古いセーブでも計算は変わらない
   const deco = new Uint8Array(W * H), hv = (x: number, y: number) => heights[y * (W + 1) + x];
@@ -251,23 +252,28 @@ function extDeco(seed: number, T: string, heights: Float32Array, water: Uint8Arr
   }
 }
 
+/** v92：無人島を地図の中央に置くためのずれ（v88 の 128×112 の地図からの区画数）。古い保存データもこの分ずらして広げる */
+export const isleOX = () => Math.max(0, Math.floor((W - FIC_V87_W) / 2));
+export const isleOY = () => Math.max(0, Math.floor((H - FIC_V87_H) / 2));
 /** v88：無人島の地形。中央に山（森）、山から南の入り江へ流れる沢、西の湧水、まわりは砂浜と海。地図の縁はすべて海 */
 function castawayMap(seed: number): MapDef {
-  const S = W + 1, heights = new Float32Array(S * (H + 1)), n = (a: number, b: number) => hash(a, b, seed);
-  const CX = 64, CY = 54;
-  const noise = (x: number, y: number, g: number, k: number) => { const gx = Math.floor(x / g), gy = Math.floor(y / g), sx = smooth((x % g) / g), sy = smooth((y % g) / g), q = (a: number, b: number) => hash(a + k * 131, b, seed);
+  const S = W + 1, heights = new Float32Array(S * (H + 1)), n0 = (a: number, b: number) => hash(a, b, seed);
+  // v92：地図を広げても島は同じ大きさのまま地図の中央に置く（まわりの海が広がる）。島の式は v88 の 128×112 の座標で書き、OX・OY だけずらして使う
+  const OX = isleOX(), OY = isleOY(), n = (a: number, b: number) => n0(a - OX, b - OY);
+  const CX = 64 + OX, CY = 54 + OY;
+  const noise = (x0: number, y0: number, g: number, k: number) => { const x = x0 - OX, y = y0 - OY, gx = Math.floor(x / g), gy = Math.floor(y / g), sx = smooth((x % g) / g), sy = smooth((y % g) / g), q = (a: number, b: number) => hash(a + k * 131, b, seed);
     return (q(gx, gy) * (1 - sx) + q(gx + 1, gy) * sx) * (1 - sy) + (q(gx, gy + 1) * (1 - sx) + q(gx + 1, gy + 1) * sx) * sy; };
   // 海岸線：楕円に、ゆるい出入りと小さな岬を重ねる
   const coastD = (x: number, y: number) => { const a = Math.atan2(y - CY, x - CX);
     return Math.hypot((x - CX) / 47, (y - CY) / 41) * (1 + 0.07 * Math.sin(3 * a + 1.2) + 0.05 * Math.sin(5 * a + 0.4) + 0.03 * Math.sin(9 * a + 2)) + 0.12 * (noise(x, y, 7, 1) - 0.5); };
-  const coveD = (x: number, y: number) => Math.hypot((x - 72) / 7.5, (y - 92) / 6); // 南の入り江（波の静かな船着き場）
-  const streamX = (y: number) => 62 + 9 * (y - 50) / 38 + 1.6 * Math.sin(y / 4.3); // 山から入り江へ流れる沢
+  const coveD = (x: number, y: number) => Math.hypot((x - 72 - OX) / 7.5, (y - 92 - OY) / 6); // 南の入り江（波の静かな船着き場）
+  const streamX = (y0: number) => { const y = y0 - OY; return OX + 62 + 9 * (y - 50) / 38 + 1.6 * Math.sin(y / 4.3); }; // 山から入り江へ流れる沢
   for (let y = 0; y <= H; y++) for (let x = 0; x <= W; x++) {
     const d = coastD(x, y), cv = coveD(x, y), land = smooth((1 - d) / 0.06) * smooth((cv - 1) / 0.35);
-    const dm = Math.hypot(x - 58, y - 44) / 15, dm2 = Math.hypot(x - 80, y - 38) / 9, dm3 = Math.hypot(x - 40, y - 64) / 8;
+    const dm = Math.hypot(x - OX - 58, y - OY - 44) / 15, dm2 = Math.hypot(x - OX - 80, y - OY - 38) / 9, dm3 = Math.hypot(x - OX - 40, y - OY - 64) / 8;
     let h = 0.5 + 4.5 * smooth((1 - d) / 0.45) + 58 * Math.pow(smooth(1 - dm), 1.3) * (0.8 + 0.4 * noise(x, y, 3, 2)) + 26 * smooth(1 - dm2) + 9 * smooth(1 - dm3);
     h += (noise(x, y, 4, 3) - 0.5) * 1.4;
-    if (y > 46 && y < 90) { const ds = Math.abs(x - streamX(y)); h = h * smooth((ds - 0.5) / 2.2) + (0.2 + 0.08 * Math.max(0, 88 - y)) * (1 - smooth((ds - 0.5) / 2.2)); } // 沢の谷
+    if (y - OY > 46 && y - OY < 90) { const ds = Math.abs(x - streamX(y)); h = h * smooth((ds - 0.5) / 2.2) + (0.2 + 0.08 * Math.max(0, 88 - y + OY)) * (1 - smooth((ds - 0.5) / 2.2)); } // 沢の谷
     h = h * land - 3.2 * (1 - land);
     heights[y * S + x] = h;
   }
@@ -276,8 +282,8 @@ function castawayMap(seed: number): MapDef {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = idx(x, y), cx = x + 0.5, cy = y + 0.5, hs = [hv(x, y), hv(x + 1, y), hv(x, y + 1), hv(x + 1, y + 1)], lo = Math.min(...hs), hi = Math.max(...hs), hm = (hs[0] + hs[1] + hs[2] + hs[3]) / 4;
     if (coastD(cx, cy) > 1 || coveD(cx, cy) < 1 || x < 2 || y < 2 || x >= W - 2 || y >= H - 2 || hm < -0.6) water[i] = 1;
-    if (cy > 52 && cy < 87 && Math.abs(cx - streamX(cy)) < 0.6) water[i] = 1; // 沢
-    if (Math.hypot(cx - 46, cy - 57) < 1.4) water[i] = 1; // 湧水の池
+    if (cy - OY > 52 && cy - OY < 87 && Math.abs(cx - streamX(cy)) < 0.6) water[i] = 1; // 沢
+    if (Math.hypot(cx - OX - 46, cy - OY - 57) < 1.4) water[i] = 1; // 湧水の池
     if (hi - lo > 3.5) steep[i] = 1;
     if (!water[i] && (hm > 9 || (hm > 2.5 && noise(cx, cy, 6, 4) + 0.15 * n(x, y) < 0.4))) forest[i] = 1; // 山の森と、ふもとの雑木林
     if (water[i]) forest[i] = 0;

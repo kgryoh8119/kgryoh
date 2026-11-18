@@ -119,7 +119,7 @@ import VEH2 from '../assets/vehicles2.json';
 const VM2 = VEH2 as unknown as Record<'coach' | 'loco' | 'express', CarMesh>;
 const VM = VEH as unknown as Record<'bus' | 'truck' | 'shin_mid' | 'shin_nose' | 'pole' | 'vending' | 'postbox', CarMesh>;
 import { lmPad, carMesh, CAR_PART, carKindOf, type CarMesh, MODEL, MODEL_H, modelConstruction, modelScaffold, makeSignCanvas, rng, tree, sign, DETAIL, type Ctx } from './models';
-import { W, H, TILE, DEFS, isRes, isShop, isCity, fam, floodRisk, getMap, heightAt, idx, inMap, hash, buildable, GATEWAYS, roadInfo, REAL, LOT_KINDS, railBlocks, onMapChange, MAP_ID, mapEntry, baseEntry, ropewayTop, blockOf, altitude, tsunamiDepth, designWave, seaDist, terrainOf, landPrices, routeCarK } from '../sim/index';
+import { W, H, TILE, DEFS, isRes, isShop, isCity, fam, floodRisk, getMap, heightAt, idx, inMap, hash, buildable, GATEWAYS, roadInfo, REAL, LOT_KINDS, railBlocks, onMapChange, MAP_ID, mapEntry, baseEntry, ropewayTop, blockOf, altitude, tsunamiDepth, designWave, seaDist, terrainOf, landPrices, routeCarK, isleOX, isleOY } from '../sim/index';
 import { realTerrain, realStatic, realRoads, realPaths, drawRealTile, drawRealGround, drawRealStation, drawRealLot, drawRealStore, looksBuiltUp, REAL_CHUNK } from './real';
 import type { GameState, Building, Kind, Layer, MapDef } from '../sim/index';
 import { stationStats } from '../sim/index';
@@ -592,7 +592,7 @@ export class View {
       const og = new THREE.PlaneGeometry(MAPW + far * 2, MAPH + far * 2); og.rotateX(-Math.PI / 2);
       const ocean = new THREE.Mesh(og, this.matWater); ocean.position.set(MAPW / 2, -1.55, MAPH / 2); this.scene.add(ocean);
       const om = new THREE.Mesh(outer.build(), this.matTerrain); om.receiveShadow = true; this.scene.add(om);
-      this.target.set(70 * TILE, 0, 80 * TILE); this.want.x = 70 * TILE; this.want.z = 80 * TILE; this.want.dist = this.dist = 1400; return; // はじめは南の入り江（上陸する所）を見る
+      { const cx = (70 + isleOX()) * TILE, cz = (80 + isleOY()) * TILE; this.target.set(cx, 0, cz); this.want.x = cx; this.want.z = cz; } this.want.dist = this.dist = 1400; return; // はじめは南の入り江（上陸する所）を見る
     }
     flat(-far, -far, MAPW + far, 0, -0.02, G);
     if (isle) { flat(-far, 0, 0, 24.5 * TILE, -0.02, G); flat(-far, 24.5 * TILE, 0, RY * TILE, -3.2, 0x566b5a); flat(MAPW, 0, MAPW + far, RY * TILE, -3.2, 0x566b5a); }

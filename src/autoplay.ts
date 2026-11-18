@@ -4,7 +4,7 @@ import {
   W, H, P, DEFS, GOALS, voteText, POLICIES, AIR_ROUTES, VISION_PERKS, VISIONS, airportUpCheck, airRouteCheck, floodRisk, isCanal, isJunction, isRes, isCity, idx, getMap, buildable, roadInfo, checkPlace, dispatch, sumHH, monthlyBudget, staffReq, fam, DISTRICTS, rerunCheck, teamCheck, SPORTS, stationDist, buyoutCost, SV_NAMES, upgradeCost, bondCap, goalProgress, tempDebt, stationUpCheck, shinCheck, REAL, NIMBY,
 } from './sim/index';
 import type { GameState, Kind, Action, Zone } from './sim/index';
-import { isCastaway } from './sim/index';
+import { isCastaway, isleOX, isleOY } from './sim/index';
 import { annexable, blockRect, blockName, SISTERS, SIS, MAX_SISTERS, GRANTS, PLANS, voteForecast, campaignOpen, calMonth, POSTS, candidates, execOf, roadPath } from './sim/index';
 import { findCandidates, hasCandidates } from './ui/candidates';
 import { planRedevelop } from './devplan';
@@ -173,7 +173,7 @@ function islandTurn(s: GameState): string[] {
     return false;
   };
   const piers = s.buildings.filter(b => b.kind === 'pier');
-  if (!piers.length) { for (let y = H - 3; y > 2; y--) for (let x = 2; x < W - 3; x++) { const d = Math.hypot(x - 70, y - 86); if (d > 14) continue; if (checkPlace(s, 'pier', x, y).level === 'ok' || checkPlace(s, 'pier', x, y).reasons.every(r => r.startsWith('道路に接して'))) { if (dispatch(s, { type: 'build', kind: 'pier', x, y }).ok) { out.push('入り江に桟橋をつくる'); return out; } } } return out; }
+  if (!piers.length) { for (let y = H - 3; y > 2; y--) for (let x = 2; x < W - 3; x++) { const d = Math.hypot(x - 70 - isleOX(), y - 86 - isleOY()); if (d > 14) continue; if (checkPlace(s, 'pier', x, y).level === 'ok' || checkPlace(s, 'pier', x, y).reasons.every(r => r.startsWith('道路に接して'))) { if (dispatch(s, { type: 'build', kind: 'pier', x, y }).ok) { out.push('入り江に桟橋をつくる'); return out; } } } return out; }
   // 道：つながった道路のはしから、空いた平地へ 6 区画ずつのばす（はじめは桟橋の上から北へ）
   const extend = (): boolean => {
     const c = info().conn, starts: number[] = [];

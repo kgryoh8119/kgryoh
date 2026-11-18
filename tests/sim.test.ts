@@ -1,7 +1,7 @@
 // 指示書 12 章の因果テスト。sim 層だけを Node 上で動かす。
 import { describe, it, expect } from 'vitest';
 import {
-  newGame, FIC_W, FIC_H, FIC_PREV_W, FIC_PREV_H, DISTRICTS, buildable, saveMapId, SAVE_VERSION, stationStats, VISIONS, candidates, landPrices, roadPath, routeStats, CIT_N, pyramid, projection, TERRAINS, seedForTerrain, altitude, hasSea, seaDist, tsunamiDepth, modAdd, stepMonth, initLocks, isLocked, annexable, levelOf, N_CITIES, RANK_CATS, newMayor, LEVELS, furusatoCalc, roadCapacity, modMul, ledgerGap, checkPlace, dispatch, recompute, forecast, serialize, deserialize, eventDef, idx, W, H, P, DEFS, isRes, isShop, sumHH, getMap, GameState, Building, Kind, Action, electionOutlook, monthlyBudget, designCap, buildCost, validateState,
+  newGame, FIC_W, FIC_H, FIC_PREV_W, FIC_PREV_H, FIC_V87_W, FIC_V87_H, isleOX, isleOY, blockOf, BX, BY, DISTRICTS, buildable, saveMapId, SAVE_VERSION, stationStats, VISIONS, candidates, landPrices, roadPath, routeStats, CIT_N, pyramid, projection, TERRAINS, seedForTerrain, altitude, hasSea, seaDist, tsunamiDepth, modAdd, stepMonth, initLocks, isLocked, annexable, levelOf, N_CITIES, RANK_CATS, newMayor, LEVELS, furusatoCalc, roadCapacity, modMul, ledgerGap, checkPlace, dispatch, recompute, forecast, serialize, deserialize, eventDef, idx, W, H, P, DEFS, isRes, isShop, sumHH, getMap, GameState, Building, Kind, Action, electionOutlook, monthlyBudget, designCap, buildCost, validateState,
   renewCostOf,
 } from '../src/sim/index';
 import { Game } from '../src/game';
@@ -702,11 +702,11 @@ describe('v9：広くなった住野市', () => {
   });
 });
 
-describe('v87：さらに広くなった住野市（128×112）', () => {
+describe('v87：さらに広くなった住野市（v92 で 192×168）', () => {
   // v86 までの、はじめの町の人口・建物の数（地形ごと）。広げても変わらないこと
   const V86: Record<string, [number, number]> = { coast: [5661, 353], inland: [5079, 340], rural: [3101, 203], river: [5265, 347], lake: [5218, 348], mountain: [2651, 172], urban: [8047, 355], island: [4277, 286] };
   it('8 地形とも、はじめの町は v86 と同じ位置・規模で、広げた土地は空いている', () => {
-    expect(W).toBe(128); expect(H).toBe(112); expect(DISTRICTS.length).toBe(8);
+    expect(W).toBe(FIC_W); expect(H).toBe(FIC_H); expect(DISTRICTS.length).toBe(10);
     for (const t of TERRAINS) { if (t.id === 'castaway') continue; // v88：無人島は町も国道もないので別のテスト（v88_isle）で見る
       const s = newGame({ seed: seedForTerrain(t.id) }), m = getMap(s.seed);
       expect(validateState(s), t.id).toBeFalsy();
@@ -749,6 +749,70 @@ describe('v87：さらに広くなった住野市（128×112）', () => {
     const again = deserialize(serialize(n));
     expect(again.ok).toBe(true);
     expect(JSON.parse(serialize(n)).version).toBe(SAVE_VERSION);
+  });
+});
+
+describe('v92：さらに広くなった住野市（192×168）', () => {
+  it('8 地形とも、はじめの町は同じで、広げた土地（朝日・南野）に開発できる土地がある', () => {
+    expect([W, H]).toEqual([192, 168]); expect([BX, BY]).toEqual([6, 6]);
+    for (const t of TERRAINS) { if (t.id === 'castaway') continue;
+      const s = newGame({ seed: seedForTerrain(t.id) }), m = getMap(s.seed); initLocks(s);
+      let land = 0, d8 = 0, d9 = 0; for (let i = 0; i < W * H; i++) { const x = i % W, y = (i / W) | 0; if ((x >= FIC_V87_W || y >= FIC_V87_H) && buildable(m, i)) land++; if (m.district[i] === 8) d8++; if (m.district[i] === 9) d9++; }
+      expect(d8 > 0 && d9 > 0, t.id).toBe(true);
+      if (t.id !== 'mountain' && t.id !== 'inland') expect(land, t.id).toBeGreaterThan(5000);
+      // はじめの区域は v91 と同じ場所（1 区域 32×28 区画）
+      expect(s.unlocked!.every(b => b % BX < 4 && Math.floor(b / BX) < 4), t.id).toBe(true);
+    }
+  });
+  it('v91 の 128×112 の保存データ（版 2）を読むと、町はそのままで地図が広がり、市の区域も同じ場所のまま', () => {
+    const s = newGame({ seed: seedForTerrain('coast') });
+    for (let m = 0; m < 3; m++) stepMonth(s);
+    const OW = FIC_V87_W, OH = FIC_V87_H, old: any = structuredClone(s);
+    const crop = (a: number[], w = W, ow = OW, oh = OH) => { const o = new Array(ow * oh).fill(0); for (let y = 0; y < oh; y++) for (let x = 0; x < ow; x++) o[y * ow + x] = a[y * w + x]; return o; };
+    for (const k of ['road', 'roadAge', 'zone', 'occ', 'vc', 'rail', 'railGrade']) old[k] = crop(old[k]);
+    const busTile = old.road.findIndex((r: number, i: number) => r === 1 && i % OW > 20 && i % OW < 40);
+    old.busStops = [busTile];
+    // 4×4 の区域の番号（v91）：はじめの区域と、東の区域（D2 = 7）を編入済み
+    const old4 = [0, 1, 2, 4, 5, 6, 7];
+    old.unlocked = old4;
+    const text = JSON.stringify({ format: 'sumucity-save', version: 2, savedAt: old.month, mapId: 'sumino', state: old });
+    expect(saveMapId(text)).toBe('sumino');
+    const r = deserialize(text);
+    expect(r.ok ? '' : (r as any).error).toBe('');
+    if (!r.ok) return;
+    const n = r.state;
+    expect(n.road.length).toBe(W * H);
+    const nb = (busTile / OW | 0) * W + busTile % OW;
+    expect(n.busStops).toEqual([nb]);
+    for (const b of old.buildings) { const q = n.buildings.find(x => x.id === b.id)!; expect([q.x, q.y]).toEqual([b.x, b.y]); }
+    expect(n.unlocked).toEqual([0, 1, 2, 6, 7, 8, 9]);
+    // 旧 (100, 30) の区画は、新しい番号でも市の区域
+    expect(n.unlocked!.includes(blockOf(idx(100, 30)))).toBe(true);
+    expect(n.road[idx(W - 1, 15)]).toBe(3); expect(n.rail![idx(W - 1, 1)]).toBe(2);
+    stepMonth(n);
+    expect(validateState(n)).toBeFalsy();
+    expect(JSON.parse(serialize(n)).version).toBe(SAVE_VERSION);
+    expect(SAVE_VERSION).toBe(3);
+  });
+  it('無人島の 128×112 の保存データは、島を地図の中央へずらして広げる', () => {
+    const s = newGame({ seed: seedForTerrain('castaway') });
+    const OX = isleOX(), OY = isleOY(); expect([OX, OY]).toEqual([32, 28]);
+    // 島の上に道を 1 本と、井戸を置いた古いデータを作る（新しい座標で置いてから、128×112 の座標に戻す）
+    const m = getMap(s.seed); let at = -1;
+    for (let y = 80 + OY; y > 50 + OY && at < 0; y--) for (let x = 50 + OX; x < 80 + OX; x++) if (buildable(m, idx(x, y)) && buildable(m, idx(x + 1, y))) { at = idx(x, y); break; }
+    expect(at).toBeGreaterThan(0);
+    s.road[at] = 1;
+    const old: any = structuredClone(s), OW = FIC_V87_W, OH = FIC_V87_H;
+    const crop = (a: number[]) => { const o = new Array(OW * OH).fill(0); for (let y = 0; y < OH; y++) for (let x = 0; x < OW; x++) o[y * OW + x] = a[(y + OY) * W + x + OX]; return o; };
+    for (const k of ['road', 'roadAge', 'zone', 'occ', 'vc', 'rail', 'railGrade']) old[k] = crop(old[k]);
+    old.unlocked = Array.from({ length: 16 }, (_, b) => b);
+    const r = deserialize(JSON.stringify({ format: 'sumucity-save', version: 2, savedAt: 0, mapId: 'sumino', state: old }));
+    expect(r.ok ? '' : (r as any).error).toBe('');
+    if (!r.ok) return;
+    expect(r.state.road[at]).toBe(1);
+    expect(r.state.road.filter(v => v).length).toBe(1);
+    expect(r.state.unlocked!.length).toBe(36);
+    expect(validateState(r.state)).toBeFalsy();
   });
 });
 
