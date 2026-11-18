@@ -584,6 +584,8 @@ section.contestsec { border: 2px solid #e0b24a; border-radius: 10px; padding: 8p
 .contest b { color: #5a4300; font-size: 15px; }
 /* v35 見やすさ：説明の文は「？」で表示／札は遠くからだと名前だけ／上の帯の補足はスマホで隠す */
 body:not(.explain) #panel p.note, body:not(.explain) #panel .fold p.note { display: none; }
+/* v91：注意（⚠・実行できない理由）は説明の文の表示に関係なく出す。前は「？」を押さないと容積の試算の水道の注意も見えなかった */
+body:not(.explain) #panel p.note.bad, body:not(.explain) #panel p.note.f90-warn { display: block; }
 #tabs .xpl { min-width: 28px; font-weight: 800; color: var(--ink-3); background: none; border: 1px solid var(--line); border-radius: 50%; width: 26px; height: 26px; padding: 0; margin: auto 2px; cursor: pointer; }
 #tabs .xpl[aria-pressed="true"] { background: var(--plate-green); color: #fff; border-color: var(--plate-green); }
 #labels.compact .fl i:not(.bad) { display: none; }
@@ -619,7 +621,8 @@ body:not(.explain) #panel p.note, body:not(.explain) #panel .fold p.note { displ
 .issue .itag{font-style:normal;font-size:.72em;font-weight:700;padding:1px 6px;border-radius:9px;background:rgba(179,38,30,.12);color:var(--bad,#b3261e)}
 .issue dl{display:grid;grid-template-columns:2.6em 1fr;gap:3px 8px;margin:0;font-size:.86em;line-height:1.5}
 .ltopics{margin-top:10px;border-top:1px solid var(--line,#d8dde3);padding-top:8px}.ltopics h3{margin:0 0 6px;font-size:.92em}.ltopics h3 small{font-weight:400;color:var(--mute,#6b7480)}
-.ltopic{padding:6px 0;border-bottom:1px dashed var(--line,#d8dde3)}.ltopic h4{margin:0;font-size:.88em;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.ltopic .note{margin:2px 0 4px;font-size:.82em}
+.ltopic{padding:6px 0;border-bottom:1px dashed var(--line,#d8dde3)}.ltopic h4{margin:0;font-size:.88em;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.ltopic .lsum{margin:2px 0 4px;font-size:.82em;color:var(--ink-2,#4a5560)}
+.realsrc{margin:6px 0;font-size:.8em;line-height:1.5;color:var(--ink-2,#4a5560);background:var(--soft,#f3f5f7);border-radius:6px;padding:5px 7px}
 .ltopic .itag{font-style:normal;font-size:.72em;font-weight:700;padding:1px 6px;border-radius:9px;background:rgba(30,90,179,.12);color:var(--accent,#1e5ab3)}
 .issue dt{color:var(--mute,#6b7480);font-weight:700}.issue dd{margin:0}
 .f90-fit{display:block;font-style:normal;font-size:.78em;color:var(--mute,#6b7480)}.f90-more summary{cursor:pointer;font-size:.85em;color:var(--accent,#1e5ab3);margin:4px 0}

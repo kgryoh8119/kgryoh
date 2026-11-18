@@ -107,7 +107,7 @@ export function prefOf(): string {
   return /^(東京都|北海道|京都府|大阪府|\S+?県)/.exec(area)?.[1] ?? '';
 }
 /** v91：実在マップでは「都道府県警察」を「神奈川県警察」のように、その地図の都道府県の名前で書く */
-function localize(actor: string): string {
+export function localize(actor: string): string {
   const p = prefOf(); if (!p) return actor;
   return actor.replace(/都道府県警察/g, p === '東京都' ? '警視庁' : `${p}警察`).replace(/^都道府県$/, p);
 }
