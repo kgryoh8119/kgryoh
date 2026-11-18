@@ -155,7 +155,7 @@ export function electionOutlook(s: GameState, rerun = false): { vote: number; sd
   const td = tempDebt(s);
   const appr = s.approval ?? 0.5;
   const parts = [
-    { label: `暮らしの満足（投票率で重みづけ ${Math.round(support * 100)}%）`, v: 100 * (support - P.voteCenter) },
+    { label: `暮らしの満足（投票率で重みづけ ${Math.round(support * 100)}%）`, v: 100 * (support - P.voteCenter) * (support < P.voteCenter ? diffOf(s).satDown : 1) }, // v91：基準より低いときの下げ幅は難易度で変える（むずかしいは v90 と同じ）
     { label: `公約 ${goals.filter(g => goalProgress(s, g).ok).length}/${goals.length} 達成（難しい公約ほど重い）`, v: gv },
     { label: `支持率 ${Math.round(appr * 100)}%`, v: 18 * (appr - 0.5) },
     { label: op >= 0 ? '毎月の収支が黒字' : '毎月の収支が赤字', v: op >= 0 ? 1.5 : -Math.min(4, 1 + -op / 150) },

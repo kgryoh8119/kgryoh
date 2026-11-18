@@ -31,7 +31,7 @@ export * from './macro';
 export * from './authority';
 export { riskOutlook, floodProbK, slideProbK } from './risk';
 export type { RiskRow, RiskLevel } from './risk';
-export { monthlyIssues, allIssues, careCause, ISSUE_W } from './issues';
+export { monthlyIssues, allIssues, careCause, ISSUE_W, loopTopics, loopEntryIssue } from './issues';
 export type { Issue, IssueOption } from './issues';
 export * from './isle';
 export { registerIndicators, registerTrialOptions, registerIssueIndicators, onIndicatorValues, indicators, indicatorOf, indicatorValues, issueIndicators, BASE_INDICATORS, projectBands, recordDecision, fillForecast, updateDecisions, gapsOf, verdictOf, annualReport, actionLabel, trialOptions, compareTrial, findSite, policyTarget, RECORD_KIND, CHECK_AT, MAX_DECISIONS } from './report';

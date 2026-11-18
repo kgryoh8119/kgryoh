@@ -15,10 +15,10 @@ import {
   SISTERS, SIS, EXCHANGES, MAX_SISTERS, altitude, hasSea, seaDist, tsunamiDepth, designWave, liquefyRisk,
   CHALLENGES, CH, maxLv, stageName, upgradeBlock, expandCost, optionsFor, optSlots, optCost, STYLES, STYLE_COST, sponsorOf, moveCost,
   LEVELS, MEDALS, RANK_CATS, N_CITIES, mayorDiff, MAYOR_DIFF, levelOf, blockRect, blockName, annexable, BX, BY,
-  planStreet, planRailKind, rerunRules, RERUN, monthlyIssues, allIssues, type Issue, WIN_VOTE, voteText, fiscalWatch, RAILKIND_NAME, modAdd, THREATS, SECTORS, sectorOf, industryBalance, rateAdd, type Macro, REAL, MAP_ID, mapEntry, baseEntry, TILE, monthlyBudget, pledgeStatus, GOALS, VISIONS, CAT_NAMES, BUILD_KINDS, fam, lvOf, LV_CAP, SV_NAMES, goalProgress, visionProgress, electionOutlook, upgradeCost, buildCost, CIVIC, isBiz, NEIGHBOR_SEED, DIFFS, diffOf, rerunCheck, teamCheck, teamVenue, SPORTS, upkeepOf, staffReq, designCap, sumHH, roadCapacity, checkPlace, lineTiles, rectTiles, planRoad, planTunnel, planBridge, planOverpass, planFootbridge, planCanal, planBusStop, planLevee, planArea, planTerra, planWiden, planFlyover, TERRA_NAMES, planUnroad, planRepair, planZone, planRail, planRailGrade, planUnrail, fiscalCrisis, tempDebt, ledgerGap, stationUpCheck, shinCheck, eventDef, forecastAsync, modMul,
+  planStreet, planRailKind, rerunRules, RERUN, monthlyIssues, allIssues, loopTopics, loopEntryIssue, type Issue, WIN_VOTE, voteText, fiscalWatch, RAILKIND_NAME, modAdd, THREATS, SECTORS, sectorOf, industryBalance, rateAdd, type Macro, REAL, MAP_ID, mapEntry, baseEntry, TILE, monthlyBudget, pledgeStatus, GOALS, VISIONS, CAT_NAMES, BUILD_KINDS, fam, lvOf, LV_CAP, SV_NAMES, goalProgress, visionProgress, electionOutlook, upgradeCost, buildCost, CIVIC, isBiz, NEIGHBOR_SEED, DIFFS, diffOf, rerunCheck, teamCheck, teamVenue, SPORTS, upkeepOf, staffReq, designCap, sumHH, roadCapacity, checkPlace, lineTiles, rectTiles, planRoad, planTunnel, planBridge, planOverpass, planFootbridge, planCanal, planBusStop, planLevee, planArea, planTerra, planWiden, planFlyover, TERRA_NAMES, planUnroad, planRepair, planZone, planRail, planRailGrade, planUnrail, fiscalCrisis, tempDebt, ledgerGap, stationUpCheck, shinCheck, eventDef, forecastAsync, modMul,
   stationStats, FREQS, DOOR_COST, SUBWAY_COST, BIDS, bidChance, STYLES_M, REC_PLANS, hasOp, terrainOf, isCastaway, missionsFor, calMonth, POSTS, candidates, execOf, landOf, landPrices, routeStats, FREQ, MAX_ROUTES, citsOf, CIT_N, voteForecast, FACTIONS, PLANS, LOBBY_COST, SPEECH_COST, ADS_COST, monthsToElection, campaignOpen, PRESS, grantChance, PETITION_COST, GRANTS, GRANT_COOL, APPLY_COST, FESTS, pyramid, projection,
-  authorityLabel, currentOffice,
-  dataSource,
+  authorityLabel, currentOffice, prefOf, localize,
+  dataSource, DATA_REAL, DATA_EST,
   riskOutlook, renewCostOf,
 } from '../sim/index';
 import type { GameState, Building, Kind, Zone, Layer, ForecastSet, Action, TilePlan, Cat, TerraOp, MissionDef } from '../sim/index';
@@ -144,7 +144,7 @@ export class UI {
 
   constructor(game: Game, view: View) {
     this.game = game; this.view = view;
-    game.onMonth.push(() => { const rd = this.game.reportDue; if (rd && !this.game.auto) { this.game.reportDue = null; const rep = annualReport(this.game.state, rd.from, rd.to, rd.title); if (rep.rows.length) { this.reportOpen = rep; this.renderModal(); } } if (this.ix?.trial) { this.ix.trial = null; this.ix.confirm = false; } if (this.ix?.open === 'result') this.ix.open = null; this.ptrial = null; });
+    game.onMonth.push(() => { const rd = this.game.reportDue; if (rd && !this.game.auto) { this.game.reportDue = null; const rep = annualReport(this.game.state, rd.from, rd.to, rd.title); if (rep.rows.length) { this.reportOpen = rep; this.renderModal(); } } if (this.ix?.trial) { this.ix.trial = null; this.ix.confirm = false; } this.refreshIxOpts(); if (this.ix?.open === 'result') this.ix.open = null; this.ptrial = null; });
     game.onMonth.push(() => { if (this.game.auto) { const last = this.game.autoLog.filter(n => n.month === this.game.state.month); if (last.length) this.toast(`オート：${last[last.length - 1].text}${last.length > 1 ? `（ほか ${last.length - 1} 件）` : ''}`); } });
     game.onSave.push(() => { const f = this.game.saveFail; this.renderSaveMark(); if (f && f.where === '自動保存') this.toast('自動保存に失敗しました。上の「未保存」からファイルに保存できます', true); if (this.menu) this.renderModal(); });
     game.onChange.push(() => { this.flushNotes(); if (this.job && this.game.rev !== this.job.rev) { this.cancelForecast(); this.toast('街が変わったため、計算中の試算を中止しました。もう一度「試算する」を押してください'); } this.refresh(); });
@@ -1093,7 +1093,7 @@ export class UI {
   /** 街が発展するのに必要なものの充足（0〜1）。足りないものから順に */
   /** v90：課題の導線（① 原因を見る → ② 対策を試算 → ③ 実行 → ④ 結果）。③で押すまで街は変わらない */
   private issueAct(arg: string): void {
-    const [cmd, key, n] = arg.split('|'), g = this.game, s = g.state, iss = allIssues(s).find(i => i.key === key);
+    const [cmd, key, n] = arg.split('|'), g = this.game, s = g.state, iss = allIssues(s).find(i => i.key === key) ?? loopEntryIssue(s, key);
     const f = this.ix?.key === key ? this.ix : (this.ix = { key, open: null, opts: [], pick: -1, trial: null, busy: false, confirm: false });
     if (cmd === 'close') { this.ix = null; this.renderSide(); return; }
     if (cmd === 'cause') {
@@ -1116,20 +1116,44 @@ export class UI {
     } else if (cmd === 'result') f.open = f.open === 'result' ? null : 'result';
     this.renderSide();
   }
+  /** v91：月が進んだら、開いている「② 対策を試算」の候補を今月の状態で作り直す（前は開いたときの候補・注意のまま残り、16 か月の容積の試算で水道の注意が出なかった） */
+  private refreshIxOpts(): void {
+    const f = this.ix; if (!f || f.open !== 'trial') return;
+    const s = this.game.state, iss = allIssues(s).find(i => i.key === f.key) ?? loopEntryIssue(s, f.key);
+    if (!iss) { this.ix = null; return; }
+    const label = f.opts[f.pick]?.label; f.opts = trialOptions(s, iss); f.pick = label ? f.opts.findIndex(o => o.label === label) : -1;
+  }
   /** 今月の街の課題（最大 3 件）。何が起きた／どこ／主因／対策の候補／地図へ。押しても道具や資料が開くだけで、建設や政策の変更は自動ではしない */
   private pIssues(): string {
     const list = monthlyIssues(this.s), all = allIssues(this.s);
     const tag = (i: Issue) => { const p = i.parts, t: string[] = []; if (p.deadline >= 0.5) t.push('期限が近い'); if (p.trend >= 0.4) t.push('悪化している'); if (p.hard >= 0.6) t.push('放置すると戻しにくい'); return t.map(x => `<em class="itag">${x}</em>`).join(''); };
     const card = (i: Issue, k: number) => `<div class="issue"><h3><b class="inum">${k + 1}</b>${esc(i.title)}${tag(i)}</h3>
       <dl><dt>何が</dt><dd>${esc(i.what)}</dd><dt>どこ</dt><dd>${esc(i.where)}${i.tile >= 0 || i.layer !== 'none' ? ` <button class="btn small" data-act="${i.tile >= 0 ? 'focus' : 'layer'}" data-arg="${i.tile >= 0 ? `${i.tile}:${i.layer}` : i.layer}">地図へ</button>` : ''}</dd><dt>主因</dt><dd>${esc(i.cause)}</dd>
-      <dt>対策</dt><dd class="iopts">${i.options.map(o => `<span><button class="btn small" data-act="${o.act}" data-arg="${o.arg}">${esc(o.label)}</button>${o.note ? `<small>${esc(o.note)}</small>` : ''}</span>`).join('')}</dd></dl>${this.game.draft ? '' : issueSteps(this.s, i, this.ix, k === firstK)}</div>`;
+      <dt>対策</dt><dd class="iopts">${i.options.map(o => `<span><button class="btn small" data-act="${o.act === 'loop' ? 'ix' : o.act}" data-arg="${o.act === 'loop' ? `trial|${esc(i.key)}` : o.arg}">${esc(o.label)}</button>${o.note ? `<small>${esc(o.note)}</small>` : ''}</span>`).join('')}</dd></dl>${this.game.draft ? '' : issueSteps(this.s, i, this.ix, k === firstK)}</div>`;
     // v90：はじめての人には 1 件を「まずこれ」と示す（案内が終わってから。施策をまだ課題から実行していない最初の 2 年）
     const s0 = this.s, firstK = s0.mode === 'term' && s0.tutorial.done && s0.month < 24 && !(s0.decisions ?? []).some(d => d.issue) && list.length ? Math.max(0, list.findIndex(i => i.key === 'care' || i.key === 'aging' || i.key.startsWith('cap:'))) : -1;
     return `<section class="needtop issues"><h2>今月の街の課題 <small>${list.length ? `${list.length} 件（重要な順${all.length > list.length ? `・候補 ${all.length} 件から` : ''}）` : '大きな課題はありません'}</small></h2>
       ${this.game.speed === 0 && !this.game.blocked ? '<p class="note">時間が止まっています。右上の ▶ で進みます（止めたまま準備しても構いません）。 <button class="btn small" data-act="issue" data-arg="go">時間を進める</button></p>' : ''}${list.length ? list.map(card).join('') : '<p class="note">いまは急いで手を打つ課題がありません。公約やビジョンを進めるか、街を広げる時期です。［声］で住民の様子を確かめられます。</p>'}
+      ${this.loopTopicsHtml(list)}
       ${pastResults(this.s, new Set(list.map(i => i.key)))}
       <div class="btnrow"><button class="btn small" data-act="report" data-arg="year">📘 年次報告（今年度の施策と結果）</button></div>
       <p class="note">影響を受ける人の多さを基本に、悪化の傾向・期限の近さ・戻しにくさを足して並べています。対策のボタンは道具や資料を開くだけで、建設や政策の変更はあなたが決めます（②の試算も、③を押すまで街は変わりません）。</p></section>`;
+  }
+  /** v91：実在マップの「出典・取得日・実データと推計（ゲーム上の仮定）・役と権限の主体」を、概要の「街のいま」に文字で出す（前は見出しの小さなラベルと、押さないと出ない説明だけだった） */
+  private realNote(): string {
+    if (!REAL) return '';
+    const ds = dataSource(), e = mapEntry(MAP_ID) ?? baseEntry(MAP_ID), pf = prefOf(), office = currentOffice();
+    return `<p class="realsrc">📍 ${esc(e ? `${e.area}をもとにした街` : '実在の地図をもとにした街')}。<b>実データ</b>：${esc(DATA_REAL)}（出典：${esc(ds.credits || 'OpenStreetMap')}${ds.date ? `、取得日 ${esc(ds.date)}` : ''}）。<b>推計</b>：${esc(DATA_EST)}は<b>ゲーム上の仮定</b>で、実在の自治体の統計ではありません。<br>あなたの役：${esc(e?.role ?? office.role)}${REAL.deformed ? '（まちづくり版。市長として遊びます）' : ''}。警察は${esc(pf ? (pf === '東京都' ? '警視庁' : pf + '警察') : '都道府県警察')}、鉄道は鉄道事業者が決め、市は要望・協議します（施設を選ぶと「市の権限」に出ます）。</p>`;
+  }
+  /** v91：街の 3 つの論点（駅前・老朽インフラ・産業と暮らし）。上位 3 件に入口の課題がなくても、いつでも対策を比べられる */
+  private loopTopicsHtml(list: Issue[]): string {
+    const s = this.s; if (s.mode !== 'term' && s.mode !== 'sandbox') return '';
+    let T: ReturnType<typeof loopTopics>; try { T = loopTopics(s); } catch { return ''; }
+    const shown = new Set(list.map(i => i.loop).filter(Boolean)), open = this.ix?.key.startsWith('loop:') ? this.ix.key : '';
+    const row = (t: ReturnType<typeof loopTopics>[number]) => { const iss = open === t.key ? loopEntryIssue(s, t.key) : undefined;
+      return `<div class="ltopic"><h4>${esc(t.title)}${shown.has(t.id) ? '<em class="itag">上の課題にも</em>' : ''}</h4><p class="lsum">${esc(t.summary)}</p>
+        ${iss && !this.game.draft ? issueSteps(s, iss, this.ix, false) : `<button class="btn small" data-act="ix" data-arg="trial|${t.key}">対策を比べる</button>`}</div>`; };
+    return `<section class="ltopics"><h3>街の 3 つの論点 <small>課題の上位に出ていなくても、ここから対策を比べられます</small></h3>${T.map(row).join('')}</section>`;
   }
   private needs(): { name: string; r: number; text: string; btn?: [string, string, string] }[] {
     const s = this.s, st = s.stats, out: { name: string; r: number; text: string; btn?: [string, string, string] }[] = [];
@@ -1205,6 +1229,7 @@ export class UI {
       <div><small>暮らしの満足</small><b style="color:var(--${st.sat >= 0.7 ? 'good' : st.sat >= 0.6 ? 'warn' : 'bad'})">${Math.round(st.sat * 100)}<i>%</i></b></div>
       ${o ? `<div><small>再選の見込み</small><b style="color:var(--${o.win >= 0.6 ? 'good' : o.win >= 0.4 ? 'warn' : 'bad'})">${Math.round(o.win * 100)}<i>%</i></b><em>支持率 ${pct(s.approval)}</em></div>` : ''}
       <div><small>毎月の収支</small><b style="color:var(--${monthlyBudget(s).operating >= 0 ? 'good' : 'bad'})">${yen(monthlyBudget(s).operating, true)}</b></div></div>
+      ${this.realNote()}
       <div class="btnrow"><button class="btn small" data-act="stats">📈 推移をグラフで見る</button><button class="btn small" data-act="people">👥 住民に会う</button></div>
       <p class="note">下の項目は、見出しを押すと開きます。</p></section>`;
     const body = `
@@ -1635,7 +1660,7 @@ export class UI {
     }
     const b = s.buildings.find(o => o.id === sel.b)!, d = DEFS[b.kind];
     const al = authorityLabel(b.kind), auth = `${al.name}（${al.actor}）— ${al.how}${al.why ? '。' + al.why : ''}`; // v90：5 つの行動種別
-    let h = `<h3>${b.name ? `${bname(b)} <small class="note">${d.name}</small>` : d.name}${b.sandbox ? ' <span class="tag">直接配置</span>' : ''}${close}</h3><p class="own">所有・運営：${d.owner}<br>市の権限：${auth}</p>${b.osm ? '<p class="note">地図の建物から推計した街区です（30m 四方の区画ごと）。戸数・世帯構成はゲームの推計で、実際の値ではありません。</p>' : b.name ? '<p class="note">名前と位置は OpenStreetMap（実データ）。定員・職員・老朽度・費用などはゲーム上の仮定で、実際の施設の値ではありません。</p>' : ''}`;
+    let h = `<h3>${b.name ? `${bname(b)} <small class="note">${d.name}</small>` : d.name}${b.sandbox ? ' <span class="tag">直接配置</span>' : ''}${close}</h3><p class="own">所有・運営：${localize(d.owner)}<br>市の権限：${auth}</p>${b.osm ? '<p class="note">地図の建物から推計した街区です（30m 四方の区画ごと）。戸数・世帯構成はゲームの推計で、実際の値ではありません。</p>' : REAL && !b.name ? `<p class="note">ゲームで置いた${isRes(b.kind) ? '住宅' : '施設'}です（実在の${isRes(b.kind) ? '建物' : '施設'}ではありません）。${isRes(b.kind) ? '戸数・世帯' : '定員・職員・老朽度・費用'}などは推計（ゲーム上の仮定）です。地形・道路・鉄道は実データ（出典：${esc(dataSource().credits || 'OpenStreetMap')}${dataSource().date ? `、取得日 ${esc(dataSource().date)}` : ''}）。</p>` : b.name ? '<p class="note">名前と位置は OpenStreetMap（実データ）。定員・職員・老朽度・費用などはゲーム上の仮定で、実際の施設の値ではありません。</p>' : ''}`;
     { const ai = idx(b.x, b.y), td = hasSea(s) ? tsunamiDepth(s, designWave(s))[ai] : 0; h += `<p class="note elev">⛰ 海抜 ${altitude(s, ai).toFixed(1)}m${hasSea(s) ? `・海から ${n0(Math.max(0, seaDist(s, ai)) * 30)}m・想定の津波（${designWave(s)}m）で${td > 0.05 ? `<b style="color:var(--bad)">浸水 ${td.toFixed(1)}m</b>` : '浸水しない'}` : ''}${liquefyRisk(s, ai) ? '・<b style="color:var(--warn)">液状化のおそれ</b>' : ''}</p>`; }
     if (b.status === 'construction') h += `<p><span class="tag">工事中</span> 残り ${b.remain} か月（工期 ${b.total} か月）</p>`;
     else if (b.status === 'renewing') h += `<p><span class="tag warn">更新工事中</span> 残り ${b.remain} か月。工事中の能力は ${pct(d.renewFactor)}</p>`;

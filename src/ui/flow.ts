@@ -5,7 +5,7 @@ import { DEFS, POLICIES, policyCost, DISTRICTS, W, H, type PolicyDef, type Kind 
 import type { GameState, Voice, Issue } from '../sim/index';
 import { getMap } from '../sim/map';
 import { housingBlocked } from '../sim/wire';
-import { gapsOf, indicatorOf, issueIndicators, policyTarget, type Decision, type DecisionResult, type AnnualReport, type TrialOption, type TrialResult, type Expect } from '../sim/report';
+import { gapsOf, indicatorOf, issueIndicators, policyTarget, TRIAL_SHOW, type Decision, type DecisionResult, type AnnualReport, type TrialOption, type TrialResult, type Expect } from '../sim/report';
 
 const esc = (t: string) => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const num = (v: number, d = 0) => (Math.round(v * 10 ** d) / 10 ** d).toLocaleString('ja-JP', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -48,7 +48,10 @@ function bandText(e: Expect | undefined, id: string, d: number): string {
 }
 function trialHtml(s: GameState, i: Issue, f: IssueFlow): string {
   const k = esc(i.key);
-  const list = f.opts.length ? f.opts.map((o, n) => `<label class="f90-opt${o.actions ? '' : ' off'}"><input type="radio" name="ixo-${k}" data-act="ix" data-arg="pick|${k}|${n}" ${f.pick === n ? 'checked' : ''} ${o.actions ? '' : 'disabled'}><span><b>${esc(o.label)}</b><small>${esc(o.note)}${o.cost ? `（${o.cost < 0 ? '収入' : '費用'} ${num(Math.abs(o.cost))} 万円${/政策/.test(o.label) ? '/月' : ''}）` : ''}${o.warn ? `<em class="f90-warn">⚠ ${esc(o.warn)}</em>` : ''}</small></span></label>`).join('') : '<p class="note">この課題には、自動で試算できる対策がありません。上の対策のボタンで道具を開き、「計画案」で試してください。</p>';
+  const one = (o: IssueFlow['opts'][number], n: number) => `<label class="f90-opt${o.actions ? '' : ' off'}"><input type="radio" name="ixo-${k}" data-act="ix" data-arg="pick|${k}|${n}" ${f.pick === n ? 'checked' : ''} ${o.actions ? '' : 'disabled'}><span><b>${esc(o.label)}</b>${o.fitNote ? `<em class="f90-fit">${esc(o.fitNote)}</em>` : ''}<small>${esc(o.note)}${o.cost ? `（${o.cost < 0 ? '収入' : '費用'} ${num(Math.abs(o.cost))} 万円${/政策/.test(o.label) ? '/月' : ''}）` : ''}${o.warn ? `<em class="f90-warn">⚠ ${esc(o.warn)}</em>` : ''}</small></span></label>`;
+  // v91：課題の主な指標に効く順の上位 5 件。残りは畳む（選んでいる候補が下にあれば開いておく）
+  const more = f.opts.slice(TRIAL_SHOW);
+  const list = f.opts.length ? f.opts.slice(0, TRIAL_SHOW).map(one).join('') + (more.length ? `<details class="f90-more"${f.pick >= TRIAL_SHOW ? ' open' : ''}><summary>ほかの候補を見る（${more.length} 件）</summary>${more.map((o, n) => one(o, n + TRIAL_SHOW)).join('')}</details>` : '') : '<p class="note">この課題には、自動で試算できる対策がありません。上の対策のボタンで道具を開き、「計画案」で試してください。</p>';
   let t = '';
   if (f.busy) t = '<p class="note">試算しています（12 か月分の計算）…</p>';
   else if (f.trial && !f.trial.ok) t = `<p class="note bad">この対策はいま実行できません：${esc(f.trial.msg)}</p>`;
@@ -65,13 +68,20 @@ function trialHtml(s: GameState, i: Issue, f: IssueFlow): string {
       : f.opts[f.pick]?.range ? `<button class="btn small" data-act="ix" data-arg="range|${k}">転入が多い・少ない場合の幅も見る（数秒）</button>` : '';
     const o = f.opts[f.pick];
     t = `<p class="f90-sub">${CALC} 12 か月後の予測（太字は基準、小さい数字は予測の幅）。できごとや景気の変化は入っていません</p>
-      ${o?.warn ? `<p class="note bad f90-warn">⚠ ${esc(o.warn)}</p>` : ''}
+      ${o?.warn ? `<p class="note bad f90-warn">⚠ ${esc(o.warn)}</p>` : stallWarn(T, o?.actions ?? null)}
       <div class="f90-scroll"><table class="t f90-cmp"><tr><th>指標</th><th>いま</th><th>しない場合</th><th>する場合</th><th>差</th></tr>${rows}</table></div>
       ${quiet.length ? `<p class="f90-sub">差が予測の誤差より小さい指標（表から省略）：${quiet.map(esc).join('・')}</p>` : ''}${rgHtml}
       <div class="btnrow"><button class="btn small ${f.confirm ? 'danger' : 'primary'}" data-act="ix" data-arg="run|${k}">${f.confirm ? `本当に実行する（もう一度押す）` : `③「${esc(o?.label ?? '')}」を実行する`}</button><button class="btn small" data-act="ix" data-arg="close|${k}">やめる</button></div>
       ${f.confirm ? `<p class="note">実行すると、費用がかかり、取り消しは同じ月のうちだけです。3・6・12 か月後に、このカードの「④ 数か月後の結果」に予測との差が出ます。</p>` : ''}`;
   }
   return `<div class="f90-box"><h4>対策を選んで試算</h4><div class="f90-opts">${list}</div>${t}</div>`;
+}
+
+/** v91：住宅を増やす対策（用途の指定）で、試算の期間に水道・下水・電力の余力が切れて着工できない月が多いとき。いまは余力があっても 1〜2 か月で切れる場合に気づけるように */
+function stallWarn(T: TrialResult, actions: TrialOption['actions']): string {
+  const st = T.stall; if (!st || st.months < 3 || !(actions ?? []).some(a => a.type === 'zone')) return '';
+  const what = st.by === 'sewage' ? '下水' : st.by === 'power' ? '電力' : '水道';
+  return `<p class="note bad f90-warn">⚠ 試算の 12 か月のうち ${st.months} か月は${what}に余力がなく、民間の住宅が着工しません（容積を上げても建たない）。先に${what === '電力' ? '発電所・変電所' : what === '下水' ? '下水処理場' : '浄水場'}を更新・増設してください</p>`;
 }
 
 /** 施策 1 件の、予測と実績の表 */

@@ -96,8 +96,18 @@ export function officeDeny(what: string): string | null {
 export function authorityLabel(kind: Kind): { act: ActKind; name: string; actor: string; how: string; why?: string } {
   const d = DEFS[kind], f = fam(kind) as string;
   const loc = LOCAL_ACTOR[MAP_ID]?.[f] ?? currentOffice().power.famActor?.[f];
-  if (loc) return { act: loc.act, name: ACT_NAME[loc.act], actor: loc.actor, how: ACT_HOW[loc.act], why: loc.why };
+  if (loc) return { act: loc.act, name: ACT_NAME[loc.act], actor: localize(loc.actor), how: ACT_HOW[loc.act], why: loc.why };
   const act = actKind(kind);
   const actor = ACT_OVERRIDE[kind]?.actor ?? (act === 'direct' ? (d?.owner ?? '市') : d?.owner ?? '民間');
-  return { act, name: ACT_NAME[act], actor, how: ACT_HOW[act] };
+  return { act, name: ACT_NAME[act], actor: localize(actor), how: ACT_HOW[act] };
+}
+/** v91：実在マップの都道府県（例：神奈川県）。架空の街は空 */
+export function prefOf(): string {
+  const area = (mapEntry(MAP_ID) ?? mapEntry(MAP_ID.replace(/-d$/, '')))?.area ?? '';
+  return /^(東京都|北海道|京都府|大阪府|\S+?県)/.exec(area)?.[1] ?? '';
+}
+/** v91：実在マップでは「都道府県警察」を「神奈川県警察」のように、その地図の都道府県の名前で書く */
+export function localize(actor: string): string {
+  const p = prefOf(); if (!p) return actor;
+  return actor.replace(/都道府県警察/g, p === '東京都' ? '警視庁' : `${p}警察`).replace(/^都道府県$/, p);
 }

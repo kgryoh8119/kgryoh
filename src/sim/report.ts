@@ -90,14 +90,23 @@ export type Expect = Record<number, Record<string, Band>>;
 /** 試算の k か月目の乱数の種。比べる 2 本（しない／する）で同じ値になるので、施策で乱数を引く回数が変わっても翌月には揃い直す */
 export function commonRng(anchor: number, k: number): number { let h = (anchor ^ Math.imul(k + 1, 0x9e3779b1)) | 0; h = Math.imul(h ^ (h >>> 16), 0x85ebca6b); h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35); return (h ^ (h >>> 16)) | 0; }
 /** 状態 s のまま（または actions を加えて）months か月進めた試算。基準 1 本を回し、幅は変化量の係数と指標ごとの最小幅で出す */
-export function projectBands(s: GameState, actions: Action[] = [], months = 12, at: number[] = CHECK_AT): { ok: boolean; msg: string; expect: Expect; start: Record<string, number> } {
+/** v91：民間の住宅が着工できない月か（step.ts の privateHousing と同じ条件：水道は 1.02 倍、下水・電力は需要以上の余力が要る） */
+export function housingStalled(st: GameState['stats']): '' | 'water' | 'sewage' | 'power' {
+  if (st.waterCap < st.waterDemand * 1.02 || (st.waterDemand > 0 && st.waterCap < st.waterDemand)) return 'water';
+  if (st.sewageCap < st.sewageDemand) return 'sewage';
+  if (st.powerCap < st.powerDemand) return 'power';
+  return '';
+}
+export function projectBands(s: GameState, actions: Action[] = [], months = 12, at: number[] = CHECK_AT): { ok: boolean; msg: string; expect: Expect; start: Record<string, number>; stall?: { months: number; by: string } } {
   const c: GameState = structuredClone(s);
   delete (c as any).decisions;
   let msg = '';
   for (const a of actions) { const r = dispatch(c, a); if (!r.ok) return { ok: false, msg: r.msg, expect: {}, start: {} }; msg = r.msg; }
-  const start = indicatorValues(c), expect: Expect = {}, anchor = s.rng;
+  const start = indicatorValues(c), expect: Expect = {}, anchor = s.rng, by: Record<string, number> = {};
+  let stall = 0;
   for (let k = 1; k <= months; k++) {
     c.rng = commonRng(anchor, k); // しない場合とする場合で、毎月同じ乱数の列から始める（差が施策の効果だけになるように）
+    { const h = housingStalled(c.stats); if (h) { stall++; by[h] = (by[h] ?? 0) + 1; } } // v91：この月の着工の判定に使う余力（月の計算の前の状態）
     stepMonth(c, { forecast: true });
     if (at.includes(k)) {
       const v = indicatorValues(c), o: Record<string, Band> = {};
@@ -105,7 +114,7 @@ export function projectBands(s: GameState, actions: Action[] = [], months = 12, 
       expect[k] = o;
     }
   }
-  return { ok: true, msg, expect, start };
+  return { ok: true, msg, expect, start, stall: { months: stall, by: Object.entries(by).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '' } };
 }
 const round = (v: number, d: IndicatorDef) => { const p = 10 ** (d.digits ?? 0); return Math.round(v * p) / p; };
 
@@ -167,6 +176,7 @@ export function recordDecision(s: GameState, label: string, kind: string, before
     return last;
   }
   const d: Decision = { id: (last?.id ?? 0) + 1, month: s.month, label, kind, issue: opts.issue, before, expect: null, focus: opts.issue ? issueIndicators(opts.issue) : [], checkAt: [...CHECK_AT], results: [], econ: s.econ?.cycle ?? 0 };
+  if (!d.focus.length && opts.action) REL.set(d, actionIndicators(s, opts.action)); // v91：主に見る指標の候補を、その施策が効く指標に絞る
   L.push(d);
   if (L.length > MAX_DECISIONS) L.splice(0, L.length - MAX_DECISIONS);
   if (opts.forecast !== false) fillForecast(s, d);
@@ -177,10 +187,51 @@ export function fillForecast(s: GameState, d: Decision): void {
   const p = projectBands(s);
   d.expect = p.expect;
   if (!d.focus.length) {
-    const e12 = p.expect[12] ?? {};
-    d.focus = REG.map(x => ({ id: x.id, r: Math.abs((e12[x.id]?.[1] ?? 0) - (d.before[x.id] ?? 0)) / x.tol })).sort((a, b) => b.r - a.r).slice(0, 3).map(x => x.id);
+    // v91：施策が効く指標（政策の定義・ループの対策の向き・建設の種類）の中から、予測で大きく動くものを選ぶ。関係が分からない施策は汎用の 3 つ（人口・満足・月の収支）
+    const e12 = p.expect[12] ?? {}, rel = REL.get(d);
+    const pool = rel?.length ? REG.filter(x => rel.includes(x.id)) : REG.filter(x => GENERIC_FOCUS.includes(x.id));
+    d.focus = pool.map(x => ({ id: x.id, r: Math.abs((e12[x.id]?.[1] ?? 0) - (d.before[x.id] ?? 0)) / x.tol })).sort((a, b) => b.r - a.r).slice(0, 3).map(x => x.id);
+    REL.delete(d);
   }
 }
+/** v91：記録した施策が効く指標（予測を入れるまでのあいだだけ持つ。保存には入れない） */
+const REL = new WeakMap<Decision, string[]>();
+/** v91：関係の分からない施策で見る汎用の指標 */
+export const GENERIC_FOCUS = ['pop', 'sat', 'operating'];
+/** v91：操作が効く指標（主に見る指標の候補）。政策の効果の鍵・建設する施設の種類から。足りない分は外から足せる（ループの対策の向き） */
+export function actionIndicators(s: GameState, a: Action): string[] {
+  const out = new Set<string>();
+  const byKey = (k: string) => {
+    if (/保育士|care|nursery/.test(k)) out.add('wait');
+    if (/^sat:/.test(k)) { out.add('sat'); out.add('satType'); }
+    if (/inflow|outflow|foreign|lang/.test(k)) { out.add('netMig'); out.add('pop'); }
+    if (/house|housing|rent/.test(k)) out.add('burden');
+    if (/road|peakTrips|access/.test(k)) out.add('maxVc');
+    if (/safety|nightSafe|ijime|support|bukka|approval/.test(k)) out.add('sat');
+    if (/furusato|fee|Fee/.test(k)) out.add('operating');
+    if (/ageRate|elder/.test(k)) out.add('satType');
+  };
+  if (a.type === 'policy') {
+    const p = POLICIES.find(x => x.id === a.id);
+    for (const e of p?.effects ?? []) byKey(e.key);
+    out.add('operating');
+  } else if (a.type === 'build' || a.type === 'upgrade' || a.type === 'renew' || a.type === 'expand') {
+    const kind = a.type === 'build' ? a.kind : s.buildings.find(b => b.id === (a as { id: number }).id)?.kind;
+    const f = kind ? DEFS[kind]?.fam ?? kind : '';
+    if (/nursery|care/.test(f)) { out.add('wait'); out.add('satType'); }
+    else if (/school|jhs/.test(f)) { out.add('schoolOver'); out.add('satType'); }
+    else if (f) { out.add('sat'); out.add('satDist'); }
+    out.add('operating');
+  } else if (a.type === 'zone' || a.type === 'area') { out.add('pop'); out.add('netMig'); out.add('burden'); }
+  else if (a.type === 'road' || a.type === 'widen') { out.add('maxVc'); out.add('sat'); }
+  else if (a.type === 'tax') { out.add('operating'); out.add('sat'); out.add('netMig'); }
+  else if (a.type === 'borrow' || a.type === 'repayTemp') { out.add('debt'); out.add('operating'); }
+  for (const f of ACTION_IND) { try { for (const id of f(s, a)) out.add(id); } catch { /* 足した側の誤りで記録を止めない */ } }
+  return [...out].filter(id => REG.some(x => x.id === id));
+}
+const ACTION_IND: ((s: GameState, a: Action) => string[])[] = [];
+/** 操作が効く指標を外から足す（ループの対策の向き：loops.ts の OPTION_EFFECT） */
+export function registerActionIndicators(f: (s: GameState, a: Action) => string[]): void { ACTION_IND.push(f); }
 
 /** 毎月の終わりに呼ぶ：3・6・12 か月たった記録に実績を入れる。新しく出た結果を返す */
 export function updateDecisions(s: GameState): { d: Decision; r: DecisionResult }[] {
@@ -264,7 +315,17 @@ export interface TrialOption { label: string; actions: Action[] | null; note: st
   /** 実行しても効かない条件があるときの注意（例：水道に余力がなく住宅が建たない）。試算の結果の上に目立たせて出す */
   warn?: string;
   /** 転入の楽観〜慎重で、何もしない場合との差の幅を出す（重い。押したときだけ呼ぶ） */
-  range?: () => { id: string; lo: number; hi: number }[] }
+  range?: () => { id: string; lo: number; hi: number }[];
+  /** v91：課題の主な指標に効く向きと強さ（+1 よく効く・0 ほぼ効かない・負は悪化）。未設定は課題に合わせて用意した対策（建設・更新など） */
+  fit?: number;
+  /** v91：課題そのものは良くならないが、財源・先送りとして比べる選択肢 */
+  trade?: boolean;
+  /** v91：この課題への効き方の短い説明（効果は小さい・財源の選択肢） */
+  fitNote?: string }
+/** v91：課題の対策の候補を見せる数（残りは「ほかの候補を見る」に畳む） */
+export const TRIAL_SHOW = 5;
+/** 課題に効く弱い政策（課題の主な指標にほとんど効かないもの） */
+const ISSUE_POLICY_FIT: Record<string, number> = { roadCare: 0.1 };
 /** 課題ごとの、効く政策 */
 const ISSUE_POLICY: Record<string, string[]> = {
   care: ['careStaff', 'familyMove'], traffic: ['roadCare'], housing: ['homeReform'], fiscal: ['furusatoPR'], 'sat:5': ['shopStart'], 'sat:0': ['homeReform'], 'sat:13': ['homeReform'],
@@ -303,20 +364,35 @@ export function trialOptions(s: GameState, issue: Issue): TrialOption[] {
   }
   for (const id of ISSUE_POLICY[issue.key] ?? []) {
     const p = POLICIES.find(x => x.id === id); if (!p || s.policies[id]?.on) continue;
-    out.push({ label: `政策「${p.name}」を始める`, actions: [{ type: 'policy', id, on: true }], note: `月 ${policyCost(s, p)} 万円。効果は ${p.ramp} か月かけて出そろいます`, cost: policyCost(s, p) });
+    out.push({ label: `政策「${p.name}」を始める`, actions: [{ type: 'policy', id, on: true }], note: `月 ${policyCost(s, p)} 万円。効果は ${p.ramp} か月かけて出そろいます`, cost: policyCost(s, p), ...(ISSUE_POLICY_FIT[id] !== undefined ? { fit: ISSUE_POLICY_FIT[id] } : {}) });
   }
   for (const f of TRIAL_SRC) { try { out.push(...f(s, issue)); } catch { /* 足した側の誤りで課題の画面を止めない */ } }
-  return out;
+  return rankTrial(out);
+}
+/** v91：課題の主な指標に効く順に並べ、悪化させる候補は外す。財源・先送りの選択肢と、効果の小さいものは下に。同じ名前の候補は 1 つに */
+export function rankTrial(out: TrialOption[]): TrialOption[] {
+  const seen = new Set<string>(), keep: TrialOption[] = [];
+  for (const o of out) {
+    if (seen.has(o.label)) continue; seen.add(o.label);
+    if (o.fit !== undefined && o.fit < -0.15 && !o.trade) continue; // その課題の主な指標を悪化させる（混雑の課題での「容積を上げる」など）
+    if (o.trade) o.fitNote = 'この課題は良くならない（財源・先送りとして比べる選択肢）';
+    else if (o.fit !== undefined && o.fit <= 0.15) o.fitNote = 'この課題への効果は小さい';
+    keep.push(o);
+  }
+  const rank = (o: TrialOption) => (o.trade ? -1 : o.fit === undefined ? 1.1 : o.fit <= 0.15 ? -2 : o.fit) - (o.actions ? 0 : 0.05);
+  return keep.map((o, k) => ({ o, k })).sort((a, b) => rank(b.o) - rank(a.o) || a.k - b.k).map(x => x.o);
 }
 const TRIAL_SRC: ((s: GameState, issue: Issue) => TrialOption[])[] = [];
 /** 課題の対策の候補を外から足す（ループ担当の loopOptions をつなぐ入口） */
 export function registerTrialOptions(f: (s: GameState, issue: Issue) => TrialOption[]): void { TRIAL_SRC.push(f); }
-export interface TrialResult { ok: boolean; msg: string; ids: string[]; now: Record<string, number>; without: Expect; with: Expect }
+export interface TrialResult { ok: boolean; msg: string; ids: string[]; now: Record<string, number>; without: Expect; with: Expect;
+  /** v91：する場合の 12 か月のうち、水道・下水・電力の余力がなく民間の住宅が着工できない月数と、主な理由 */
+  stall?: { months: number; by: string } }
 /** 対策を実行した場合としない場合の 12 か月後（同じ指標で並べる） */
 export function compareTrial(s: GameState, actions: Action[], issueKey: string): TrialResult {
   const now = indicatorValues(s), a = projectBands(s, [], 12, [12]), b = projectBands(s, actions, 12, [12]);
   const ids = issueKey === '*' ? REG.map(d => d.id) : [...new Set([...issueIndicators(issueKey), 'operating', 'sat', 'pop'])];
-  return { ok: b.ok, msg: b.ok ? '' : b.msg, ids, now, without: a.expect, with: b.expect };
+  return { ok: b.ok, msg: b.ok ? '' : b.msg, ids, now, without: a.expect, with: b.expect, stall: b.stall };
 }
 
 // ---------------------------------------------------------------- 政策カードの数値
