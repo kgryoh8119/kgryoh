@@ -4,6 +4,7 @@
 import { DEFS, POLICIES, policyCost, DISTRICTS, W, H, type PolicyDef, type Kind } from '../sim/index';
 import type { GameState, Voice, Issue } from '../sim/index';
 import { getMap } from '../sim/map';
+import { housingBlocked } from '../sim/wire';
 import { gapsOf, indicatorOf, issueIndicators, policyTarget, type Decision, type DecisionResult, type AnnualReport, type TrialOption, type TrialResult, type Expect } from '../sim/report';
 
 const esc = (t: string) => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -14,7 +15,7 @@ const CALC = '<span class="f90-lab calc" title="ゲームの計算で出した�
 const VOICE = '<span class="f90-lab voice" title="住民の声（雰囲気をつかむための文章で、数値ではありません）">住民の声</span>';
 
 // ---------------------------------------------------------------- 課題の導線
-export interface IssueFlow { key: string; open: 'cause' | 'trial' | 'result' | null; opts: TrialOption[]; pick: number; trial: TrialResult | null; busy: boolean; confirm: boolean }
+export interface IssueFlow { key: string; open: 'cause' | 'trial' | 'result' | null; opts: TrialOption[]; pick: number; trial: TrialResult | null; busy: boolean; confirm: boolean; range?: { id: string; lo: number; hi: number }[] | 'busy' | null }
 
 /** 課題のカードの下に付ける 4 つの段階（原因 → 試算 → 実行 → 結果） */
 export function issueSteps(s: GameState, i: Issue, f: IssueFlow | null, first: boolean): string {
@@ -33,7 +34,8 @@ function causeHtml(s: GameState, i: Issue): string {
   const P = [['影響を受ける人', i.parts.people, 40], ['悪化の傾向', i.parts.trend, 20], ['期限の近さ', i.parts.deadline, 20], ['戻しにくさ', i.parts.hard, 20]] as const;
   const ids = issueIndicators(i.key), cur = ids.map(id => indicatorOf(id)).filter(Boolean).map(d => `<tr><td>${esc(d!.name)}</td><td>${num(d!.get(s), d!.digits ?? 0)} ${esc(d!.unit)}</td></tr>`).join('');
   const v = s.voices.filter(x => x.key.split(':')[0] === i.key.split(':')[0] || (i.key === 'care' && x.key.startsWith('care'))).slice(0, 2);
-  return `<div class="f90-box"><h4>原因の内訳</h4><p>${esc(i.cause)}</p>
+  const hb = /^(sat:0|housing)$/.test(i.key) ? housingBlocked(s) : ''; // 駅前の住宅が建たない理由（水道の余力）を、住宅の課題の原因の欄でも知らせる
+  return `<div class="f90-box"><h4>原因の内訳</h4><p>${esc(i.cause)}</p>${hb ? `<p class="note bad f90-warn">⚠ ${esc(hb)}</p>` : ''}
     <p class="f90-sub">${CALC} 重要度 ${num(i.score, 1)} 点の内訳</p><div class="f90-parts">${P.map(([n, v, w]) => `<span>${n}<i style="width:${Math.round(v * 100)}%"></i><b>${num(v * w, 1)} / ${w}</b></span>`).join('')}</div>
     <table class="t"><tr><th>いまの値</th><th></th></tr>${cur}</table>
     <p class="f90-sub">地図：${esc(i.where)}${i.layer !== 'none' ? '（色分けの表示を重ねました）' : ''}</p>
@@ -46,17 +48,26 @@ function bandText(e: Expect | undefined, id: string, d: number): string {
 }
 function trialHtml(s: GameState, i: Issue, f: IssueFlow): string {
   const k = esc(i.key);
-  const list = f.opts.length ? f.opts.map((o, n) => `<label class="f90-opt${o.actions ? '' : ' off'}"><input type="radio" name="ixo-${k}" data-act="ix" data-arg="pick|${k}|${n}" ${f.pick === n ? 'checked' : ''} ${o.actions ? '' : 'disabled'}><span><b>${esc(o.label)}</b><small>${esc(o.note)}${o.cost ? `（費用 ${num(o.cost)} 万円${/政策/.test(o.label) ? '/月' : ''}）` : ''}</small></span></label>`).join('') : '<p class="note">この課題には、自動で試算できる対策がありません。上の対策のボタンで道具を開き、「計画案」で試してください。</p>';
+  const list = f.opts.length ? f.opts.map((o, n) => `<label class="f90-opt${o.actions ? '' : ' off'}"><input type="radio" name="ixo-${k}" data-act="ix" data-arg="pick|${k}|${n}" ${f.pick === n ? 'checked' : ''} ${o.actions ? '' : 'disabled'}><span><b>${esc(o.label)}</b><small>${esc(o.note)}${o.cost ? `（${o.cost < 0 ? '収入' : '費用'} ${num(Math.abs(o.cost))} 万円${/政策/.test(o.label) ? '/月' : ''}）` : ''}${o.warn ? `<em class="f90-warn">⚠ ${esc(o.warn)}</em>` : ''}</small></span></label>`).join('') : '<p class="note">この課題には、自動で試算できる対策がありません。上の対策のボタンで道具を開き、「計画案」で試してください。</p>';
   let t = '';
   if (f.busy) t = '<p class="note">試算しています（12 か月分の計算）…</p>';
   else if (f.trial && !f.trial.ok) t = `<p class="note bad">この対策はいま実行できません：${esc(f.trial.msg)}</p>`;
   else if (f.trial) {
     const T = f.trial;
-    const rows = T.ids.map(id => { const d = indicatorOf(id); if (!d) return ''; const dg = d.digits ?? 0, a = T.without[12]?.[id]?.[1] ?? 0, b = T.with[12]?.[id]?.[1] ?? 0, df = b - a, good = Math.abs(df) < d.tol * 0.5 ? '' : (df > 0) === (d.better === 'up') ? 'good' : 'bad';
-      return `<tr><td>${esc(d.name)}<small>${esc(d.unit)}</small></td><td>${num(T.now[id] ?? 0, dg)}</td><td class="f90-band">${bandText(T.without, id, dg)}</td><td class="f90-band">${bandText(T.with, id, dg)}</td><td class="${good}">${sgn(df, dg)}</td></tr>`; }).join('');
+    // 差が予測の誤差（指標ごとの tol）より小さいものは「効かない」とみなして表に並べない。課題の主な指標と収支だけは、効かないことが分かるように残す
+    const keep = new Set([issueIndicators(i.key)[0], 'operating']), quiet: string[] = [];
+    const rows = T.ids.map(id => { const d = indicatorOf(id); if (!d) return ''; const dg = d.digits ?? 0, a = T.without[12]?.[id]?.[1] ?? 0, b = T.with[12]?.[id]?.[1] ?? 0, df = b - a, small = Math.abs(df) < d.tol;
+      if (small && !keep.has(id)) { quiet.push(d.name); return ''; }
+      const good = small ? '' : (df > 0) === (d.better === 'up') ? 'good' : 'bad';
+      return `<tr><td>${esc(d.name)}<small>${esc(d.unit)}</small></td><td>${num(T.now[id] ?? 0, dg)}</td><td class="f90-band">${bandText(T.without, id, dg)}</td><td class="f90-band">${bandText(T.with, id, dg)}</td><td class="${good}">${small ? `<small>ほぼ同じ（${sgn(df, dg)}）</small>` : sgn(df, dg)}</td></tr>`; }).join('');
+    const rg = f.range, rgHtml = rg === 'busy' ? '<p class="note">幅を計算しています（転入が多い場合と少ない場合の 2 通り×12 か月）…</p>'
+      : rg ? (rg.length ? `<div class="f90-scroll"><table class="t"><tr><th>指標（転入の楽観〜慎重）</th><th>しない場合との差の幅</th></tr>${rg.map(x => { const d = indicatorOf(x.id); return d ? `<tr><td>${esc(d.name)}<small>${esc(d.unit)}</small></td><td>${sgn(x.lo, d.digits ?? 0)}〜${sgn(x.hi, d.digits ?? 0)}</td></tr>` : ''; }).join('')}</table></div>` : '<p class="note">転入の多少では、差の幅はほとんど変わりません。</p>')
+      : f.opts[f.pick]?.range ? `<button class="btn small" data-act="ix" data-arg="range|${k}">転入が多い・少ない場合の幅も見る（数秒）</button>` : '';
     const o = f.opts[f.pick];
     t = `<p class="f90-sub">${CALC} 12 か月後の予測（太字は基準、小さい数字は予測の幅）。できごとや景気の変化は入っていません</p>
+      ${o?.warn ? `<p class="note bad f90-warn">⚠ ${esc(o.warn)}</p>` : ''}
       <div class="f90-scroll"><table class="t f90-cmp"><tr><th>指標</th><th>いま</th><th>しない場合</th><th>する場合</th><th>差</th></tr>${rows}</table></div>
+      ${quiet.length ? `<p class="f90-sub">差が予測の誤差より小さい指標（表から省略）：${quiet.map(esc).join('・')}</p>` : ''}${rgHtml}
       <div class="btnrow"><button class="btn small ${f.confirm ? 'danger' : 'primary'}" data-act="ix" data-arg="run|${k}">${f.confirm ? `本当に実行する（もう一度押す）` : `③「${esc(o?.label ?? '')}」を実行する`}</button><button class="btn small" data-act="ix" data-arg="close|${k}">やめる</button></div>
       ${f.confirm ? `<p class="note">実行すると、費用がかかり、取り消しは同じ月のうちだけです。3・6・12 か月後に、このカードの「④ 数か月後の結果」に予測との差が出ます。</p>` : ''}`;
   }
@@ -105,7 +116,8 @@ export function reportHtml(rep: AnnualReport): string {
 const SIDE_RE = /(ただし|足りないと|なければ|かかります|悪くなり|少し減り|費用は大きめ|わずかに減り)/;
 /** 政策の副作用（効く理由の文から、負の面を書いた文を拾う。必ず財政の負担を入れる） */
 export function policySide(s: GameState, p: PolicyDef): string[] {
-  const out = [`財政：月 ${num(policyCost(s, p))} 万円（年 ${num(policyCost(s, p) * 12)} 万円）の支出が続きます`];
+  const c = policyCost(s, p);
+  const out = [c < 0 ? `財政：月 ${num(-c)} 万円（年 ${num(-c * 12)} 万円）の収入・支出減になります（その代わりの負担は下の文のとおり）` : `財政：月 ${num(c)} 万円（年 ${num(c * 12)} 万円）の支出が続きます`];
   for (const t of `${p.why}`.split('。')) if (t && SIDE_RE.test(t)) out.push(t + '。');
   return out;
 }
@@ -131,13 +143,14 @@ export function policyCard(s: GameState, p: PolicyDef, on: boolean, f: number, t
   if (trial?.busy) eff += '<p class="note">試算しています…</p>';
   else if (trial?.res?.ok) {
     const T = trial.res;
-    const big = T.ids.map(id => indicatorOf(id)).filter(Boolean).map(d => { const dg = d!.digits ?? 0, a = T.without[12]?.[d!.id], b = T.with[12]?.[d!.id]; if (!a || !b) return ''; const df = b[1] - a[1], lo = b[0] - a[1], hi = b[2] - a[1]; if (Math.abs(df) < d!.tol * 0.3) return ''; return `<tr><td>${esc(d!.name)}</td><td class="${(df > 0) === (d!.better === 'up') ? 'good' : 'bad'}">${sgn(df, dg)} ${esc(d!.unit)}</td><td><small>${sgn(Math.min(lo, hi), dg)}〜${sgn(Math.max(lo, hi), dg)}</small></td></tr>`; }).join('');
+    const big = T.ids.map(id => indicatorOf(id)).filter(Boolean).map(d => { const dg = d!.digits ?? 0, a = T.without[12]?.[d!.id], b = T.with[12]?.[d!.id]; if (!a || !b) return ''; const df = b[1] - a[1], lo = b[0] - a[1], hi = b[2] - a[1]; if (Math.abs(df) < d!.tol) return ''; /* 予測の誤差より小さい差は「効かない」として並べない */ return `<tr><td>${esc(d!.name)}</td><td class="${(df > 0) === (d!.better === 'up') ? 'good' : 'bad'}">${sgn(df, dg)} ${esc(d!.unit)}</td><td><small>${sgn(Math.min(lo, hi), dg)}〜${sgn(Math.max(lo, hi), dg)}</small></td></tr>`; }).join('');
     eff += `<p class="f90-sub">${CALC} 12 か月後、${on ? 'やめなかった場合とやめた場合' : '始めた場合としない場合'}の差</p>${big ? `<table class="t"><tr><th>指標</th><th>差（基準）</th><th>幅</th></tr>${big}</table>` : '<p class="note">12 か月では、主な指標にはっきりした差は出ません（効果が小さいか、ほかの条件が足りない）。</p>'}`;
   } else if (trial?.res) eff += `<p class="note">試算できませんでした：${esc(trial.res.msg)}</p>`;
   else eff += `<button class="btn small" data-act="ptrial" data-arg="${p.id}">数値で試算する（12 か月）</button>`;
-  return `<div class="card f90-pol"><h3>${esc(p.name)}<em>月 ${num(c)} 万円</em></h3><p>${esc(p.desc)}</p>
+  const money = c < 0 ? `月 ${num(-c)} 万円の収入・支出減` : `月 ${num(c)} 万円`;
+  return `<div class="card f90-pol"><h3>${esc(p.name)}<em>${money}</em></h3><p>${esc(p.desc)}</p>
     <dl class="f90-dl">
-      <dt>費用</dt><dd>月 ${num(c)} 万円（初期費用なし。人口に応じて変わります）</dd>
+      <dt>費用</dt><dd>${c < 0 ? `支出なし。逆に ${money}になります（初期費用なし。人口に応じて変わります）` : `${money}（初期費用なし。人口に応じて変わります）`}</dd>
       <dt>効き始め</dt><dd>始めた翌月から少しずつ。${p.ramp} か月で満額</dd>
       <dt>対象</dt><dd>${esc(p.who)}<br><small>いまの街で ${esc(policyTarget(s, p.who))}</small></dd>
       <dt>期待効果</dt><dd>${eff}</dd>

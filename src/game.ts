@@ -71,9 +71,11 @@ export class Game {
     const s = this.state;
     const res = updateDecisions(s);
     if (res.length) { this.newResults.push(...res); if (this.newResults.length > 20) this.newResults.splice(0, this.newResults.length - 20); for (const { d, r } of res) if (r.at === 12 || d.issue) s.notes.push(`📊 施策「${d.label}」の ${r.at} か月後の結果が出ました（概要タブの課題・年次報告で見られます）`); }
+    // 任期末：選挙の結果が出た月。当選すると termStart がこの月に、落選すると mode が sandbox に変わるので、その前の任期を選挙の月から数える
+    const pe = s.pendingElection;
+    if (pe && pe.month === s.month) { this.reportDue = { from: Math.max(0, s.month - s.termLength), to: s.month + 1, title: `任期 ${pe.term} 期目のまとめ（任期末の報告）` }; return; }
     if (s.mode !== 'term') return;
-    if (s.pendingElection) this.reportDue = { from: s.termStart, to: s.month, title: `任期 ${s.term} 期目のまとめ（任期末の報告）` };
-    else if (s.month > 0 && s.month % 12 === 0) this.reportDue = { from: s.month - 12, to: s.month, title: `${s.month / 12} 年目の年次報告（年度末）` };
+    if (s.month > 0 && s.month % 12 === 0) this.reportDue = { from: s.month - 12, to: s.month, title: `${s.month / 12} 年目の年次報告（年度末）` };
   }
   /** v90：主要な操作を、実行前の指標と 12 か月の予測つきで記録する。予測は画面を止めないよう少しあとで計算する */
   private record(a: Action, before: Record<string, number>, issue?: string, label?: string): void {

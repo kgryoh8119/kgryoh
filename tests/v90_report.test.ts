@@ -72,4 +72,29 @@ describe('v90 施策の記録と年次報告', () => {
     expect(policyTarget(s, '子育て世帯（未就学）')).toMatch(/世帯/);
     console.log(opts.map(x => x.label), '待機 12 か月後：しない', t.without[12].wait, 'する', t.with[12].wait);
   });
+  it('試算の 2 本は毎月同じ乱数から始まる。水道に余力がないと容積を上げる対策に注意が出る。負の費用は収入と書く', async () => {
+    const { housingBlocked, monthlyText } = await import('../src/sim/wire');
+    const s = newGame(); run(s, 2, false);
+    // 乱数の状態が違っても、しない場合とする場合の差（道路維持強化の混雑率）は同じ＝差は施策の効果だけ
+    const r0 = s.rng, diffs: number[] = [];
+    for (const k of [0, 1, 2]) { s.rng = (r0 + k * 7919) | 0; const t = compareTrial(s, [{ type: 'policy', id: 'roadCare', on: true }], 'traffic'); diffs.push(t.with[12].maxVc[1] - t.without[12].maxVc[1]); }
+    expect(new Set(diffs).size).toBe(1);
+    s.rng = r0;
+    const iss = monthlyIssues(s).find(i => i.key === 'care')!, up = trialOptions(s, iss).find(o => /容積を上げる/.test(o.label));
+    expect(!!up?.warn).toBe(!!housingBlocked(s));
+    expect(monthlyText(-120)).toMatch(/120 万円の収入/);
+  });
+  it('任期末の報告：当選しても落選しても、選挙の月に前の任期の施策で報告を出す', async () => {
+    const { Game } = await import('../src/game');
+    for (const win of [true, false]) {
+      const s = newGame(); s.termLength = 3; s.goalPick = false; run(s, 1, false); if (!win) s.approval = 0; // 支持を 0 にして落選させる
+      const g = new Game(s); const before = indicatorValues(s); dispatch(s, { type: 'policy', id: 'careStaff', on: true }); recordDecision(s, '保育人材支援', 'policy', before, { forecast: false });
+      g.speed = 3;
+      for (let k = 0; k < 6 && !s.pendingElection; k++) { for (const e of [...s.events.active]) dispatch(s, { type: 'event', id: e.id, option: 0 } as any); g.tick(1.0001); }
+      expect(s.pendingElection).toBeTruthy();
+      expect(s.mode).toBe(s.pendingElection!.win ? 'term' : 'sandbox');
+      const rd = g.reportDue!; expect(rd.title).toMatch(/任期末/);
+      expect(annualReport(s, rd.from, rd.to, rd.title).rows.length).toBe(1);
+    }
+  });
 });

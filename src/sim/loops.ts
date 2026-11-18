@@ -13,6 +13,7 @@ import { FREQS } from './big';
 import { logView, renewCostOf } from './loopHooks';
 import { waterOldK } from './events';
 import { getMap, idx } from './map';
+import { commonRng } from './report';
 
 export type LoopId = 'station' | 'aging' | 'industry';
 export type IndicatorId =
@@ -285,7 +286,7 @@ function trial(s: GameState, factor: number, months: number, action?: Action): {
   c.inflowFactor *= factor;
   let ok = true, msg = '', cost = 0;
   if (action) { const r = dispatch(c, action); ok = r.ok; msg = r.msg; cost = r.cost ?? 0; }
-  if (ok) for (let k = 0; k < months; k++) stepMonth(c, { forecast: true });
+  if (ok) for (let k = 0; k < months; k++) { c.rng = commonRng(s.rng, k + 1); stepMonth(c, { forecast: true }); } // 何もしない場合と同じ乱数の列（report.ts の試算と同じ）
   return { ind: loopIndicators(c), ok, msg, cost };
 }
 const FACTORS = [1.2, 0.8]; // 楽観・慎重（forecast の SCENARIOS と同じ）
