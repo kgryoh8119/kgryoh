@@ -123,6 +123,9 @@ import { W, H, TILE, DEFS, isRes, isShop, isCity, fam, floodRisk, getMap, height
 import { realTerrain, realStatic, realRoads, realPaths, drawRealTile, drawRealGround, drawRealStation, drawRealLot, drawRealStore, looksBuiltUp, REAL_CHUNK } from './real';
 import type { GameState, Building, Kind, Layer, MapDef } from '../sim/index';
 import { stationStats } from '../sim/index';
+import { FIC_PREV_W } from '../sim/config';
+/** v93：架空の街の空き地は（v92 の広い地図では 76×68 の内も）、地形の見た目の印（田んぼ・畑・草地・林・空き地のまとまり）で描く。区画ごとの乱数で田畑・草地を選ぶと、上空から市松模様に見えた。印がなければ -1 */
+const extLook = (m: MapDef, x: number, y: number): number => (!REAL && m.deco && W > FIC_PREV_W && terrainOf(m.seed).id !== 'castaway' ? m.deco[idx(x, y)] : -1);
 import { emPlan, roadRoute, roadNear, emSite, nearestBase, jamLook, stationLook, isRightTurn, EM_VM, EM_BASE, HOSPITALS, type EmKind } from './traffic';
 
 let N = 0, MAPW = 0, MAPH = 0;
@@ -669,7 +672,8 @@ export class View {
       if (this.cutKey) { const ax = i % SUB === 0 ? [i / SUB - 1, i / SUB] : [Math.floor(i / SUB)], az = j % SUB === 0 ? [j / SUB - 1, j / SUB] : [Math.floor(j / SUB)]; let n = 0, cc = 0; for (const a of ax) for (const b of az) { n++; if (cutT(a, b)) cc++; } if (cc) y -= 6.5 * cc / n; }
       pos[k] = x; pos[k + 1] = y; pos[k + 2] = z;
       // v88：地面の色のむらを、20m 角の乱数（上空から市松模様に見えた）から、なめらかな大小 2 つのむらに
-      const n = vnoise(i / SUB, j / SUB, 5, 91) * 0.55 + vnoise(i / SUB, j / SUB, 1.4, 17) * 0.3 + hash(i, j, 17) * 0.15;
+      // v93：頂点ごとの乱数（遠景で細かいざらつきに見える）を弱め、大きなむらを足す
+      const n = vnoise(i / SUB, j / SUB, 14, 93) * 0.3 + vnoise(i / SUB, j / SUB, 5, 91) * 0.4 + vnoise(i / SUB, j / SUB, 1.4, 17) * 0.24 + hash(i, j, 17) * 0.06;
       c.setHex(0x6c9a52).lerp(c2.setHex(0x86b160), n);
       const tx = Math.min(W - 1, Math.floor(x / TILE)), tz = Math.min(H - 1, Math.floor(z / TILE)), ti = idx(tx, tz);
       if (m.forest[ti]) c.lerp(c2.setHex(0x4f7f45), 0.6);
@@ -679,9 +683,9 @@ export class View {
         else if (dc === 4) c.lerp(c2.setHex(0xb9b3a0).lerp(new THREE.Color(0x9aa08a), n), 0.75);  // 河原（石と草）
         else if (dc === 3) c.lerp(c2.setHex(0x8b8a7e).lerp(new THREE.Color(0x6f7566), n), 0.7);   // 岩肌
         else if (dc === 5) c.setHex(0xf2f5f8).lerp(c2.setHex(0xd2dce6), n * 0.5);                // 雪をかぶった頂
-        else if (dc === 6) { const rw = 0.5 + 0.5 * Math.sin(((tz & 1) ? x : z) * 0.9); c.lerp(c2.setHex(0x8a6e4c).lerp(new THREE.Color(0x6f8a48), rw * 0.7), 0.7); } // v88：畑（土とうねの作物）
+        else if (dc === 6) { const rw = 0.35 + 0.4 * hash(Math.floor(tx / 3), tz >> 1, 31) + 0.25 * n; c.lerp(c2.setHex(0x8a6e4c).lerp(new THREE.Color(0x6f8a48), rw), 0.6); } // v88：畑（土と作物）。v93：うねの縞は頂点の間隔（10m）より細かく、区画ごとのまだらに見えたので、3×2 区画の畑ごとの作物の育ち具合に
         else if (dc === 7) c.lerp(c2.setHex(0x9aa868).lerp(new THREE.Color(0x7f9a58), n), 0.55);  // 草地（野原）
-        else if (dc === 8) c.lerp(c2.setHex(0x3f6a3c), 0.7);                                       // 屋敷林・雑木林の跡
+        else if (dc === 8) c.setHex(0x5e5a3c).lerp(c2.setHex(0x6a6248), n * 0.6); // 屋敷林・雑木林の跡（v93：林床の落ち葉の色。緑みのある地面は混ぜても、春に季節のシェーダーで桜色になり、上空から白い斑点に見えた）
         else if (dc === 9) c.lerp(c2.setHex(0xa89a7a).lerp(new THREE.Color(0x8f9a6a), n), 0.6); } // 空き地（土と雑草）
       if (m.sand?.[ti]) c.lerp(c2.setHex(0xdcc894).lerp(new THREE.Color(0xcdb67c), n), 0.85);
       if (m.wet?.[ti]) c.lerp(c2.setHex(0x6b7444), 0.7);
@@ -1591,7 +1595,7 @@ export class View {
             for (const [qx, qz] of [[-7.1, 5.9], [7.1, 5.9], [-7.1, -8.3], [7.1, -8.3]]) { const r = RF[(b.id + Math.round(qx + qz)) & 3]; lg.box(qx, 0, qz, 7.6, 5.5, 6.4, col, col); lg.gable(qx, 5.5, qz, 7.6, 6.4, 1.9, r, 'x', col, 0.4); }
           } else lg.box(0, 0, 0, Math.max(4, b.w * TILE - 6), fam(b.kind) === 'park' ? 0.4 : hh, Math.max(4, b.h * TILE - 6), col, isRes(b.kind) ? 0x8a6a5a : undefined); }
         for (let y = Math.max(2, cy0); y < Math.min(H - 4, cy0 + CH); y++) for (let x = cx0; x < Math.min(W, cx0 + CH); x++) { const i = idx(x, y); if (s.road[i] || s.occ[i] || !buildable(m, i)) continue; const r = hash(x, y, 77), cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE, top = heightAt(m, cx, cz);
-          if (s.zone[i]) { lg.at(cx, top, cz); lg.box(0, -2, 0, 27, 2.05, 27, 0xa8997c); } else if (r < (y >= 40 ? 0.72 : 0.5) && y < H - 6 && !(m.sand?.[i] || m.desert?.[i] || m.snow?.[i])) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, r < 0.3 ? 0x8cbc5c : 0x5f9445); } }
+          const ek = extLook(m, x, y); if (s.zone[i]) { lg.at(cx, top, cz); lg.box(0, -2, 0, 27, 2.05, 27, 0xa8997c); } else if (ek >= 0) { if (ek === 6 && y < H - 6) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, hash(Math.floor(x / 3), y >> 1, 31) < 0.5 ? 0x7a7a4c : 0x6a8a46); } } else if (r < (y >= 40 ? 0.72 : 0.5) && y < H - 6 && !(m.sand?.[i] || m.desert?.[i] || m.snow?.[i])) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, r < 0.3 ? 0x8cbc5c : 0x5f9445); } }
         if (lg.pos.length) { const lm = new THREE.Mesh(lg.build(false), LOD_MAT); lm.receiveShadow = true; lm.visible = false; this.scene.add(lm); this.chunkLow.set(k, lm); } }
       // v92：空き地だけの塊で、いまカメラから遠いものは、細かい版を後で（近づいたとき）作る
       if (!(blds.get(k)?.length) && arr.every(v => v === 'z0') && this.chunkLow.has(k)) {
@@ -1699,6 +1703,18 @@ export class View {
       for (const [u, v] of [[-13, -13], [13, -13], [-13, 13], [13, 13]]) c.g.cyl(u, 0, v, 0.06, 0.8, 0xe8e2d0, 4);
       if (r < 0.5) { c.g.cyl(-9, 0, 11.5, 0.06, 1.9, 0x8b8f93, 4); c.g.box(-9, 1.0, 11.5, 2.2, 1.2, 0.08, 0xf4f4f0); sign(c, '売地', 0, -9, 1.05, 11.56, 2.0); }
       if (r > 0.6) c.g.blob(6, 0.25, -5, 2.4, 0.5, 1.8, 0x86a85a, 5);
+    } else if (extLook(m, x, y) >= 0) { // v93：広げた土地は見た目の印のまとまりで（田んぼは田んぼの面で別に描く。畑は 3×2 区画の畑ごとに同じ作物、草地は木をまばらに、林の印は木を多めに）
+      const ek = extLook(m, x, y);
+      if (ek === 6 && flat && y < H - 6) {
+        c.g.at(cx, top, cz); const g2 = c.g, svF = g2.surfv; g2.surfv = -2;
+        const crops = [0x4f8a3c, 0x6aa352, 0x8fb04a, 0x5c9a4a], pr = hash(Math.floor(x / 3), y >> 1, 31), crop = crops[Math.floor(pr * 4) % 4], bare = pr < 0.3;
+        g2.box(0, -3, 0, 30, 3.04, 30, 0x8d8468, 0x7a6348);
+        for (let k = 0; k < 11; k++) { const z = -12.5 + k * 2.5; g2.box(0, 0.04, z, 29, 0.22, 1.5, 0x6f593f, 0x7d6649); if (!bare) g2.box(0, 0.26, z, 28, 0.3, 0.8, crop); }
+        g2.surfv = svF;
+      } else if (ek === 8 || (ek === 7 && r < 0.18)) {
+        const n = ek === 8 ? 4 : 1;
+        for (let k = 0; k < n; k++) { const wx = cx + (hash(x + k, y, 78) - 0.5) * 24, wz = cz + (hash(x, y + k, 79) - 0.5) * 24; c.g.at(wx, heightAt(m, wx, wz) - 0.15, wz); tree(c, 0, 0, 0.9 + hash(x, y + k, 80) * 0.7, hash(x + k, y, 85) < 0.75 ? 1 : 0); } // 屋敷林は常緑樹が多い（落葉樹ばかりだと、春に林の塊がまとめて桜色になり、上空から白い斑点に見えた）
+      }
     } else if (flat && r < (!REAL && y >= 40 ? 0.72 : 0.5) && y < H - 6) { // 田畑（南原は田んぼが多い）
       c.g.at(cx, top, cz);
       const paddy = r < 0.3, g2 = c.g, flatQ = (x0: number, z0: number, x1: number, z1: number, yy: number, col: number) => g2.quad([x0, yy, z1], [x1, yy, z1], [x1, yy, z0], [x0, yy, z0], col);

@@ -304,17 +304,20 @@ function extDeco(seed: number, T: string, heights: Float32Array, water: Uint8Arr
     hamlets.push([hx, hy]);
   }
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    if (x < FIC_PREV_W && y < FIC_PREV_H) continue;
+    // v93：はじめの町のまわり（76×68 の内）も同じまとまりで（広げた土地だけ変えると、上空から 76×68 の境目が四角く見えた）。見た目だけの印
     const i = idx(x, y); if (water[i] || forest[i] || steep[i] || deco[i]) continue;
     { let hd = 9; for (const [a, b] of hamlets) hd = Math.min(hd, Math.hypot(x + 0.5 - a, y + 0.5 - b)); if (hd < 2.6) { deco[i] = hash(x, y, seed + 519) < (hd < 1.2 ? 0.25 : 0.6) ? 8 : hd < 1.6 ? 9 : 6; continue; } }
     const hm = (hv(x, y) + hv(x + 1, y) + hv(x, y + 1) + hv(x + 1, y + 1)) / 4;
-    // 区画：3×2 の田畑を、行ごとにずらして並べる。まとまり（10 区画ほど）ごとに田んぼの多い所・草地の多い所が分かれる
-    const py = y >> 1, px = Math.floor((x + Math.floor(hash(py, 3, seed + 301) * 3)) / 3), r = hash(px, py, seed + 303), reg = vn(x, y, 11, 1);
-    const low = hm < 4 ? 1 : hm < 9 ? 0.5 : 0.15; // 低い所ほど田んぼ
-    const w = [mix[0] * low * (0.1 + 2.4 * smooth((reg - 0.35) / 0.35)), mix[1] * (0.3 + 1.4 * vn(x, y, 8, 4)), mix[2] * (0.3 + 1.9 * smooth((0.62 - reg) / 0.3)), mix[3], mix[4] * (0.3 + 1.4 * vn(x, y, 7, 2))];
-    const sum = w.reduce((a, b) => a + b, 0) / Math.min(0.92, mix.reduce((a, b) => a + b, 0) + 0.1);
-    let acc = 0, pick = 0; for (let k = 0; k < 5; k++) { acc += w[k] / sum; if (r < acc) { pick = k + 1; break; } }
-    if (pick === 4 && vn(x, y, 5, 3) < 0.45) pick = 3; // 屋敷林は小さな塊だけ（ほかは草地）
+    // 区画：3×2 の田畑を、行ごとにずらして並べる（境目は区画に沿う）
+    const py = y >> 1, px = Math.floor((x + Math.floor(hash(py, 3, seed + 301) * 3)) / 3);
+    // v93：区画ごとの乱数で選ぶと、上空から細かい市松模様に見えた。大きなまとまり（田んぼの集まり・畑・草地・林。15〜20 区画ほど）を、
+    // ゆがめた大きなむらで決め、区画ごとの乱数は境目を区画に沿わせるための小さな揺らぎだけにする。いちばん点の高い用途を選ぶ
+    const wx = x + 7 * (vn(x, y, 9, 6) - 0.5), wy = y + 7 * (vn(x, y, 9, 7) - 0.5);
+    const A = vn(wx, wy, 19, 1) * 0.7 + vn(wx, wy, 7, 8) * 0.3, B = vn(wx, wy, 14, 4), G = vn(wx, wy, 16, 9);
+    const low = hm < 4 ? 1 : hm < 9 ? 0.55 : 0.2; // 低い所ほど田んぼ
+    const w = [mix[0] * low * (0.1 + 1.7 * smooth((A - 0.4) / 0.3)), mix[1] * (0.25 + 2.4 * smooth((B - 0.4) / 0.3)), mix[2] * (0.25 + 2.2 * smooth((G - 0.4) / 0.3)) * (0.5 + smooth((0.6 - A) / 0.3)),
+      mix[3] * (0.05 + 4.5 * smooth((vn(x, y, 5, 3) - 0.62) / 0.16)), mix[4] * (0.1 + 2.2 * smooth((vn(wx, wy, 10, 2) - 0.5) / 0.3))];
+    let pick = 0, best = -1; for (let k = 0; k < 5; k++) { const v = w[k] * (0.88 + 0.24 * hash(px * 5 + k, py, seed + 303)); if (v > best) { best = v; pick = k + 1; } }
     deco[i] = pick === 1 ? 2 : pick === 2 ? 6 : pick === 3 ? 7 : pick === 4 ? 8 : pick === 5 ? 9 : 0;
   }
 }

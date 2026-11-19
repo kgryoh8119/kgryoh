@@ -10,7 +10,8 @@ const MAP = process.env.MAPID ?? 'sumino', real = MAP !== 'sumino', P = real ? '
 if (!real) process.env.TITLESHOT = `${OUT}/${P}00-title.png`; // 実在マップは読み込みが重く、タイトルの撮影が時間切れになるので撮らない
 const t0 = Date.now();
 const { browser, page, errors } = await open(1280, 800, MAP);
-const R = { map: MAP, openMs: Date.now() - t0, steps: [], metrics: [], overflow: [], decisions: [], notes: [] };
+const R = { map: MAP, openMs: Date.now() - t0, steps: [], metrics: [], overflow: [], decisions: [], notes: [], notFound: [] };
+page.on('response', r => { if (r.status() >= 400) R.notFound.push(r.status() + ' ' + r.url().replace(/^https?:\/\/[^/]+/, '')); }); // v93：読めなかったファイル（コンソールの 404 の出どころ）
 const note = (...a) => { const t = a.join(' '); R.notes.push(t); console.log(t); };
 // 3D はソフトウェア描画で 1 コマ数秒。毎フレームの描画を止め、撮る前だけ描く
 await page.evaluate(() => { const S = window.__sumu, v = S.view; v.__frame = v.frame; v.frame = () => {}; v.setQuality('low'); S.fixedQuality = true; });
@@ -34,6 +35,9 @@ const handleModals = async (reportName) => {
   for (let guard = 0; guard < 8; guard++) {
     const lab = await modalLabel(); if (!lab) return;
     if (await page.$('#modal .f90-report')) { reportsSeen++; if (reportName) { await page.evaluate(() => { const b = document.querySelector('#modal .body'); if (b) b.scrollTop = 0; }); await shot(reportName); const txt = await page.$eval('#modal .f90-report', e => e.textContent.slice(0, 2000)); R[reportName] = txt; reportName = null; } await page.click('#modal [data-act="report"][data-arg="close"]'); await page.waitForTimeout(200); continue; }
+    if (lab === '公約を選ぶ' && await page.$('#modal [data-act="gok"]')) { // v93：再選のあとの 2 期目の公約（前は .opt を押し続けて閉じられなかった）
+      for (const g of ['wait', 'water', 'fiscal']) { const b = await page.$(`#modal [data-act="gpick"][data-arg="${g}"][aria-pressed="false"]`); if (b) { await b.click(); await page.waitForTimeout(100); } }
+      await page.click('#modal [data-act="gok"]'); note('  ダイアログ「公約を選ぶ」→ 待機・水道・財政で決める'); await page.waitForTimeout(250); continue; }
     if (await page.$('#modal .opt:not([disabled])')) { const label = (await page.textContent('#modal .opt:not([disabled]) b'))?.trim(); await page.click('#modal .opt:not([disabled])'); eventsAnswered++; note(`  できごと「${lab}」→ ${label}`); await page.waitForTimeout(200); continue; }
     if (await page.$('#modal [data-act="election"]')) return; // 選挙は呼び出し側で撮る
     if (lab === 'メニュー') { await page.click('#modal [data-act="menu"]'); await page.waitForTimeout(200); continue; }
@@ -65,6 +69,8 @@ const trialAndRun = async (key, re, name, run = true) => {
   const labels = await page.$$eval(`${cardOf(key)} .f90-opt`, e => e.map(x => (x.querySelector('input')?.disabled ? '(自動では試せない) ' : '') + x.textContent.trim().slice(0, 40)));
   const k = labels.findIndex(l => !l.startsWith('(自動') && re.test(l));
   if (k < 0) { step(`${name}: 対策 ${re} が候補にない`, false, labels.join(' / ')); return null; }
+  // v91 から 6 件目以降は「ほかの候補を見る」に畳まれている
+  if (k >= 5 && !(await page.$eval(`${cardOf(key)} details.f90-more`, e => e.open).catch(() => true))) await page.click(`${cardOf(key)} details.f90-more summary`);
   await page.click(`${cardOf(key)} input[data-arg="pick|${key}|${k}"]`);
   await page.waitForSelector(`${cardOf(key)} .f90-cmp`, { timeout: 120000 });
   await page.evaluate(sel => document.querySelector(sel + ' .f90-cmp')?.scrollIntoView({ block: 'center' }), cardOf(key));
@@ -148,6 +154,19 @@ try {
   step('「まずこれ」が 1 件に付く', !!first, first ?? '');
   await shot('03-start-issues');
   await metric('開始');
+  // v93：v91 で足した画面（街の 3 つの論点、試算の上位 5 件と「ほかの候補を見る」、注意の常時表示）
+  if (!real) {
+    const topics = await page.$$eval('.ltopics .ltopic h4', e => e.map(x => x.textContent.trim()));
+    step('v91：街の 3 つの論点が 3 件', topics.length === 3, topics.join(' / '));
+    await page.click('.ltopics [data-arg="trial|loop:station"]'); await page.waitForTimeout(400);
+    const vis = await page.$$eval('.ltopics .f90-opt', e => e.filter(x => !x.closest('details.f90-more')).length);
+    const more = await page.$eval('.ltopics', e => e.querySelector('details.f90-more summary')?.textContent ?? '').catch(() => '');
+    step('v91：試算の候補は上位 5 件まで（残りは畳む）', vis <= 5 && vis > 0, `表示 ${vis} 件・${more || '畳んだ候補なし'}`);
+    const warnHidden = await page.$$eval('.f90-warn', e => e.filter(x => !x.offsetParent).length);
+    step('v91：注意（⚠）は「？」を押さなくても見える', warnHidden === 0, `隠れた注意 ${warnHidden} 件`);
+    await page.evaluate(() => document.querySelector('.ltopics')?.scrollIntoView()); await shot('03b-topics-station');
+    await page.click('.ltopics [data-act="ix"][data-arg^="close|"]').catch(() => {});
+  }
 
   // ---------------------------------------------------------------- 2. 序盤：課題①（まずこれ）→ 原因 → 試算 → 実行
   const k1 = keys.includes('care') ? 'care' : keys[0];
@@ -243,6 +262,26 @@ try {
   if (await modalLabel()) await page.keyboard.press('Escape');
   const after2 = await summary();
   step('テキストを貼り付けて読み込むと書き出した時点に戻る', after2 === before, after2.slice(0, 120));
+  // v93：v91（128×112・保存形式の版 2）の保存テキストを読み込んで続きから遊べる（OLDSAVE=scripts/v93-oldsave.ts で作ったテキスト）
+  if (!real && process.env.OLDSAVE) {
+    const old = fs.readFileSync(process.env.OLDSAVE, 'utf8').trim(), oj = JSON.parse(old);
+    const e0 = errors.length;
+    await page.click('[data-act="menu"]'); await page.waitForTimeout(250); await page.click('[data-act="menutab"][data-arg="save"]'); await page.waitForTimeout(250);
+    await page.$eval('#iotext', (e, t) => { e.value = t; }, old);
+    await page.click('#modal [data-act="import"]'); await page.waitForTimeout(1500); await handleModals();
+    if (await modalLabel()) await page.keyboard.press('Escape');
+    const o1 = await page.evaluate(() => { const s = window.__sumu.game.state; return { month: s.month, tiles: s.road.length, W: window.__sumu.W, pop: Math.round(s.stats.pop), b: s.buildings.length }; });
+    step('v91 の保存テキスト（128×112・版 2）を読み込める', o1.month === oj.state.month && o1.tiles === 192 * 168, `${JSON.stringify(o1)}（保存時 ${oj.state.month} か月・${oj.state.road.length} 区画・建物 ${oj.state.buildings.length}）`);
+    await advance(3);
+    const o2 = await page.evaluate(() => { const s = window.__sumu.game.state; return { month: s.month, pop: Math.round(s.stats.pop), cash: Math.round(s.cash), ok: [s.cash, s.stats.pop, s.stats.sat].every(Number.isFinite) }; });
+    await tab('home'); await shot('20b-v91-save-continued');
+    step('v91 の保存から 3 か月続けて遊べる（数値が有限・エラーなし）', o2.month === o1.month + 3 && o2.ok && errors.length === e0, JSON.stringify(o2) + ` エラー ${errors.length - e0}`);
+    // 元の続きに戻す
+    await page.click('[data-act="menu"]'); await page.waitForTimeout(250); await page.click('[data-act="menutab"][data-arg="save"]'); await page.waitForTimeout(250);
+    await page.$eval('#iotext', (e, t) => { e.value = t; }, text);
+    await page.click('#modal [data-act="import"]'); await page.waitForTimeout(800); await handleModals();
+    if (await modalLabel()) await page.keyboard.press('Escape');
+  }
 
   // ---------------------------------------------------------------- 4. 期末：任期末の報告と選挙
   let el = null;

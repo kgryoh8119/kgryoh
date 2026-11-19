@@ -1,7 +1,7 @@
 // v90：ゲームループ（loops.ts）の指標と対策を、予測と結果の記録・対策の試算・年次報告（report.ts）につなぐ。
 // 予測の画面と結果の画面が同じ関数（loopIndicators）から指標を出すようにするための、つなぎだけの層。
 import { INDICATORS, LOOPS, loopIndicators, loopOptions, loopOfIssue, expectOf, mainIndicatorOf, optionFit, OPTION_EFFECT, type IndicatorId } from './loops';
-import { registerIndicators, registerIssueIndicators, registerTrialOptions, registerActionIndicators, onIndicatorValues, BASE_INDICATORS } from './report';
+import { registerIndicators, registerIssueIndicators, registerTrialOptions, registerActionIndicators, onIndicatorValues, BASE_INDICATORS, deficitWarn } from './report';
 import type { GameState } from './types';
 
 /** 単位ごとの「ほぼ予測どおり」とみなす幅 */
@@ -28,11 +28,18 @@ export function housingBlocked(s: GameState): string {
   }
   return `いまは水道に余力がないため、容積を上げても住宅は建ちません（水道の能力 ${Math.round(st.waterCap).toLocaleString()} ÷ 需要 ${Math.round(st.waterDemand).toLocaleString()}、着工には 1.02 倍以上が必要）。先に浄水場を更新・増設してください`;
 }
+/** v93：12 か月以内に実行した容積の変更を、すぐ逆向きに戻す候補への注意。混雑の課題では「上限を下げる」、住宅の課題では「上げる」が
+ *  候補の上に来るので、課題に素直に対応すると上げる・下げるを繰り返すことがあった（効果が出る前に打ち消し合う） */
+function undoWarn(s: GameState, id: string): string | undefined {
+  const re = id === 'zoneDown' ? /容積を上げる/ : id === 'upzone' ? /容積の上限を下げる/ : null; if (!re) return undefined;
+  const d = (s.decisions ?? []).filter(x => s.month - x.month < 12 && re.test(x.label)).at(-1); if (!d) return undefined;
+  return `${s.month - d.month} か月前に「${d.label}」を実行したばかりです。すぐ戻すと、効果が出る前に打ち消し合い、開発事業者の計画も無駄になります`;
+}
 registerTrialOptions((s, issue) => { const lp = issue.loop ?? loopOfIssue(issue.key); if (!lp) return [];
   const loop = LOOPS.find(l => l.id === lp)!, main = mainIndicatorOf(issue.key);
   return loopOptions(s, lp, { expect: false }).filter(o => o.ok).map(o => ({ label: o.label, actions: [o.action], cost: o.cost,
     ...(main ? (() => { const f = optionFit(o.id, main); return { fit: f.v, trade: f.trade || undefined }; })() : {}),
-    warn: o.id === 'upzone' ? housingBlocked(s) || undefined : undefined,
+    warn: (o.id === 'upzone' ? housingBlocked(s) || undefined : undefined) ?? undoWarn(s, o.id) ?? deficitWarn(s, o.monthly), // v93：直前の容積の変更を戻す対策・毎月の収支が赤字になる対策にも注意
     range: () => expectOf(s, lp, o.action, 12).filter(e => !have.has(e.indicator) && (e.lo || e.hi)).map(e => ({ id: e.indicator, lo: e.lo, hi: e.hi })),
     note: [o.monthly ? monthlyText(o.monthly) : '', o.months ? `効くまで ${o.months} か月` : '', `決めるのは${o.authority}`, o.side.length ? `副作用：${o.side.join('、')}` : '', `（${loop.name}の対策）`].filter(Boolean).join('・') })); });
 // v91：政策・建設・更新が効く指標に、ループの対策の向き（OPTION_EFFECT）を足す。保育の待機・道路の混雑率は汎用の指標の名前で
