@@ -328,6 +328,8 @@ export function deficitWarn(s: GameState, monthly: number): string | undefined {
   if (!(monthly > 0)) return undefined;
   const last = s.ledger.slice(-6), op = last.length ? last.reduce((a, l) => a + l.operating, 0) / last.length : monthlyBudget(s).operating;
   if (op - monthly >= 0) return undefined;
+  // 資金が赤字の 3 年分より多ければ出さない（はじめから赤字の村などで、すべての候補に注意が付いて何も選べなくなるのを避ける）
+  if (s.cash > (monthly - op) * 36) return undefined;
   return op < 0 ? `いまも毎月の収支が赤字です（直近の平均 ${Math.round(op).toLocaleString()} 万円）。この対策で毎月 ${Math.round(monthly).toLocaleString()} 万円の支出がさらに増えます。先に収支を立て直すか、ほかの候補を比べてください`
     : `この対策の毎月 ${Math.round(monthly).toLocaleString()} 万円で、毎月の収支（直近の平均 ${Math.round(op).toLocaleString()} 万円）が赤字になります。ほかの候補も比べてください`;
 }
