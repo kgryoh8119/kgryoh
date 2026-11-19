@@ -6,8 +6,8 @@ let html = orig;
 
 // v92：地図データ（OSM からの派生データベース）のライセンス文書。dist/LICENSE-map-data.md に書き、同じ本文を HTML にも埋め込む
 // （1 ファイルだけ配っても文書が届くように。タイトルの「この作品について」で読める）。詳しくは docs/配布前の確認-Mixamo-ODbL.md
-/** 作品全体（地図データ以外）のライセンス。作者が決める。決めたらここに書く */
-const WORK_LICENSE = '（作者が決める）';
+/** 作品全体（地図データ以外）のライセンス（v92：作者の決定＝権利をすべて保持する） */
+const WORK_LICENSE = '© 2026 スムシティの作者. All rights reserved.（地図データ以外のプログラム・3D モデル・音・画面のデザイン。無断での複製・改変・再配布・転載を禁じます。地図データは ODbL 1.0、three.js は MIT License、人物の動きの元データは Adobe Mixamo の利用条件に従います）';
 const mapFiles = fs.existsSync(`${dir}/maps`) ? fs.readdirSync(`${dir}/maps`).filter(f => f.endsWith('.json') && f !== 'manifest.json').sort() : [];
 const mapRows = mapFiles.map(f => {
   let m = {}; try { m = JSON.parse(fs.readFileSync(`${dir}/maps/${f}`, 'utf8')); } catch { }
