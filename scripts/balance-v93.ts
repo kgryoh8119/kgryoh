@@ -3,7 +3,7 @@
 // STRAT：auto（autoTurn）／issue（3 か月ごとに今月の課題の上から、試算の候補の先頭で実行できるものを 1 つ）／idle（何もしない）
 import { newGame, stepMonth, dispatch, eventDef, seedForTerrain, monthlyIssues } from '../src/sim/index';
 import { electionOutlook } from '../src/sim/step';
-import { trialOptions } from '../src/sim/report';
+import { trialOptions, recordDecision } from '../src/sim/report';
 import { autoTurn } from '../src/autoplay';
 import '../src/sim/wire';
 import type { GameState } from '../src/sim/types';
@@ -21,7 +21,7 @@ function issueTurn(s: GameState): string | null {
       if (isPol && (o.cost ?? 0) > op) continue;
       if (!isPol && (o.cost ?? 0) > s.cash) continue;
       let ok = false; for (const a of o.actions) { const r = dispatch(s, a); ok = ok || r.ok; }
-      if (ok) return `${iss.key}:${o.label}`;
+      if (ok) { recordDecision(s, o.label, '課題', {}, { issue: iss.key, forecast: false, action: o.actions[0] }); return `${iss.key}:${o.label}`; } // 画面から実行したときと同じく施策の記録を残す
     }
   }
   return null;
