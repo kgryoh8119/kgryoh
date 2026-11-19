@@ -685,7 +685,7 @@ export class View {
         else if (dc === 5) c.setHex(0xf2f5f8).lerp(c2.setHex(0xd2dce6), n * 0.5);                // 雪をかぶった頂
         else if (dc === 6) { const rw = 0.35 + 0.4 * hash(Math.floor(tx / 3), tz >> 1, 31) + 0.25 * n; c.lerp(c2.setHex(0x8a6e4c).lerp(new THREE.Color(0x6f8a48), rw), 0.6); } // v88：畑（土と作物）。v93：うねの縞は頂点の間隔（10m）より細かく、区画ごとのまだらに見えたので、3×2 区画の畑ごとの作物の育ち具合に
         else if (dc === 7) c.lerp(c2.setHex(0x9aa868).lerp(new THREE.Color(0x7f9a58), n), 0.55);  // 草地（野原）
-        else if (dc === 8) c.lerp(c2.setHex(0x3f6a3c), 0.7);                                       // 屋敷林・雑木林の跡
+        else if (dc === 8) c.lerp(c2.setHex(0x5e5a3c), 0.75); // 屋敷林・雑木林の跡（v93：林床の落ち葉の色。濃い緑の地面は、春に季節のシェーダーで桜色になり、上空から白い斑点に見えた）
         else if (dc === 9) c.lerp(c2.setHex(0xa89a7a).lerp(new THREE.Color(0x8f9a6a), n), 0.6); } // 空き地（土と雑草）
       if (m.sand?.[ti]) c.lerp(c2.setHex(0xdcc894).lerp(new THREE.Color(0xcdb67c), n), 0.85);
       if (m.wet?.[ti]) c.lerp(c2.setHex(0x6b7444), 0.7);
