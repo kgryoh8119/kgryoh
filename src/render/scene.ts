@@ -1524,11 +1524,14 @@ export class View {
     const lim = (this.quality === 'high' ? 1800 : this.quality === 'mid' ? 1100 : 650) * (this.lite ? 0.6 : 1), CH = 6, NCX = Math.ceil(W / CH), cam = this.camera.position;
     // 歩く人は、遠くからだと点にしか見えないので描かない（1 人 900 三角形あるため）
     { const hide = this.mode === 'orbit' && this.dist > (this.lite ? 520 : this.quality === 'high' ? 1400 : 900); for (const P of [this.pedP, this.crowdP, this.lifeP]) if (P) P.mesh.visible = !hide && (P !== this.crowdP || P.mesh.count > 0); }
-    let made = 0;
+    const want: [number, number][] = [];
     for (const [k, meshes] of this.chunkMeshes) { const low = this.chunkLow.get(k); if (!low) { for (const m of meshes) m.visible = true; continue; } const cx = ((k % NCX) + 0.5) * CH * TILE, cz = (Math.floor(k / NCX) + 0.5) * CH * TILE, d = Math.hypot(cx - cam.x, cz - cam.z, cam.y * 0.6), far = d > lim && this.mode === 'orbit';
-      // v92：何もない塊（空き地だけ）は、近づいたときに細かい版を作る（地図を広げて、細かい版をすべて持つとメモリが 1.5GB を超えたため）
-      if (!far && this.lazyChunks.has(k)) { const st = this.getState(); if (st && made < 4 && d < lim * 1.2) { made++; this.lazyChunks.delete(k); this.buildPlain(st, k); low.visible = false; continue; } low.visible = true; continue; }
+      // v92：何もない塊（空き地だけ）は、近づいたときに細かい版を作る（地図を広げて、細かい版をすべて持つとメモリが 1.5GB を超えたため）。作るまでは簡略版を見せる
+      if (this.lazyChunks.has(k)) { low.visible = true; if (d < lim * 1.2) want.push([d, k]); continue; }
       for (const m of meshes) m.visible = !far; low.visible = far; }
+    // 近い塊から、1 回に 6 つまで（一度に作ると画面が止まるため）
+    if (want.length) { const st = this.getState(); want.sort((a, b) => a[0] - b[0]);
+      for (const [d, k] of want.slice(0, 6)) { this.lazyChunks.delete(k); this.buildPlain(st, k); const far = d > lim && this.mode === 'orbit'; for (const m of this.chunkMeshes.get(k) ?? []) m.visible = !far; this.chunkLow.get(k)!.visible = far; } }
   }
   /** 細かい版を後で作る、空き地だけの塊 */
   private lazyChunks = new Set<number>();

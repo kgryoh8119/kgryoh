@@ -19,9 +19,11 @@ const far = process.env.MAP && process.env.MAP !== 'sumino' ? 5000 : Math.round(
 // [中心, 距離, 見下ろす角, 向き]
 const V = [[t.mid, far, 1.3, 0], [t.ext, 700, 0.62, 0.5], [t.edge, 1300, 0.7, 1.2]], out = process.env.OUT ?? 'shots';
 for (const k of (process.env.VIEWS ?? '0,1').split(',').map(Number)) { const [c, d, p, yaw] = V[k];
-  await page.evaluate(([c, d, p, yaw]) => { const v = window.__sumu.view; v.focus(c, d); v.pitch = v.want.pitch = p; v.yaw = v.want.yaw = yaw; v.dist = v.want.dist = d; }, [c, d, p, yaw]);
-  await page.waitForTimeout(5000);
-  const r = await page.evaluate(() => { const i = window.__sumu.view.renderer.info.render; return { calls: i.calls, triangles: i.triangles }; });
+  await page.evaluate(([c, d, p, yaw]) => { const v = window.__sumu.view; v.focus(c, d); v.pitch = v.want.pitch = p; v.yaw = v.want.yaw = yaw; v.dist = v.want.dist = d; if (v.want.x !== undefined) { v.target.x = v.want.x; v.target.z = v.want.z; } }, [c, d, p, yaw]);
+  await page.waitForTimeout(4000); // 撮影では、近くの空き地の塊の細かい版をすぐ作る（ソフトウェア描画は 1 コマが遅く、少しずつ作るのを待てないため）
+  console.log("PRE", JSON.stringify(await page.evaluate(() => { const v = window.__sumu.view, c = v.camera.position, a = v.lazyChunks?.size; c.set(v.target.x, Math.sin(v.pitch) * v.dist, v.target.z + Math.cos(v.pitch) * v.dist * 0.5); for (let n = 0; n < 60 && v.lazyChunks?.size; n++) { v.lodT = 0; v.updateLod(0.016); } return [Math.round(c.x), Math.round(c.y), Math.round(c.z), a, v.lazyChunks?.size, v.quality, v.lite, v.mode]; })));
+  await page.waitForTimeout(Number(process.env.WAIT ?? 5000));
+  const r = await page.evaluate(() => { const i = window.__sumu.view.renderer.info.render; return { calls: i.calls, triangles: i.triangles, frame: i.frame, lazy: window.__sumu.view.lazyChunks?.size }; });
   console.log('VIEW', k, JSON.stringify(r));
   if (process.env.TOP) console.log('TRI', JSON.stringify(await page.evaluate(() => { const v = window.__sumu.view, g = new Map(); v.scene.traverseVisible(o => { const ge = o.geometry; if (!ge?.attributes?.position) return; const n = (ge.index ? ge.index.count : ge.attributes.position.count) / 3 * (o.isInstancedMesh ? o.count : 1);
     const k = (o.isInstancedMesh ? 'I:' : '') + (o.name || o.type) + '/' + (Array.isArray(o.material) ? 'multi' : o.material?.name || o.material?.type) + '/' + Object.keys(ge.attributes).length; const e = g.get(k) ?? { n: 0, t: 0 }; e.n++; e.t += n; g.set(k, e); });
