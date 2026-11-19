@@ -669,7 +669,8 @@ export class View {
       if (this.cutKey) { const ax = i % SUB === 0 ? [i / SUB - 1, i / SUB] : [Math.floor(i / SUB)], az = j % SUB === 0 ? [j / SUB - 1, j / SUB] : [Math.floor(j / SUB)]; let n = 0, cc = 0; for (const a of ax) for (const b of az) { n++; if (cutT(a, b)) cc++; } if (cc) y -= 6.5 * cc / n; }
       pos[k] = x; pos[k + 1] = y; pos[k + 2] = z;
       // v88：地面の色のむらを、20m 角の乱数（上空から市松模様に見えた）から、なめらかな大小 2 つのむらに
-      const n = vnoise(i / SUB, j / SUB, 5, 91) * 0.55 + vnoise(i / SUB, j / SUB, 1.4, 17) * 0.3 + hash(i, j, 17) * 0.15;
+      // v93：頂点ごとの乱数（遠景で細かいざらつきに見える）を弱め、大きなむらを足す
+      const n = vnoise(i / SUB, j / SUB, 14, 93) * 0.3 + vnoise(i / SUB, j / SUB, 5, 91) * 0.4 + vnoise(i / SUB, j / SUB, 1.4, 17) * 0.24 + hash(i, j, 17) * 0.06;
       c.setHex(0x6c9a52).lerp(c2.setHex(0x86b160), n);
       const tx = Math.min(W - 1, Math.floor(x / TILE)), tz = Math.min(H - 1, Math.floor(z / TILE)), ti = idx(tx, tz);
       if (m.forest[ti]) c.lerp(c2.setHex(0x4f7f45), 0.6);
@@ -679,7 +680,7 @@ export class View {
         else if (dc === 4) c.lerp(c2.setHex(0xb9b3a0).lerp(new THREE.Color(0x9aa08a), n), 0.75);  // 河原（石と草）
         else if (dc === 3) c.lerp(c2.setHex(0x8b8a7e).lerp(new THREE.Color(0x6f7566), n), 0.7);   // 岩肌
         else if (dc === 5) c.setHex(0xf2f5f8).lerp(c2.setHex(0xd2dce6), n * 0.5);                // 雪をかぶった頂
-        else if (dc === 6) { const rw = 0.5 + 0.5 * Math.sin(((tz & 1) ? x : z) * 0.9); c.lerp(c2.setHex(0x8a6e4c).lerp(new THREE.Color(0x6f8a48), rw * 0.7), 0.7); } // v88：畑（土とうねの作物）
+        else if (dc === 6) { const rw = 0.35 + 0.4 * hash(Math.floor(tx / 3), tz >> 1, 31) + 0.25 * n; c.lerp(c2.setHex(0x8a6e4c).lerp(new THREE.Color(0x6f8a48), rw), 0.6); } // v88：畑（土と作物）。v93：うねの縞は頂点の間隔（10m）より細かく、区画ごとのまだらに見えたので、3×2 区画の畑ごとの作物の育ち具合に
         else if (dc === 7) c.lerp(c2.setHex(0x9aa868).lerp(new THREE.Color(0x7f9a58), n), 0.55);  // 草地（野原）
         else if (dc === 8) c.lerp(c2.setHex(0x3f6a3c), 0.7);                                       // 屋敷林・雑木林の跡
         else if (dc === 9) c.lerp(c2.setHex(0xa89a7a).lerp(new THREE.Color(0x8f9a6a), n), 0.6); } // 空き地（土と雑草）

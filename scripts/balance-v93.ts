@@ -39,12 +39,13 @@ for (let k = 0; k < runs; k++) {
     try { stepMonth(s); } catch (e) { errs++; firstErr ||= 'step:' + (e as Error).message; }
     for (const e of [...s.events.active]) dispatch(s, { type: 'event', id: e.id, option: eventDef(e.id).options.length - 1 });
     if (s.goalPick) dispatch(s, { type: 'goals', ids: ['wait', 'pop', 'fiscal'] });
-    if (s.pendingElection) s.pendingElection = null;
+    // 落選しても、2 回目の選挙まで測るため任期を続けたことにする（得票は落選の記録のまま）
+    if (s.pendingElection) { if (!s.pendingElection.win) { s.mode = 'term'; s.termStart = s.month; s.goalPick = true; } s.pendingElection = null; }
     for (const nt of s.notes) { if (nt.includes('可決されました')) pass++; if (nt.includes('否決されました')) fail++; }
     s.notes = [];
     if (![s.cash, s.stats.pop, s.approval, s.stats.sat].every(Number.isFinite)) nan++;
     minCash = Math.min(minCash, s.cash);
   }
   const op = s.history.at(-1)?.op ?? 0;
-  console.log(JSON.stringify({ terr, diff, strat, n, el: s.elections.map(e => ({ w: e.win, v: +e.vote.toFixed(1) })), pop0: Math.round(pop0), pop: Math.round(s.stats.pop), cash: Math.round(s.cash), minCash: Math.round(minCash), op: Math.round(op), appr: +s.approval.toFixed(2), sat: +s.stats.sat.toFixed(2), wait: Math.round(s.stats.wait ?? 0), budget: `${pass}/${pass + fail}`, fiscal: s.fiscal?.status ?? '', over: !!s.over, acts, errs, nan, firstErr, sec: Math.round((Date.now() - t0) / 1000), ...(env.LOG ? { log } : {}) }));
+  console.log(JSON.stringify({ terr, diff, strat, n, el: s.elections.map(e => ({ w: e.win, v: +e.vote.toFixed(1) })), pop0: Math.round(pop0), pop: Math.round(s.stats.pop), cash: Math.round(s.cash), minCash: Math.round(minCash), op: Math.round(op), appr: +s.approval.toFixed(2), sat: +s.stats.sat.toFixed(2), wait: Math.round(s.stats.waitlist ?? 0), budget: `${pass}/${pass + fail}`, fiscal: s.fiscal?.status ?? '', over: !!s.over, acts, errs, nan, firstErr, sec: Math.round((Date.now() - t0) / 1000), ...(env.LOG ? { log } : {}) }));
 }
