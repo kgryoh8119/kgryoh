@@ -4,7 +4,7 @@ import {
   W, H, P, DEFS, GOALS, voteText, POLICIES, AIR_ROUTES, VISION_PERKS, VISIONS, airportUpCheck, airRouteCheck, floodRisk, isCanal, isJunction, isRes, isCity, idx, getMap, buildable, roadInfo, checkPlace, dispatch, sumHH, monthlyBudget, staffReq, fam, DISTRICTS, rerunCheck, teamCheck, SPORTS, stationDist, buyoutCost, SV_NAMES, upgradeCost, bondCap, goalProgress, tempDebt, stationUpCheck, shinCheck, REAL, NIMBY,
 } from './sim/index';
 import type { GameState, Kind, Action, Zone } from './sim/index';
-import { isCastaway } from './sim/index';
+import { isCastaway, isleOX, isleOY } from './sim/index';
 import { annexable, blockRect, blockName, SISTERS, SIS, MAX_SISTERS, GRANTS, PLANS, voteForecast, campaignOpen, calMonth, POSTS, candidates, execOf, roadPath } from './sim/index';
 import { findCandidates, hasCandidates } from './ui/candidates';
 import { planRedevelop } from './devplan';
@@ -65,6 +65,17 @@ export function autoEvent(s: GameState, eventDef: (id: string) => { title: strin
   return out;
 }
 
+/** v92：敷地を探す範囲。市外までつながる道路の外接矩形（敷地の大きさ＋1 だけ広げる）と、市の区域の外接矩形の重なり。
+ *  地図を 192×168 に広げたので、全体を見ると 1 手ごとの探索が 2 倍以上に重くなっていた（置けるのは道路に面した市の区域だけなので結果は同じ） */
+function scanBox(s: GameState, conn: Uint8Array, pad: number): { x0: number; y0: number; x1: number; y1: number } {
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let i = 0; i < W * H; i++) if (s.road[i] && conn[i]) { const x = i % W, y = (i / W) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) return { x0: 0, y0: 0, x1: -1, y1: -1 };
+  x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(W - 1, x1 + 1); y1 = Math.min(H - 1, y1 + 1);
+  if (s.unlocked && s.unlocked.length) { let a = W, b = H, c = 0, d = 0; for (const k of s.unlocked) { const r = blockRect(k); a = Math.min(a, r.x0); b = Math.min(b, r.y0); c = Math.max(c, r.x1 - 1); d = Math.max(d, r.y1 - 1); }
+    x0 = Math.max(x0, a); y0 = Math.max(y0, b); x1 = Math.min(x1, c); y1 = Math.min(y1, d); }
+  return { x0, y0, x1, y1 };
+}
 /** 住民の多い所に近い、置ける場所 */
 export function findSpot(s: GameState, kind: Kind, weight?: (b: any) => number, opt: { districts?: number[] } = {}): { x: number; y: number } | null {
   const nimby = NIMBY[kind], dm = getMap(s.seed).district;
@@ -72,7 +83,7 @@ export function findSpot(s: GameState, kind: Kind, weight?: (b: any) => number, 
   const d = DEFS[kind], w = new Float64Array(N()), m = getMap(s.seed), conn = roadInfo(s).conn;
   const fw = weight ?? (nimby ? (b: any) => sumHH(b) + 1 : null) ?? (kind === 'nursery' || kind === 'nurseryS' || kind === 'nurseryL' ? (b: any) => b.unmet + sumHH(b) * 0.02 : (b: any) => sumHH(b));
   for (const b of s.buildings) if (isRes(b.kind) && b.status === 'operating') w[idx(b.x, b.y)] += fw(b);
-  const r = Math.max(8, Math.round(Math.min(W, H) / 5)), S = new Float64Array((W + 1) * (H + 1));
+  const r = Math.max(8, Math.round(Math.min(W, H, REAL ? 1e9 : 112) / 5)), /* v92：住民の重みの半径は、広げても v91（128×112）のまま（はじめの町の大きさは同じなので） */ S = new Float64Array((W + 1) * (H + 1));
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) S[(y + 1) * (W + 1) + x + 1] = w[y * W + x] + S[y * (W + 1) + x + 1] + S[(y + 1) * (W + 1) + x] - S[y * (W + 1) + x];
   const fw0 = (x0: number, y0: number, x1: number, y1: number) => box(x0, y0, x1, y1) * 1;
   const box = (x0: number, y0: number, x1: number, y1: number) => { x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(W, x1); y1 = Math.min(H, y1); return S[y1 * (W + 1) + x1] - S[y0 * (W + 1) + x1] - S[y1 * (W + 1) + x0] + S[y0 * (W + 1) + x0]; };
@@ -82,8 +93,8 @@ export function findSpot(s: GameState, kind: Kind, weight?: (b: any) => number, 
     for (let k = -1; k <= Math.max(d.w, d.h); k++) for (const [xx, yy] of [[x + k, y - 1], [x + k, y + d.h], [x - 1, y + k], [x + d.w, y + k]]) if (xx >= 0 && yy >= 0 && xx < W && yy < H && s.road[idx(xx, yy)] && conn[idx(xx, yy)]) return true;
     return false;
   };
-  const order: [number, number][] = [];
-  for (let y = 0; y + d.h <= H; y++) for (let x = 0; x + d.w <= W; x++) {
+  const order: [number, number][] = [], B = scanBox(s, conn, Math.max(d.w, d.h) + 1);
+  for (let y = B.y0; y + d.h <= H && y <= B.y1; y++) for (let x = B.x0; x + d.w <= W && x <= B.x1; x++) {
     if (opt.districts && !opt.districts.includes(dm[idx(x, y)])) continue;
     if (!okLot(x, y)) continue;
     // 迷惑施設は、住宅が少なく、計画で産業の地区にした所ほど先に（近くの住民が嫌がるため）
@@ -106,8 +117,8 @@ export function findSpot(s: GameState, kind: Kind, weight?: (b: any) => number, 
 /** 住宅を買い取れば建てられる場所：敷地が空き地と 1 区画の住宅だけで、市外までつながる道路に面している所。住民の多い所に近く、買収の安い順 */
 function findBuyLot(s: GameState, kind: Kind, weight?: (b: any) => number): { x: number; y: number; ids: number[]; cost: number } | null {
   const d = DEFS[kind], m = getMap(s.seed), conn = roadInfo(s).conn, byId = new Map(s.buildings.map(b => [b.id, b] as const));
-  const c = cityCenter(s); let best: { x: number; y: number; ids: number[]; cost: number; score: number } | null = null;
-  for (let y = 0; y + d.h <= H; y++) for (let x = 0; x + d.w <= W; x++) {
+  const c = cityCenter(s), B = scanBox(s, conn, Math.max(d.w, d.h) + 1); let best: { x: number; y: number; ids: number[]; cost: number; score: number } | null = null;
+  for (let y = B.y0; y + d.h <= H && y <= B.y1; y++) for (let x = B.x0; x + d.w <= W && x <= B.x1; x++) {
     const ids = new Set<number>(); let ok = true;
     for (let dy = 0; dy < d.h && ok; dy++) for (let dx = 0; dx < d.w; dx++) {
       const i = idx(x + dx, y + dy);
@@ -173,7 +184,7 @@ function islandTurn(s: GameState): string[] {
     return false;
   };
   const piers = s.buildings.filter(b => b.kind === 'pier');
-  if (!piers.length) { for (let y = H - 3; y > 2; y--) for (let x = 2; x < W - 3; x++) { const d = Math.hypot(x - 70, y - 86); if (d > 14) continue; if (checkPlace(s, 'pier', x, y).level === 'ok' || checkPlace(s, 'pier', x, y).reasons.every(r => r.startsWith('道路に接して'))) { if (dispatch(s, { type: 'build', kind: 'pier', x, y }).ok) { out.push('入り江に桟橋をつくる'); return out; } } } return out; }
+  if (!piers.length) { for (let y = H - 3; y > 2; y--) for (let x = 2; x < W - 3; x++) { const d = Math.hypot(x - 70 - isleOX(), y - 86 - isleOY()); if (d > 14) continue; if (checkPlace(s, 'pier', x, y).level === 'ok' || checkPlace(s, 'pier', x, y).reasons.every(r => r.startsWith('道路に接して'))) { if (dispatch(s, { type: 'build', kind: 'pier', x, y }).ok) { out.push('入り江に桟橋をつくる'); return out; } } } return out; }
   // 道：つながった道路のはしから、空いた平地へ 6 区画ずつのばす（はじめは桟橋の上から北へ）
   const extend = (): boolean => {
     const c = info().conn, starts: number[] = [];

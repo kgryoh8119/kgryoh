@@ -92,7 +92,7 @@ export function validateAction(s: GameState, a: unknown): string | null {
     case 'rerun': return null;
     case 'team': return ['soccer', 'baseball', 'basket'].includes(a.sport) && typeof a.on === 'boolean' ? null : 'チームの指定が不正です';
     case 'difficulty': return ['easy', 'normal', 'hard'].includes(a.v) ? null : '難易度の指定が不正です';
-    case 'annex': return intIn(a.block, 0, 15) ? null : '区域の指定が不正です';
+    case 'annex': return intIn(a.block, 0, 35) ? null : '区域の指定が不正です';
     case 'option': return intIn(a.id, 0, 1e9) && isStr(a.opt, 20) && typeof a.on === 'boolean' ? null : '改修の指定が不正です';
     case 'move': return intIn(a.id, 0, 1e9) && intIn(a.x, -10, W + 10) && intIn(a.y, -10, H + 10) ? null : '移設の指定が不正です';
     case 'pol': return POL_OPS.includes(a.op) && (a.id === undefined || isStr(a.id, 20)) && (a.n === undefined || intIn(a.n, 0, 9)) ? null : '市政の操作の指定が不正です';
@@ -313,9 +313,9 @@ export function validateState(s: unknown): string | null {
   if (s.pol !== undefined) { const e = validPol(s.pol); if (e) return e; }
   if (s.lastTsunami !== undefined && (!isObj(s.lastTsunami) || !intIn(s.lastTsunami.m, 0, 1e6) || !finIn(s.lastTsunami.h, 0, 50))) return '津波の記録が不正です';
   if (s.challenge !== undefined) { const c = s.challenge as any; if (!isObj(c) || !isStr(c.id, 20) || !intIn(c.start, 0, 1e6) || !intIn(c.until, 0, 1e6) || !finIn(c.base, 0, 1e9) || (c.done !== undefined && c.done !== 'win' && c.done !== 'lose') || (c.at !== undefined && !intIn(c.at, 0, 1e6)) || (c.seen !== undefined && typeof c.seen !== 'boolean')) return '挑戦モードのデータが不正です'; }
-  if (s.unlocked !== undefined && (!Array.isArray(s.unlocked) || s.unlocked.length > 16 || !s.unlocked.every((v: unknown) => intIn(v, 0, 15)))) return '市の区域のデータが不正です';
+  if (s.unlocked !== undefined && (!Array.isArray(s.unlocked) || s.unlocked.length > 36 || !s.unlocked.every((v: unknown) => intIn(v, 0, 35)))) return '市の区域のデータが不正です';
   if (s.mayor !== undefined) { const M = s.mayor;
-    if (!isObj(M) || !finIn(M.pts, 0, 1e7) || !isObj(M.medals) || !Object.values(M.medals).every((v: unknown) => intIn(v, 0, 1e6)) || !intIn(M.annex, 0, 100) || (M.annexed !== undefined && !intIn(M.annexed, 0, 16)) || !intIn(M.seenLv, 0, 20) || !intIn(M.seenRank, -1, 1e6)) return '市長の記録が不正です';
+    if (!isObj(M) || !finIn(M.pts, 0, 1e7) || !isObj(M.medals) || !Object.values(M.medals).every((v: unknown) => intIn(v, 0, 1e6)) || !intIn(M.annex, 0, 100) || (M.annexed !== undefined && !intIn(M.annexed, 0, 36)) || !intIn(M.seenLv, 0, 20) || !intIn(M.seenRank, -1, 1e6)) return '市長の記録が不正です';
     if (!Array.isArray(M.ranks) || M.ranks.length > 40 || !M.ranks.every((r: any) => isObj(r) && intIn(r.year, 0, 1e5) && intIn(r.month, 0, 1e6) && intIn(r.total, 1, 2000) && isObj(r.cats) && Object.values(r.cats).every((v: unknown) => intIn(v, 1, 2000)) && Array.isArray(r.awards) && r.awards.every((w: unknown) => isStr(w, 60)) && (r.pts === undefined || finIn(r.pts, 0, 1e5)))) return '全国ランキングの記録が不正です'; }
   if (s.vision !== null && !VISIONS.some(v => v.id === s.vision)) return 'ビジョンのデータが不正です';
   if (!intIn(s.visionStart, 0, 1e6)) return 'ビジョンの開始月が不正です';

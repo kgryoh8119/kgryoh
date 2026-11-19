@@ -1,6 +1,6 @@
 // v88：無人島（特別シナリオ）。桟橋 → 道 → 水 → 電気 → 住まい の順に整えると人が来ること、桟橋がないと誰も来ないこと、長く回しても壊れないこと
 import { test, expect } from 'vitest';
-import { newGame, stepMonth, dispatch, checkPlace, seedForTerrain, getMap, W, H, DEFS, isleNext, foodSelf, monthlyIssues, missionsFor, type GameState, type Kind } from '../src/sim/index';
+import { newGame, stepMonth, dispatch, checkPlace, seedForTerrain, getMap, W, H, DEFS, isleNext, foodSelf, monthlyIssues, missionsFor, isleOX, isleOY, type GameState, type Kind } from '../src/sim/index';
 
 const SEED = seedForTerrain('castaway');
 const fresh = () => { const s = newGame({ seed: SEED }); s.goalPick = false; return s; };
@@ -8,7 +8,8 @@ const ok = (s: GameState, k: Kind, x: number, y: number) => checkPlace(s, k, x, 
 /** 入り江の近くで、桟橋を置ける場所と、そこから内陸へのびる道路の列 */
 function landing(s: GameState): { px: number; py: number; road: number[] } {
   const m = getMap(s.seed);
-  for (let y = H - 3; y > 60; y--) for (let x = 60; x < 84; x++) {
+  const OX = isleOX(), OY = isleOY(); // v92：島は地図の中央（v88 の座標からずらす）
+  for (let y = 109 + OY; y > 60 + OY; y--) for (let x = 60 + OX; x < 84 + OX; x++) {
     if (!ok(s, 'pier', x, y)) continue;
     // 桟橋の上の区画から北へ道路
     const road: number[] = []; let yy = y - 1;

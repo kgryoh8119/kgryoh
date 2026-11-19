@@ -45,13 +45,16 @@ export const MAYOR_DIFF: Record<Difficulty, { gain: number; rank: number; top: n
 };
 export const mayorDiff = (s: GameState) => MAYOR_DIFF[s.difficulty ?? 'normal'] ?? MAYOR_DIFF.normal;
 
-// ---------------------------------------------------------------- 区域（地図を 4×4 に分けた 16 区域）
-export const BX = 4, BY = 4;
+// ---------------------------------------------------------------- 区域（地図を 6×6 に分けた 36 区域）
+/** v92：地図を 192×168 に広げたので 4×4 から 6×6 に。1 区域の大きさは v87〜v91 と同じ 32×28 区画（約 960m×840m）のまま */
+export const BX = 6, BY = 6;
 const bw = () => Math.ceil(W / BX), bh = () => Math.ceil(H / BY);
 export function blockOf(i: number): number { const x = i % W, y = (i / W) | 0; return Math.min(BY - 1, Math.floor(y / bh())) * BX + Math.min(BX - 1, Math.floor(x / bw())); }
 export function blockRect(b: number): { x0: number; y0: number; x1: number; y1: number } { const bx = b % BX, by = Math.floor(b / BX); return { x0: bx * bw(), y0: by * bh(), x1: Math.min(W, (bx + 1) * bw()), y1: Math.min(H, (by + 1) * bh()) }; }
-const DIR = [['北西', '北', '北', '北東'], ['西', '中央', '中央', '東'], ['西', '中央', '中央', '東'], ['南西', '南', '南', '南東']];
-export function blockName(b: number): string { const bx = b % BX, by = Math.floor(b / BX); return `${DIR[by][bx]}の区域（${String.fromCharCode(65 + bx)}${by + 1}）`; }
+export function blockName(b: number): string { const bx = b % BX, by = Math.floor(b / BX), ns = by === 0 ? '北' : by === BY - 1 ? '南' : '', ew = bx === 0 ? '西' : bx === BX - 1 ? '東' : '';
+  return `${ns + ew || '中央'}の区域（${String.fromCharCode(65 + bx)}${by + 1}）`; }
+/** v92：4×4 の区域（v91 まで）の番号を 6×6 の番号に。1 区域の大きさは同じなので、左上の 4×4 にそのまま対応する */
+export const blockFrom4 = (b: number) => (b % 4) + Math.floor(b / 4) * BX;
 /** まだ市の区域でない（編入していない）区画か */
 export function isLocked(s: GameState, i: number): boolean { return !!s.unlocked && !s.unlocked.includes(blockOf(i)); }
 export const LOCK_MSG = 'まだ市の区域ではありません（市長レベルが上がると、となりの区域を編入できます）';
@@ -72,7 +75,7 @@ export function initLocks(s: GameState): void {
   const n = new Array(BX * BY).fill(0);
   for (let i = 0; i < W * H; i++) if (s.occ[i]) n[blockOf(i)]++;
   const un = n.map((v, b) => (v >= 15 ? b : -1)).filter(b => b >= 0);
-  s.unlocked = isCastaway(s.seed) ? Array.from({ length: BX * BY }, (_, b) => b) : un.length ? un : [5, 6, 9, 10]; // v88：無人島は島全体が村の区域
+  s.unlocked = isCastaway(s.seed) ? Array.from({ length: BX * BY }, (_, b) => b) : un.length ? un : [7, 8, 13, 14]; // v88：無人島は島全体が村の区域
   s.mayor = s.mayor ?? newMayor();
   s.mayor.annex = Math.max(s.mayor.annex, mayorDiff(s).start);
 }

@@ -7,11 +7,11 @@ import { REAL, MAP_ID, onMapChange } from './real';
 import { mapEntry } from '../maps/registry';
 
 /** 地図の大きさ（区画数）。実在都市版では取り込んだ地図の大きさ（地図を選ぶと変わる） */
-export let W = 128;
-export let H = 112;
-/** 架空の街（住野市）の大きさ。v9 で 44×44 から 76×68 へ、v87 で 128×112（約 3.8km×3.4km）へ、東と南へ広げた（古い保存データは読込時に広げる）。
- *  FIC_PREV は v86 までの大きさ。はじめの町はこの中だけに置き、広げた土地は開発の余地として空けておく */
-export const FIC_W = 128, FIC_H = 112, FIC_OLD = 44, FIC_PREV_W = 76, FIC_PREV_H = 68;
+export let W = 192;
+export let H = 168;
+/** 架空の街（住野市）の大きさ。v9 で 44×44 から 76×68 へ、v87 で 128×112 へ、v92 で 192×168（約 5.8km×5.0km）へ、東と南へ広げた（古い保存データは読込時に広げる）。
+ *  FIC_PREV は v86 までの大きさ。はじめの町はこの中だけに置き、広げた土地は開発の余地として空けておく。FIC_V87 は v87〜v91 の大きさ */
+export const FIC_W = 192, FIC_H = 168, FIC_OLD = 44, FIC_PREV_W = 76, FIC_PREV_H = 68, FIC_V87_W = 128, FIC_V87_H = 112;
 /** 実在都市版の規模（架空の街の何倍の世帯がいるか）。予算・転入などの係数に掛ける */
 export let SCALE = 1;
 /** 市債の残高上限：街が大きくなると返せる力（税収）も増えるので、人口に合わせて最大 3 倍まで広がる */
