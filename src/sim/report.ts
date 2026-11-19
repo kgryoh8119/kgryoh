@@ -362,7 +362,7 @@ export function trialOptions(s: GameState, issue: Issue): TrialOption[] {
     const kind = o.act === 'tool' && m ? m[1] as Kind : o.act === 'issue' && o.arg === 'buildNursery' ? 'nursery' as Kind : null;
     if (kind && DEFS[kind]) {
       const p = findSite(s, kind, issue.tile);
-      out.push(p ? { label: `${DEFS[kind].name}を建てる（${DISTRICTS[getMap(s.seed).district[p.y * W + p.x]] ?? ''}の空き地）`, actions: [{ type: 'build', kind, x: p.x, y: p.y }], note: '置き場所は課題の近くの空き地から自動で選んだ仮の場所です。実際の場所は建設メニューで選べます', cost: DEFS[kind].cost }
+      out.push(p ? { label: `${DEFS[kind].name}を建てる（${DISTRICTS[getMap(s.seed).district[p.y * W + p.x]] ?? ''}の空き地）`, actions: [{ type: 'build', kind, x: p.x, y: p.y }], note: '置き場所は課題の近くの空き地から自動で選んだ仮の場所です。実際の場所は建設メニューで選べます', cost: DEFS[kind].cost, warn: deficitWarn(s, DEFS[kind].upkeep ?? 0) } // v93：維持費で毎月の収支が赤字になるときの注意
         : { label: o.label, actions: null, note: '置ける空き地が近くに見つかりません。建設メニューで場所を選んでください' });
     } else if (o.act === 'renewall') {
       const ids = s.buildings.filter(b => b.status === 'suspended' && b.age >= 99 && (o.arg === 'all' || DEFS[b.kind].fam === o.arg)).map(b => b.id);
