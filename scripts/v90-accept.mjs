@@ -35,6 +35,9 @@ const handleModals = async (reportName) => {
   for (let guard = 0; guard < 8; guard++) {
     const lab = await modalLabel(); if (!lab) return;
     if (await page.$('#modal .f90-report')) { reportsSeen++; if (reportName) { await page.evaluate(() => { const b = document.querySelector('#modal .body'); if (b) b.scrollTop = 0; }); await shot(reportName); const txt = await page.$eval('#modal .f90-report', e => e.textContent.slice(0, 2000)); R[reportName] = txt; reportName = null; } await page.click('#modal [data-act="report"][data-arg="close"]'); await page.waitForTimeout(200); continue; }
+    if (lab === '公約を選ぶ' && await page.$('#modal [data-act="gok"]')) { // v93：再選のあとの 2 期目の公約（前は .opt を押し続けて閉じられなかった）
+      for (const g of ['wait', 'water', 'fiscal']) { const b = await page.$(`#modal [data-act="gpick"][data-arg="${g}"][aria-pressed="false"]`); if (b) { await b.click(); await page.waitForTimeout(100); } }
+      await page.click('#modal [data-act="gok"]'); note('  ダイアログ「公約を選ぶ」→ 待機・水道・財政で決める'); await page.waitForTimeout(250); continue; }
     if (await page.$('#modal .opt:not([disabled])')) { const label = (await page.textContent('#modal .opt:not([disabled]) b'))?.trim(); await page.click('#modal .opt:not([disabled])'); eventsAnswered++; note(`  できごと「${lab}」→ ${label}`); await page.waitForTimeout(200); continue; }
     if (await page.$('#modal [data-act="election"]')) return; // 選挙は呼び出し側で撮る
     if (lab === 'メニュー') { await page.click('#modal [data-act="menu"]'); await page.waitForTimeout(200); continue; }
