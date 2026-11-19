@@ -10,7 +10,8 @@ const MAP = process.env.MAPID ?? 'sumino', real = MAP !== 'sumino', P = real ? '
 if (!real) process.env.TITLESHOT = `${OUT}/${P}00-title.png`; // 実在マップは読み込みが重く、タイトルの撮影が時間切れになるので撮らない
 const t0 = Date.now();
 const { browser, page, errors } = await open(1280, 800, MAP);
-const R = { map: MAP, openMs: Date.now() - t0, steps: [], metrics: [], overflow: [], decisions: [], notes: [] };
+const R = { map: MAP, openMs: Date.now() - t0, steps: [], metrics: [], overflow: [], decisions: [], notes: [], notFound: [] };
+page.on('response', r => { if (r.status() >= 400) R.notFound.push(r.status() + ' ' + r.url().replace(/^https?:\/\/[^/]+/, '')); }); // v93：読めなかったファイル（コンソールの 404 の出どころ）
 const note = (...a) => { const t = a.join(' '); R.notes.push(t); console.log(t); };
 // 3D はソフトウェア描画で 1 コマ数秒。毎フレームの描画を止め、撮る前だけ描く
 await page.evaluate(() => { const S = window.__sumu, v = S.view; v.__frame = v.frame; v.frame = () => {}; v.setQuality('low'); S.fixedQuality = true; });
@@ -65,6 +66,8 @@ const trialAndRun = async (key, re, name, run = true) => {
   const labels = await page.$$eval(`${cardOf(key)} .f90-opt`, e => e.map(x => (x.querySelector('input')?.disabled ? '(自動では試せない) ' : '') + x.textContent.trim().slice(0, 40)));
   const k = labels.findIndex(l => !l.startsWith('(自動') && re.test(l));
   if (k < 0) { step(`${name}: 対策 ${re} が候補にない`, false, labels.join(' / ')); return null; }
+  // v91 から 6 件目以降は「ほかの候補を見る」に畳まれている
+  if (k >= 5 && !(await page.$eval(`${cardOf(key)} details.f90-more`, e => e.open).catch(() => true))) await page.click(`${cardOf(key)} details.f90-more summary`);
   await page.click(`${cardOf(key)} input[data-arg="pick|${key}|${k}"]`);
   await page.waitForSelector(`${cardOf(key)} .f90-cmp`, { timeout: 120000 });
   await page.evaluate(sel => document.querySelector(sel + ' .f90-cmp')?.scrollIntoView({ block: 'center' }), cardOf(key));
