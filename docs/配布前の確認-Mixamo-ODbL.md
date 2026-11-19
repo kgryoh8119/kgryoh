@@ -18,6 +18,37 @@
 
 ホストへの接続が禁じられていたため、ほかの公式ページ（Adobe General Terms of Use、opendatacommons.org の ODbL 本文、OSMF の Community Guidelines、国土地理院の利用規約）も読んでいません。読めたのは Web 検索の結果（題名・抜粋）だけです。したがって**この文書には【一次】の印の付いた記述がありません**。配布の前に、作者が §5 の URL を開いて原文と照らしてください。
 
+## 0+. 一次資料で確かめた事実（2026-11-19 追記）
+
+v92 の最初の調査では一次資料に接続できなかった。その後、このセッションのネットワークに公式サイトを許可し、次の 4 件の原文を直接読んだ（取得日 2026-11-19）。下の 1・2 章の【記憶】【二次】の記述のうち、ここで確かめたものはこちらが優先する。
+
+### Mixamo FAQ（https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html 、ページの最終更新 2021-09-14）
+- 「Mixamo is available free for anyone with an Adobe ID and does not require a subscription to Creative Cloud.」
+- 「You can use both characters and animations royalty free for personal, commercial, and non-profit projects including: … Create video games.」
+- 利用できない場合として「Enterprise and Federated IDs」と「country code from China」の利用者が挙がっている。
+- **このページ（公式 FAQ の現行版）には、「生のアニメーションファイルの再配布の禁止」や「DLC・アセットストア」に関する文言は見当たらなかった**（ページ全体の本文と HTML を検索して確認）。その種の制限は、二次情報（Adobe コミュニティのスレッド等）で FAQ の旧版や別の条項として紹介されているもので、現行の FAQ では確かめられなかった。Adobe の一般利用条件（General Terms of Use）や Mixamo の個別条項に同様の制限があるかは、今回は読んでいない（未確認）。
+- **当てはめ【推測】**：この作品は、Mixamo の動きから取り出した関節角度の数値をゲームの中で人物を動かすためだけに使っている。公式 FAQ の「video games に royalty free で使える」に当たると読める。素材としての再配布ではない、という v92 の表記はそのまま妥当と考える。ただし Adobe の一般利用条件は未確認なので、配布の前に作者が https://www.adobe.com/legal/terms.html を確認することを勧める。
+
+### ODbL 1.0 本文（https://opendatacommons.org/licenses/odbl/1-0/）
+- 定義：「“Derivative Database” – Means a database based upon the Database, and includes any translation, adaptation, arrangement, modification, or any other alteration of the Database …」「“Produced Work” – a work (such as an image, audiovisual material, text, or sounds) resulting from using the whole or a Substantial part of the Contents …」
+- 4.3（制作物の表示）：Produced Work を公に使う場合、それを使う人・見る人が「Content was obtained from the Database … and that it is available under this License」と分かる表示が要る。例文「Contains information from DATABASE NAME, which is made available here under the Open Database License (ODbL).」（名前と ODbL 本文へのリンクつき）。
+- 4.4（Share alike）：公に使う派生データベースは ODbL（または後継・互換ライセンス）でなければならない。4.4c：派生データベースから作った Produced Work を公に使うと、その派生データベースも公に使ったことになる。
+- 4.6（派生データベースへのアクセス）：派生データベース、またはその Produced Work を公に使う場合、受け取った人に、機械で読める形で「a. The entire Derivative Database; or b. A file containing all of the alterations … or the method of making the alterations … (such as an algorithm)」を提供しなければならない。インターネットで配る場合は無料。
+- 4.7（技術的手段）：ODbL の権利を制限する条件や技術的手段を課してはならない（並行して制限のない版を無料で提供する場合を除く）。
+- **当てはめ【推測】**：地図 JSON（OSM から抽出・整形・デフォルメしたもの）は派生データベース。ゲームの画面は Produced Work。単一 HTML に JSON のまま埋め込んで配る場合も、分割版の maps/*.json も、派生データベースそのものを機械で読める形で無料で渡しているので 4.6a を満たす方向。v92 で入れた `LICENSE-map-data.md`（ODbL で提供する旨・本文へのリンク・作成方法・入手方法・技術的制限なし）は 4.3・4.4・4.6・4.7 の要求に沿っている。
+
+### OSMF 帰属表示の指針（https://osmfoundation.org/wiki/Licence/Attribution_Guidelines）
+- 「Computer games and simulations：For video or computer games, attribution can be provided either by a splash screen on application startup, in the game view, during gameplay, on the credits page, in the menu, or in another suitable location. Detailed information must be provided in a suitable location if the initial attribution does not provide detailed information.」
+- 「Attribution must also make it clear that the data is available under the Open Database License. This may be done by making the text “OpenStreetMap” a link to openstreetmap.org/copyright …」「The historical forms of attribution “© OpenStreetMap contributors” or “© OpenStreetMap” are acceptable.」
+- **当てはめ【推測】**：プレイ中の画面下の「地図 © OpenStreetMap contributors（ODbL）」（openstreetmap.org/copyright へのリンクつき）と、タイトルの「この作品について」の詳細で、ゲームの帰属表示の指針を満たすと読める。
+
+### OSMF Produced Work の指針（https://osmfoundation.org/wiki/Licence/Community_Guidelines/Produced_Work_-_Guideline 、2014-06-06 理事会承認）
+- 「If the published result of your project is intended for the extraction of the original data, then it is a database and not a Produced Work. Otherwise it is a Produced Work. However, if you publish a produced work, the underlying database has to be published as well (or alternations to the original database …), according to section 4.6 of ODbL」
+- **当てはめ【推測】**：ゲーム自体（画面）は Produced Work だが、元になった派生データベース（地図 JSON）の提供が要る。この作品は JSON を同梱しているので満たす方向。
+
+### 国土地理院コンテンツ利用規約（https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html）
+- **読めなかった**。サイトが古い TLS の再ネゴシエーションを要求し、この環境の通信の制限で接続できなかった。標高タイルの出典の書き方（「出典：国土地理院」「〇〇を加工して作成」）と申請の要否は、作者が原文で確認すること。v92 の表記「国土地理院 標高タイルを加工して作成」は、一般に案内されている書き方に沿っているが、今回の原文では確かめていない。
+
 ## 1. Mixamo（Adobe）
 
 ### 1.1 調べたこと
