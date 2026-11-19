@@ -629,7 +629,7 @@ body:not(.explain) #panel p.note.bad, body:not(.explain) #panel p.note.f90-warn 
 .realsrc{margin:6px 0;font-size:.8em;line-height:1.5;color:var(--ink-2,#4a5560);background:var(--soft,#f3f5f7);border-radius:6px;padding:5px 7px}#panel .realsrc b{font-size:inherit;font-weight:700;display:inline;color:inherit}
 .ltopic .itag{font-style:normal;font-size:.72em;font-weight:700;padding:1px 6px;border-radius:9px;background:rgba(30,90,179,.12);color:var(--accent,#1e5ab3)}
 .issue dt{color:var(--mute,#6b7480);font-weight:700}.issue dd{margin:0}
-.f90-fit{display:block;font-style:normal;font-size:.78em;color:var(--mute,#6b7480)}.f90-more summary{cursor:pointer;font-size:.85em;color:var(--accent,#1e5ab3);margin:4px 0}
+.f90-fit{display:block;font-style:normal;font-size:.78em;color:var(--mute,#6b7480)}.f90-more summary{cursor:pointer;font-size:.85em;color:var(--accent,#1e5ab3);margin:4px 0;padding:8px 0;min-height:24px}
 .issue .iopts{display:flex;flex-direction:column;gap:4px}.issue .iopts span{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.issue .iopts small{color:var(--mute,#6b7480)}
 
 /* ---- v90：課題からの導線・施策の結果・年次報告・政策カード・声の詳細 ---- */
