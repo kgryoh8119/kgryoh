@@ -76,6 +76,34 @@ const full = html.replace('</body>', emb + '\n</body>');
 fs.writeFileSync(`${dir}/sumucity-standalone.html`, full);
 console.log(`${dir}/sumucity-standalone.html`, (fs.statSync(`${dir}/sumucity-standalone.html`).size / 1e6).toFixed(1) + ' MB（地図 ' + maps.length + ' 件を埋め込み）');
 
+// v92：単体版の配布用のまとまり（dist/sumucity-standalone/）。単体版の HTML に、地図データ（ODbL の派生データベース）を
+// そのまま読める JSON として並べて置き、ライセンス文書と案内を添える。HTML に埋め込んだ JSON だけでも ODbL 4.6 の提供にはなるが、
+// 受け取った人が取り出しやすいよう、同じデータをファイルとしても渡す。zip があれば 1 つのファイル（sumucity-standalone.zip）にまとめる
+{
+  const B = `${dir}/sumucity-standalone`;
+  fs.rmSync(B, { recursive: true, force: true }); fs.mkdirSync(`${B}/maps`, { recursive: true });
+  fs.copyFileSync(`${dir}/sumucity-standalone.html`, `${B}/sumucity-standalone.html`);
+  for (const f of maps) fs.copyFileSync(`${dir}/maps/${f}`, `${B}/maps/${f}`);
+  fs.copyFileSync(`${dir}/LICENSE-map-data.md`, `${B}/LICENSE-map-data.md`);
+  fs.writeFileSync(`${B}/はじめにお読みください.txt`, [
+    'スムシティ（単体版）',
+    '',
+    '■ 遊び方',
+    'sumucity-standalone.html をブラウザ（Chrome・Edge・Safari など）で開いてください。サーバーもインターネットも要りません（文字の形はインターネットにつながっているとき、より見やすくなります）。',
+    '',
+    '■ 同梱の地図データについて',
+    'maps フォルダの JSON は、OpenStreetMap のデータから作った地図データ（派生データベース）で、Open Database License（ODbL）1.0 で提供します。',
+    'HTML に埋め込まれているものと同じ内容です。詳しくは LICENSE-map-data.md をお読みください。',
+    '地図データ © OpenStreetMap contributors（https://www.openstreetmap.org/copyright）／標高 国土地理院 標高タイルを加工して作成',
+    '',
+    '■ 地図データ以外（プログラム・3D モデル・音・画面のデザイン）',
+    'ODbL の対象ではありません。ライセンスは LICENSE-map-data.md の末尾の「作品全体のライセンス」をご覧ください。',
+    '',
+  ].join('\r\n'));
+  try { (await import('node:child_process')).execSync(`cd "${dir}" && rm -f sumucity-standalone.zip && zip -qr sumucity-standalone.zip sumucity-standalone`, { stdio: 'ignore' }); console.log(`${dir}/sumucity-standalone.zip`, (fs.statSync(`${dir}/sumucity-standalone.zip`).size / 1e6).toFixed(1) + ' MB（単体版＋地図 JSON＋ライセンス文書）'); }
+  catch { console.log(`${B}/（zip がないのでフォルダのまま）`); }
+}
+
 // 公開版（Claude の artifact）：ページは 16MB までなので、埋め込む地図を絞る（v81）。残りの街は、単体ファイル版か、自前のサーバーに置いた版で遊べる
 const PUB = (process.env.PUB_MAPS ?? 'hodogaya,shibuya,yokohama,umeda').split(',');
 const embP = maps.filter(f => PUB.includes(f.replace(/\.json$/, ''))).map(f => `<script type="application/json" id="sumu-map-${f.replace(/\.json$/, '')}">${fs.readFileSync(`${dir}/maps/${f}`, 'utf8').replace(/</g, '\\u003c')}</script>`).join('\n');

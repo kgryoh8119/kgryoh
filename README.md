@@ -27,6 +27,7 @@ npm run verify     # ブラウザでの実操作検証（要 Playwright と Chro
 |---|---|---|
 | `dist/index.html` ＋ `dist/maps/*.json` | 本体 約 6.7MB（gzip で約 2.1MB）＋地図 1〜2.9MB × 12 | **分割版（ウェブで公開する用）**。地図は選んだものだけを `maps/<id>.json` から取りに行く。`maps/manifest.json`（地図の一覧。小さい）だけは起動時に読む。**サーバー（http）が要る**（`file://` では地図を読めない） |
 | `dist/sumucity-standalone.html` | 約 30.8MB | **単体版（オフライン・配布ファイル用）**。地図 12 件を埋め込み済み。ダブルクリックで開ける。埋め込みの地図は選んだときに初めて解析する |
+| `dist/sumucity-standalone.zip` | 約 24MB | **単体版を人に配るときはこれ（v92）**。単体版の HTML に、地図データの JSON（`maps/`、ODbL の派生データベース）・`LICENSE-map-data.md`・`はじめにお読みください.txt` を添えた zip。中身は `dist/sumucity-standalone/` と同じ |
 | `dist/sumucity-artifact.html` | 約 14.6MB | 公開ページ（Claude の Artifact）用。16MB の上限のため、埋め込む地図を 4 件（保土ケ谷・渋谷・横浜・梅田）に絞る（`PUB_MAPS` で変更） |
 | `dist/sumucity-page.html` | 約 6.6MB | 公開ページ用の断片（地図なし） |
 
