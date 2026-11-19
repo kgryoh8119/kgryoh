@@ -14,7 +14,8 @@ describe('v93 赤字になる対策の注意', () => {
     for (const l of s.ledger) l.operating = -100;
     expect(deficitWarn(s, 50)).toMatch(/いまも毎月の収支が赤字/);
     expect(deficitWarn(s, -50)).toBeUndefined(); // 収入・支出減の対策には出さない
-    s.cash = 1e6; expect(deficitWarn(s, 50)).toBeUndefined(); // 資金が赤字の 3 年分より多ければ出さない
+    s.cash = 1e6; expect(deficitWarn(s, 50)).toBeUndefined(); // 小さな費用で、資金が赤字の 3 年分より多ければ出さない
+    expect(deficitWarn(s, 500)).toBeTruthy(); // 大きな費用は資金があっても出す
   });
   it('12 か月以内に容積を上げたばかりなら、「容積の上限を下げる」候補に注意が付く', () => {
     const s = newGame(); for (let m = 0; m < 2; m++) stepMonth(s);
