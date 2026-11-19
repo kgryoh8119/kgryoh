@@ -123,9 +123,9 @@ import { W, H, TILE, DEFS, isRes, isShop, isCity, fam, floodRisk, getMap, height
 import { realTerrain, realStatic, realRoads, realPaths, drawRealTile, drawRealGround, drawRealStation, drawRealLot, drawRealStore, looksBuiltUp, REAL_CHUNK } from './real';
 import type { GameState, Building, Kind, Layer, MapDef } from '../sim/index';
 import { stationStats } from '../sim/index';
-import { FIC_PREV_W, FIC_PREV_H } from '../sim/config';
-/** v93：広げた土地（76×68 の外）の空き地は、地形の見た目の印（田んぼ・畑・草地・林・空き地のまとまり）で描く。区画ごとの乱数で田畑・草地を選ぶと、上空から市松模様に見えた。印がなければ -1 */
-const extLook = (m: MapDef, x: number, y: number): number => (!REAL && m.deco && terrainOf(m.seed).id !== 'castaway' && (x >= FIC_PREV_W || y >= FIC_PREV_H) ? m.deco[idx(x, y)] : -1);
+import { FIC_PREV_W } from '../sim/config';
+/** v93：架空の街の空き地は（v92 の広い地図では 76×68 の内も）、地形の見た目の印（田んぼ・畑・草地・林・空き地のまとまり）で描く。区画ごとの乱数で田畑・草地を選ぶと、上空から市松模様に見えた。印がなければ -1 */
+const extLook = (m: MapDef, x: number, y: number): number => (!REAL && m.deco && W > FIC_PREV_W && terrainOf(m.seed).id !== 'castaway' ? m.deco[idx(x, y)] : -1);
 import { emPlan, roadRoute, roadNear, emSite, nearestBase, jamLook, stationLook, isRightTurn, EM_VM, EM_BASE, HOSPITALS, type EmKind } from './traffic';
 
 let N = 0, MAPW = 0, MAPH = 0;
@@ -1713,7 +1713,7 @@ export class View {
         g2.surfv = svF;
       } else if (ek === 8 || (ek === 7 && r < 0.18)) {
         const n = ek === 8 ? 4 : 1;
-        for (let k = 0; k < n; k++) { const wx = cx + (hash(x + k, y, 78) - 0.5) * 24, wz = cz + (hash(x, y + k, 79) - 0.5) * 24; c.g.at(wx, heightAt(m, wx, wz) - 0.15, wz); tree(c, 0, 0, 0.9 + hash(x, y + k, 80) * 0.7); }
+        for (let k = 0; k < n; k++) { const wx = cx + (hash(x + k, y, 78) - 0.5) * 24, wz = cz + (hash(x, y + k, 79) - 0.5) * 24; c.g.at(wx, heightAt(m, wx, wz) - 0.15, wz); tree(c, 0, 0, 0.9 + hash(x, y + k, 80) * 0.7, hash(x + k, y, 85) < 0.75 ? 1 : 0); } // 屋敷林は常緑樹が多い（落葉樹ばかりだと、春に林の塊がまとめて桜色になり、上空から白い斑点に見えた）
       }
     } else if (flat && r < (!REAL && y >= 40 ? 0.72 : 0.5) && y < H - 6) { // 田畑（南原は田んぼが多い）
       c.g.at(cx, top, cz);

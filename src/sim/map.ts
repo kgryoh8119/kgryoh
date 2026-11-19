@@ -304,7 +304,7 @@ function extDeco(seed: number, T: string, heights: Float32Array, water: Uint8Arr
     hamlets.push([hx, hy]);
   }
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    if (x < FIC_PREV_W && y < FIC_PREV_H) continue;
+    // v93：はじめの町のまわり（76×68 の内）も同じまとまりで（広げた土地だけ変えると、上空から 76×68 の境目が四角く見えた）。見た目だけの印
     const i = idx(x, y); if (water[i] || forest[i] || steep[i] || deco[i]) continue;
     { let hd = 9; for (const [a, b] of hamlets) hd = Math.min(hd, Math.hypot(x + 0.5 - a, y + 0.5 - b)); if (hd < 2.6) { deco[i] = hash(x, y, seed + 519) < (hd < 1.2 ? 0.25 : 0.6) ? 8 : hd < 1.6 ? 9 : 6; continue; } }
     const hm = (hv(x, y) + hv(x + 1, y) + hv(x, y + 1) + hv(x + 1, y + 1)) / 4;
