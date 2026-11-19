@@ -33,7 +33,7 @@ const modals = async () => { for (let g = 0; g < 8; g++) { if (!(await label()))
 const advance = async n => { for (let i = 0; i < n; i++) { await page.evaluate(() => { const g = window.__sumu.game; g.speed = 3; g.tick(1.0001); g.speed = 0; g.state.pendingElection = null; window.__sumu.ui.refresh(); window.__sumu.ui.renderModal(); }); await modals(); } };
 const panel = async () => { if (await page.evaluate(() => document.getElementById('side').classList.contains('closed'))) await page.click('.tool.panelbtn'); await page.waitForTimeout(250); };
 const tab = async t => { await panel(); await page.click(`#tabs [data-arg="${t}"]`); await page.waitForTimeout(250); };
-try {
+if (!process.env.TITLEONLY) try { // TITLEONLY=1 でタイトル画面だけ
   for (const g of ['wait', 'water', 'fiscal']) await page.click(`#modal [data-act="gpick"][data-arg="${g}"]`);
   await page.click('#modal [data-act="gok"]'); await page.waitForTimeout(300);
   await page.click('#tutorial [data-act="tutskip"]'); await page.waitForTimeout(300); await modals();
