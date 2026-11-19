@@ -1,7 +1,7 @@
 // v90：ゲームループ（loops.ts）の指標と対策を、予測と結果の記録・対策の試算・年次報告（report.ts）につなぐ。
 // 予測の画面と結果の画面が同じ関数（loopIndicators）から指標を出すようにするための、つなぎだけの層。
 import { INDICATORS, LOOPS, loopIndicators, loopOptions, loopOfIssue, expectOf, mainIndicatorOf, optionFit, OPTION_EFFECT, type IndicatorId } from './loops';
-import { registerIndicators, registerIssueIndicators, registerTrialOptions, registerActionIndicators, onIndicatorValues, BASE_INDICATORS } from './report';
+import { registerIndicators, registerIssueIndicators, registerTrialOptions, registerActionIndicators, onIndicatorValues, BASE_INDICATORS, deficitWarn } from './report';
 import type { GameState } from './types';
 
 /** 単位ごとの「ほぼ予測どおり」とみなす幅 */
@@ -32,7 +32,7 @@ registerTrialOptions((s, issue) => { const lp = issue.loop ?? loopOfIssue(issue.
   const loop = LOOPS.find(l => l.id === lp)!, main = mainIndicatorOf(issue.key);
   return loopOptions(s, lp, { expect: false }).filter(o => o.ok).map(o => ({ label: o.label, actions: [o.action], cost: o.cost,
     ...(main ? (() => { const f = optionFit(o.id, main); return { fit: f.v, trade: f.trade || undefined }; })() : {}),
-    warn: o.id === 'upzone' ? housingBlocked(s) || undefined : undefined,
+    warn: (o.id === 'upzone' ? housingBlocked(s) || undefined : undefined) ?? deficitWarn(s, o.monthly), // v93：毎月の収支が赤字になる対策にも注意
     range: () => expectOf(s, lp, o.action, 12).filter(e => !have.has(e.indicator) && (e.lo || e.hi)).map(e => ({ id: e.indicator, lo: e.lo, hi: e.hi })),
     note: [o.monthly ? monthlyText(o.monthly) : '', o.months ? `効くまで ${o.months} か月` : '', `決めるのは${o.authority}`, o.side.length ? `副作用：${o.side.join('、')}` : '', `（${loop.name}の対策）`].filter(Boolean).join('・') })); });
 // v91：政策・建設・更新が効く指標に、ループの対策の向き（OPTION_EFFECT）を足す。保育の待機・道路の混雑率は汎用の指標の名前で

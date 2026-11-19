@@ -322,6 +322,15 @@ export interface TrialOption { label: string; actions: Action[] | null; note: st
   trade?: boolean;
   /** v91：この課題への効き方の短い説明（効果は小さい・財源の選択肢） */
   fitNote?: string }
+/** v93：毎月の費用がかかる対策で、いまの月の収支（直近 6 か月の平均）が赤字になる・赤字が広がるときの注意。
+ *  課題の候補を上から素直に選ぶと、補助・増発の要請・政策が積み重なって毎月の収支が赤字になり、2 期目に一時借入で街が崩れることがあった */
+export function deficitWarn(s: GameState, monthly: number): string | undefined {
+  if (!(monthly > 0)) return undefined;
+  const last = s.ledger.slice(-6), op = last.length ? last.reduce((a, l) => a + l.operating, 0) / last.length : monthlyBudget(s).operating;
+  if (op - monthly >= 0) return undefined;
+  return op < 0 ? `いまも毎月の収支が赤字です（直近の平均 ${Math.round(op).toLocaleString()} 万円）。この対策で毎月 ${Math.round(monthly).toLocaleString()} 万円の支出がさらに増えます。先に収支を立て直すか、ほかの候補を比べてください`
+    : `この対策の毎月 ${Math.round(monthly).toLocaleString()} 万円で、毎月の収支（直近の平均 ${Math.round(op).toLocaleString()} 万円）が赤字になります。ほかの候補も比べてください`;
+}
 /** v91：課題の対策の候補を見せる数（残りは「ほかの候補を見る」に畳む） */
 export const TRIAL_SHOW = 5;
 /** 課題に効く弱い政策（課題の主な指標にほとんど効かないもの） */
@@ -364,7 +373,7 @@ export function trialOptions(s: GameState, issue: Issue): TrialOption[] {
   }
   for (const id of ISSUE_POLICY[issue.key] ?? []) {
     const p = POLICIES.find(x => x.id === id); if (!p || s.policies[id]?.on) continue;
-    out.push({ label: `政策「${p.name}」を始める`, actions: [{ type: 'policy', id, on: true }], note: `月 ${policyCost(s, p)} 万円。効果は ${p.ramp} か月かけて出そろいます`, cost: policyCost(s, p), ...(ISSUE_POLICY_FIT[id] !== undefined ? { fit: ISSUE_POLICY_FIT[id] } : {}) });
+    out.push({ label: `政策「${p.name}」を始める`, actions: [{ type: 'policy', id, on: true }], note: `月 ${policyCost(s, p)} 万円。効果は ${p.ramp} か月かけて出そろいます`, cost: policyCost(s, p), warn: deficitWarn(s, policyCost(s, p)), ...(ISSUE_POLICY_FIT[id] !== undefined ? { fit: ISSUE_POLICY_FIT[id] } : {}) });
   }
   for (const f of TRIAL_SRC) { try { out.push(...f(s, issue)); } catch { /* 足した側の誤りで課題の画面を止めない */ } }
   return rankTrial(out);

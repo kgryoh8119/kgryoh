@@ -148,6 +148,19 @@ try {
   step('「まずこれ」が 1 件に付く', !!first, first ?? '');
   await shot('03-start-issues');
   await metric('開始');
+  // v93：v91 で足した画面（街の 3 つの論点、試算の上位 5 件と「ほかの候補を見る」、注意の常時表示）
+  if (!real) {
+    const topics = await page.$$eval('.ltopics .ltopic h4', e => e.map(x => x.textContent.trim()));
+    step('v91：街の 3 つの論点が 3 件', topics.length === 3, topics.join(' / '));
+    await page.click('.ltopics [data-arg="trial|loop:station"]'); await page.waitForTimeout(400);
+    const vis = await page.$$eval('.ltopics .f90-opt', e => e.filter(x => !x.closest('details.f90-more')).length);
+    const more = await page.$eval('.ltopics', e => e.querySelector('details.f90-more summary')?.textContent ?? '').catch(() => '');
+    step('v91：試算の候補は上位 5 件まで（残りは畳む）', vis <= 5 && vis > 0, `表示 ${vis} 件・${more || '畳んだ候補なし'}`);
+    const warnHidden = await page.$$eval('.f90-warn', e => e.filter(x => !x.offsetParent).length);
+    step('v91：注意（⚠）は「？」を押さなくても見える', warnHidden === 0, `隠れた注意 ${warnHidden} 件`);
+    await page.evaluate(() => document.querySelector('.ltopics')?.scrollIntoView()); await shot('03b-topics-station');
+    await page.click('.ltopics [data-act="ix"][data-arg^="close|"]').catch(() => {});
+  }
 
   // ---------------------------------------------------------------- 2. 序盤：課題①（まずこれ）→ 原因 → 試算 → 実行
   const k1 = keys.includes('care') ? 'care' : keys[0];
@@ -243,6 +256,26 @@ try {
   if (await modalLabel()) await page.keyboard.press('Escape');
   const after2 = await summary();
   step('テキストを貼り付けて読み込むと書き出した時点に戻る', after2 === before, after2.slice(0, 120));
+  // v93：v91（128×112・保存形式の版 2）の保存テキストを読み込んで続きから遊べる（OLDSAVE=scripts/v93-oldsave.ts で作ったテキスト）
+  if (!real && process.env.OLDSAVE) {
+    const old = fs.readFileSync(process.env.OLDSAVE, 'utf8').trim(), oj = JSON.parse(old);
+    const e0 = errors.length;
+    await page.click('[data-act="menu"]'); await page.waitForTimeout(250); await page.click('[data-act="menutab"][data-arg="save"]'); await page.waitForTimeout(250);
+    await page.$eval('#iotext', (e, t) => { e.value = t; }, old);
+    await page.click('#modal [data-act="import"]'); await page.waitForTimeout(1500); await handleModals();
+    if (await modalLabel()) await page.keyboard.press('Escape');
+    const o1 = await page.evaluate(() => { const s = window.__sumu.game.state; return { month: s.month, tiles: s.road.length, W: window.__sumu.W, pop: Math.round(s.stats.pop), b: s.buildings.length }; });
+    step('v91 の保存テキスト（128×112・版 2）を読み込める', o1.month === oj.state.month && o1.tiles === 192 * 168, `${JSON.stringify(o1)}（保存時 ${oj.state.month} か月・${oj.state.road.length} 区画・建物 ${oj.state.buildings.length}）`);
+    await advance(3);
+    const o2 = await page.evaluate(() => { const s = window.__sumu.game.state; return { month: s.month, pop: Math.round(s.stats.pop), cash: Math.round(s.cash), ok: [s.cash, s.stats.pop, s.stats.sat].every(Number.isFinite) }; });
+    await tab('home'); await shot('20b-v91-save-continued');
+    step('v91 の保存から 3 か月続けて遊べる（数値が有限・エラーなし）', o2.month === o1.month + 3 && o2.ok && errors.length === e0, JSON.stringify(o2) + ` エラー ${errors.length - e0}`);
+    // 元の続きに戻す
+    await page.click('[data-act="menu"]'); await page.waitForTimeout(250); await page.click('[data-act="menutab"][data-arg="save"]'); await page.waitForTimeout(250);
+    await page.$eval('#iotext', (e, t) => { e.value = t; }, text);
+    await page.click('#modal [data-act="import"]'); await page.waitForTimeout(800); await handleModals();
+    if (await modalLabel()) await page.keyboard.press('Escape');
+  }
 
   // ---------------------------------------------------------------- 4. 期末：任期末の報告と選挙
   let el = null;

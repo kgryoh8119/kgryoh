@@ -2,6 +2,7 @@
 // 実行：npx esbuild scripts/balance-v93.ts --bundle --platform=node --format=esm --outfile=/tmp/b.mjs && TERR=coast DIFF=normal STRAT=issue N=1 YEARS=8 node /tmp/b.mjs
 // STRAT：auto（autoTurn）／issue（3 か月ごとに今月の課題の上から、試算の候補の先頭で実行できるものを 1 つ）／idle（何もしない）
 import { newGame, stepMonth, dispatch, eventDef, seedForTerrain, monthlyIssues } from '../src/sim/index';
+import { electionOutlook } from '../src/sim/step';
 import { trialOptions } from '../src/sim/report';
 import { autoTurn } from '../src/autoplay';
 import '../src/sim/wire';
@@ -36,6 +37,7 @@ for (let k = 0; k < runs; k++) {
       if (strat === 'auto') autoTurn(s);
       else if (strat === 'issue' && m % 3 === 0) { const r = issueTurn(s); if (r) { acts++; if (env.LOG) log.push(`${m}:${r}`); } }
     } catch (e) { errs++; firstErr ||= (e as Error).message; }
+    if (env.LOG && s.mode === 'term' && s.month + 1 - s.termStart >= s.termLength) { const o = electionOutlook(s); log.push(`選挙前 ${s.month} 見込み ${o.vote.toFixed(1)}：` + o.parts.map(p => `${p.label} ${p.v.toFixed(1)}`).join('／') + ` 資金 ${Math.round(s.cash)}`); }
     try { stepMonth(s); } catch (e) { errs++; firstErr ||= 'step:' + (e as Error).message; }
     for (const e of [...s.events.active]) dispatch(s, { type: 'event', id: e.id, option: eventDef(e.id).options.length - 1 });
     if (s.goalPick) dispatch(s, { type: 'goals', ids: ['wait', 'pop', 'fiscal'] });
