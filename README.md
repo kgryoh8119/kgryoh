@@ -38,7 +38,7 @@ npm run verify     # ブラウザでの実操作検証（要 Playwright と Chro
 | 部分 | ライセンス |
 |---|---|
 | 実在の街の地図データ（`public/maps/*.json`、配布物の `maps/*.json` と HTML に埋め込んだ JSON） | OpenStreetMap からの派生データベース。**ODbL 1.0**、© OpenStreetMap contributors。標高は国土地理院 標高タイルを加工して作成 |
-| 上記以外（プログラム・3D モデル・音・画面） | **© 2026 スムシティの作者. All rights reserved.**（無断での複製・改変・再配布・転載を禁止）。ODbL の対象ではない |
+| 上記以外（プログラム・3D モデル・音・画面） | **© 2026 dr.matree. All rights reserved.**（無断での複製・改変・再配布・転載を禁止）。ODbL の対象ではない |
 | three.js | MIT |
 
 `npm run build` は `dist/LICENSE-map-data.md`（地図データのライセンス・各地図の取得日と範囲・作成方法・入手方法）を作り、同じ本文を各 HTML にも埋め込みます（タイトル「この作品について」→「地図データのライセンス（全文）」）。**配布するときは `LICENSE-map-data.md` を一緒に置いてください。** Mixamo 由来の動き（`src/assets/anim.json`）の扱いと、作者が決めることは [docs/配布前の確認-Mixamo-ODbL.md](docs/配布前の確認-Mixamo-ODbL.md)。

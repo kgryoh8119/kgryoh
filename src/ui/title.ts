@@ -72,7 +72,7 @@ export function chooseMap(): Promise<Choice> {
             <li>実在の地図の道路・鉄道・川・建物・施設の名前と位置：地図データ © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors。同梱の地図データ（実在の街の JSON）は OpenStreetMap からの派生データベースで、<a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">Open Database License（ODbL）1.0</a> で提供します。地図データそのものは、分割版では maps フォルダの JSON、単体版ではページの中に埋め込んだ JSON です（取り出し方と作り方は下の全文・配布物の LICENSE-map-data.md）。</li>
             <li>標高：<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a> 標高タイルを加工して作成。</li>
             <li>地図データ以外（ゲームのプログラム・3D モデル・音・画面）は OpenStreetMap のデータではなく、ODbL の対象ではありません。</li>
-            <li>© 2026 スムシティの作者. All rights reserved.（地図データ以外のプログラム・3D モデル・音・画面のデザイン。無断での複製・改変・再配布・転載を禁じます。地図データは ODbL 1.0、three.js は MIT License、人物の動きの元データは Adobe Mixamo の利用条件に従います）</li>
+            <li>© 2026 dr.matree. All rights reserved.（地図データ以外のプログラム・3D モデル・音・画面のデザイン。無断での複製・改変・再配布・転載を禁じます。地図データは ODbL 1.0、three.js は MIT License、人物の動きの元データは Adobe Mixamo の利用条件に従います）</li>
             <li>3D 描画：<a href="https://threejs.org/" target="_blank" rel="noopener">three.js</a>（MIT）。</li>
             <li>文字：Zen Kaku Gothic New・Barlow Semi Condensed（SIL Open Font License 1.1）。Google Fonts から読み込みます。オフラインや読み込めない場合は、端末の日本語フォントで表示します。</li>
             <li>建物・車・樹木・名所のモデルは作者が Blender で作ったもの、音は Web Audio でその場で合成したもの（音源ファイルなし）です。人の歩く・立つ動きの関節角度は、Adobe Mixamo のアニメーションから取り出した数値を、ゲームの中で人を動かすためだけに使っています（素材としての再配布はしていません）。</li>

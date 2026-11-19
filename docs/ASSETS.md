@@ -75,7 +75,7 @@
 ### ODbL の再配布の手続き（v92 で整備）
 
 - 地図 JSON は OSM からの派生データベースとして ODbL 1.0 で提供する。`npm run build` が `dist/LICENSE-map-data.md` を作り、同じ本文を各 HTML に埋め込む（タイトル「この作品について」→「地図データのライセンス（全文）」）。派生データベースそのものは分割版の `maps/*.json`（単体版では埋め込みの JSON）。
-- 地図データ以外（コード・モデル・音）は ODbL の対象ではない。作品全体（地図データ以外）は「© 2026 スムシティの作者. All rights reserved.」（v92 で作者が決定。`scripts/make-page.mjs` の `WORK_LICENSE`）。
+- 地図データ以外（コード・モデル・音）は ODbL の対象ではない。作品全体（地図データ以外）は「© 2026 dr.matree. All rights reserved.」（v92 で作者が決定。`scripts/make-page.mjs` の `WORK_LICENSE`）。
 - 根拠・判断が分かれる点：[配布前の確認-Mixamo-ODbL.md](配布前の確認-Mixamo-ODbL.md) §2。
 - OSM の利用規約・Overpass API の利用の許容量は、収集時のものを確認していません（**未確認**）。
 
