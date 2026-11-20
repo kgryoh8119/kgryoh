@@ -2,7 +2,7 @@
 // 通行の計算では立体交差の上と下は坂の先でだけつながる。
 import { describe, it, expect } from 'vitest';
 import { newGame, W, H, dispatch, planFlyover, planRoad, planOverpass, planFootbridge, serialize, deserialize, roadInfo, recompute, validateState } from '../src/sim/index';
-import { grade, gradeIssues, FLY_RAMP } from '../src/sim/grade';
+import { grade, gradeIssues, FLY_RAMP, rampSideError } from '../src/sim/grade';
 import { ADJ } from '../src/sim/core';
 import type { GameState } from '../src/sim/index';
 
@@ -72,6 +72,16 @@ describe('v94：立体交差の形', () => {
   });
 });
 
+describe('v94：トンネル', () => {
+  it('トンネルの途中に横から道路をつなげられない（出入口の先ならつなげる）', () => {
+    const s = newGame({ seed: 3 }); s.cash = 1e8; const [X, Y] = space(s, 10, 5);
+    for (let x = X; x <= X + 8; x++) put(s, idx(x, Y + 2), 1);
+    s.tunnel = [idx(X + 3, Y + 2), idx(X + 4, Y + 2), idx(X + 5, Y + 2)]; s.roadVersion++;
+    expect(rampSideError(s, idx(X + 4, Y + 3))).toMatch(/トンネルの途中/);
+    expect(rampSideError(s, idx(X + 1, Y + 3))).toBe('');
+  });
+});
+
 describe('v94：通行の計算（上と下の道）', () => {
   it('高架は別の節点で、坂の先の区画とだけつながる。交差点の区画と高架は直接つながらない', () => {
     const { s, J } = grid([9]);
@@ -93,12 +103,12 @@ describe('v94：古いセーブの不整合', () => {
     put(s, idx(X + 7, Y + 7), 1); s.roadVersion++;
     s.flyover = [idx(X + 5, Y + 6)];          // 坂の途中に脇道（v93 までは置けた）
     s.footbridge = [idx(X + 6, Y + 6)];
-    const r = deserialize(serialize(s)); expect(r.ok).toBe(true);
-    const t = r.state!;
+    const r = deserialize(serialize(s)); if (!r.ok) throw new Error(r.error);
+    const t = r.state;
     expect(t.flyover).toEqual([idx(X + 5, Y + 6)]);
     const L = grade(t); expect(L.flyOk.size).toBe(0); expect(L.flyBad.size).toBe(1);
     expect(gradeIssues(t).join('')).toMatch(/平面交差/);
-    expect(roadInfo(t).n).toBe(t.road.filter(v => v).length); // 高架の節点はない
+    expect(roadInfo(t).n).toBe(t.road.filter((v: number) => v).length); // 高架の節点はない
     expect(validateState(t)).toBeNull();
   });
   it('踏切の陸橋：坂の途中に脇道があれば置けない。形の成り立たない古い陸橋は踏切として扱う', () => {

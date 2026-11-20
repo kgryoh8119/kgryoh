@@ -11,9 +11,11 @@ import fs from 'fs';
 const PRE = process.env.PRE ?? 'after', OUT = process.env.OUT ?? 'docs/shots/v94';
 fs.mkdirSync(OUT, { recursive: true });
 const { browser, page, errors } = await open(1280, 800);
+await page.evaluate(q => { const S = window.__sumu, v = S.view; v.__frame = v.frame; v.frame = () => {}; v.setQuality(q); S.fixedQuality = true; }, process.env.Q ?? 'mid');
+const draw = (n = 1) => page.evaluate(n => { const v = window.__sumu.view; for (let k = 0; k < n; k++) v.__frame.call(v, 0.25); }, n);
 const info = await page.evaluate(() => {
   const S = window.__sumu, g = S.game, s = g.state, W = S.W, H = s.road.length / W;
-  s.tutorial.done = true; s.cash = 5e7;
+  g.act({ type: 'goals', ids: ['wait', 'pop', 'fiscal'] }); s.tutorial.done = true; s.cash = 5e7;
   const idx = (x, y) => y * W + x, free = i => !s.occ[i] && !s.road[i] && !s.rail?.[i];
   const rect = (x0, y0, w, h) => { const t = []; for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) t.push(idx(x, y)); return t; };
   let at = null;
@@ -26,17 +28,18 @@ const info = await page.evaluate(() => {
   s.flyover = [idx(X + 5, Y + 4), idx(X + 14, Y + 4), idx(X + 16, Y + 4)];
   // 陸橋：踏切を探して陸橋にし、隣の区画に脇道を足す
   let ov = -1;
-  for (let i = 0; i < W * H && ov < 0; i++) { const x = i % W, y = (i / W) | 0; if (s.road[i] && s.rail?.[i] && !s.railGrade?.[i] && s.road[idx(x, y - 1)] && s.road[idx(x, y + 1)] && free(idx(x + 1, y - 1)) && free(idx(x + 2, y - 1))) ov = i; }
-  if (ov >= 0) { const x = ov % W, y = (ov / W) | 0; s.overpass = [...new Set([...(s.overpass ?? []), ov])]; put(idx(x + 1, y - 1), 1); put(idx(x + 2, y - 1), 1); }
+  for (let i = 0; i < W * H && ov < 0; i++) { const x = i % W, y = (i / W) | 0; if (s.road[i] && s.rail?.[i] && !s.railGrade?.[i] && s.road[idx(x, y - 1)] && s.road[idx(x, y + 1)] && !s.rail[idx(x, y - 1)] && !s.occ[idx(x + 1, y - 1)] && !s.road[idx(x + 1, y - 1)] && !s.rail[idx(x + 1, y - 1)]) ov = i; }
+  if (ov >= 0) { const x = ov % W, y = (ov / W) | 0; s.overpass = [...new Set([...(s.overpass ?? []), ov])]; put(idx(x + 1, y - 1), 1); }
   s.roadVersion++;
   for (const b of s.buildings) if (b.status === 'construction') { b.status = 'operating'; b.remain = 0; }
   s.bVersion++; S.ui.refresh?.();
+  for (const q of ['#modal', '#panel', '#info', '#tutorial']) { const e = document.querySelector(q); if (e) e.style.display = 'none'; }
   return { X, Y, W, ov, fly: s.flyover };
 });
 console.log(JSON.stringify(info));
 const shot = async (name, tile, d, pitch, yaw) => {
   await page.evaluate(([t, d, p, yw]) => { const v = window.__sumu.view; v.hour = 10.5; v.clockRun = false; v.weatherForce = 'clear'; v.focus(t, d); if (p) v.want.pitch = p; if (yw !== undefined) v.want.yaw = yw; }, [tile, d, pitch, yaw]);
-  await page.waitForTimeout(Number(process.env.WAIT ?? 6000));
+  await draw(Number(process.env.FR ?? 14)); await page.waitForTimeout(300);
   await page.screenshot({ path: `${OUT}/${PRE}-${name}.jpg`, type: 'jpeg', quality: 72 });
 };
 if (!info.err) {

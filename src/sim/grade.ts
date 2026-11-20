@@ -176,6 +176,10 @@ export function rampSideError(s: GameState, i: number): string {
     if (L.flyRamp.has(t)) { const sp = L.spans[L.spanOf.get(t)!]; if (sp.ew === (dy !== 0)) return '立体交差の坂の横には道路をつなげられません（坂の途中は脇道を出せません）'; }
     const o = L.ovpRamp.get(t); if (o !== undefined && L.ovp.get(o)!.ew === (dy !== 0)) return '陸橋の坂の横には道路をつなげられません（坂の途中は脇道を出せません）';
     if (L.ovp.has(t) && L.ovp.get(t)!.ew === (dy !== 0)) return '陸橋の上には道路をつなげられません';
+    // トンネルの途中へ横から入る道は作れない（車が山の横腹に消える）。トンネルの向き＝すでにつながっている道の向き
+    if (has(s.tunnel, t)) { const r = (ex: number, ey: number) => inM(a + ex, b + ey) && ix(a + ex, b + ey) !== i && !!s.road[ix(a + ex, b + ey)];
+      const ew = r(1, 0) || r(-1, 0), ns = r(0, 1) || r(0, -1);
+      if ((dy !== 0 && ew && !ns) || (dx !== 0 && ns && !ew)) return 'トンネルの途中に横から道路をつなげられません（つなぐのはトンネルの出入口の先で）'; }
   }
   return '';
 }
