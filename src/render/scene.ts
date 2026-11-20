@@ -108,6 +108,7 @@ import { FX, glowTex } from './fx';
 import { buildRailPaths, drawRailPaths, railAt, SHIN_LINES, shinDeckY, RAIL_LM, type RailPath, type Gate, type StationSpot } from './rails';
 import { Landmarks, type LmItem } from './landmarks';
 import { roadKitMat, roadTile, face, RK } from './roadkit';
+import { roadBase, hasXw } from './roadbase';
 import { drawPowerLines, drawUtilities, kyodokoTiles, infraKey, pipeReach, pipeOverlay } from './infra'; // v87
 import { makeTrains, TRAIN_PART as TK_PART, FAMS, CAR_DIM, famColor, type TrainFam } from './trainkit'; // v88
 /** 列車 1 編成の走り（v88：速さ v・止まる位置 stopAt・ドア・車種 fam） */
@@ -1074,8 +1075,11 @@ export class View {
       this.roadTiles.push(i); this.roadW.push(0.3 + Math.min(2, s.vc[i]));
       if (t !== 3) this.pedTiles.push(i);
       if (REAL && m.fixedRoad![i]) continue; // 実在の道路は線で描いた。新しく引いた道路だけ区画の形で描く
-      const wideT = wideS.has(i), hw = hwAt(x, y), cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE;
       const cE = this.roadConn(s, x, y, 1, 0), cW = this.roadConn(s, x, y, -1, 0), cS = this.roadConn(s, x, y, 0, 1), cN = this.roadConn(s, x, y, 0, -1);
+      // v95：交差点の区画は、つながる道のうち一番広い道の幅と等級で描く（狭い道の区画に広い道が入ると、交差点の中で広い道が細くなっていた）
+      let hw = hwAt(x, y), tR: number = t, wideT = wideS.has(i);
+      if ((cE ? 1 : 0) + (cW ? 1 : 0) + (cS ? 1 : 0) + (cN ? 1 : 0) >= 3) for (const [c, dx, dy] of [[cE, 1, 0], [cW, -1, 0], [cS, 0, 1], [cN, 0, -1]] as const) if (c) { const j = idx(x + dx, y + dy); hw = Math.max(hw, hwAt(x + dx, y + dy)); tR = Math.max(tR, s.road[j]); if (wideS.has(j)) wideT = true; }
+      const cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE;
       const aE = cE ? Math.min(hw, hwAt(x + 1, y)) : 0, aW = cW ? Math.min(hw, hwAt(x - 1, y)) : 0, aS = cS ? Math.min(hw, hwAt(x, y + 1)) : 0, aN = cN ? Math.min(hw, hwAt(x, y - 1)) : 0;
       const nConn = (cE ? 1 : 0) + (cW ? 1 : 0) + (cS ? 1 : 0) + (cN ? 1 : 0);
       if (this.deckH.has(i) && this.drawDeck(s, g, i, x, y, hw, cE, cW, cS, cN)) continue;
@@ -1096,28 +1100,16 @@ export class View {
       }
       // v86：アスファルトの色は老朽度で連続的に変える（新しい道は黒く、古い道は白っぽく）。区画ごとに舗装し直した年が違うように、明るさを少しずらす
       const age = s.roadAge[i] ?? 0, ak = Math.min(1, age / 85), old = age > 70, asph = t === 3 ? mixHex(0x2b2e32, 0x54524d, ak) : mixHex(0x2f3236, 0x56544f, ak), tv = 1 + (hash(x, y, 11) - 0.5) * 0.07;
-      const stone = stStone.has(i), kerbless = t === 1 && !stone && !stTree.has(i), school = kerbless && schoolNear(x, y); // 生活道路：段差の歩道はなく、白線の外が路側帯（学校の近くは緑に塗る）
+      const stone = stStone.has(i), kerbless = tR === 1 && !stone && !stTree.has(i), school = kerbless && schoolNear(x, y); // 生活道路：段差の歩道はなく、白線の外が路側帯（学校の近くは緑に塗る）
       // 曲がり角（2 方向だけ、直角につながる区画）は、円弧の道にする
       const bend = nConn === 2 && !!(cE || cW) && !!(cS || cN) && !this.deckH.has(i) ? [cE ? 1 : -1, cS ? 1 : -1] as const : null;
       const bendA = bend ? Math.min(cE ? aE : aW, cS ? aS : aN) : 0;
-      const CELL = bend ? 1.25 : 2.5, nc = TILE / CELL, Wd = hw + SW;
-      for (let cj = 0; cj < nc; cj++) for (let ci = 0; ci < nc; ci++) {
-        const u = -15 + CELL * (ci + 0.5), v = -15 + CELL * (cj + 0.5), au = Math.abs(u), av = Math.abs(v);
-        const aX = u > 0 ? aE : aW, aZ = v > 0 ? aS : aN;
-        let isA: boolean, isW: boolean;
-        if (bend) { const r = Math.hypot(u - bend[0] * 15, v - bend[1] * 15); isA = Math.abs(r - 15) < bendA; isW = !isA && Math.abs(r - 15) < bendA + SW; }
-        else {
-          isA = (au < hw && av < hw) || (aX > 0 && av < aX) || (aZ > 0 && au < aZ);
-          isW = !isA && ((au < Wd && av < Wd) || (aX > 0 && av < aX + SW) || (aZ > 0 && au < aZ + SW));
-        }
-        if (!isA && !isW) continue;
-        const X0 = cx + u - CELL / 2, X1 = X0 + CELL, Z0 = cz + v - CELL / 2, Z1 = Z0 + CELL, o = isA || kerbless ? 0.1 : 0.2;
-        const hc = hash(x * 12 + ci, y * 12 + cj, 5), sh = (isA || kerbless ? (old ? 0.93 + hc * 0.12 : 0.97 + hc * 0.06) : 0.96 + hash(x * 12 + ci, y * 12 + cj, 6) * 0.08) * (isA || kerbless ? tv : 1);
-        const brick = ((x * 12 + ci) + (y * 12 + cj)) % 2 === 0; // 石畳：車道は灰色の石、歩道はれんが色の市松
-        // 歩道：幹線はインターロッキング（2 色の平板を区画ごとに決まった並びで）、2 車線は灰色の平板
-        const pave = t === 3 || wideT ? [0xb7ab98, 0xa89c8a, 0xc2b6a2, 0x9d958a][((hc * 7) | 0) % 4] : [0xbab6ad, 0xb0aca3][((hc * 3) | 0) % 2];
-        g.quad([X0, hA(X0, Z1) + o, Z1], [X1, hA(X1, Z1) + o, Z1], [X1, hA(X1, Z0) + o, Z0], [X0, hA(X0, Z0) + o, Z0], isA ? (stone ? (t === 1 ? 0x8d877c : 0x55524c) : asph) : stone ? (brick ? 0xae9888 : 0xbca898) : kerbless ? (school ? 0x3d7f55 : mixHex(asph, 0x6b675f, 0.12)) : pave, sh);
-      }
+      const Wd = hw + SW;
+      // v95：路面・歩道（路側帯）・縁石・隅切り・切り下げ（render/roadbase.ts）。歩道の幅は等級によらず SW で一定、交差点の角は円弧
+      roadBase({ g, cx, cz, hw, aE, aW, aS, aN, nConn, kerbless, stone, school, xw: hasXw(tR, stone, x, y, nConn), fine: fineR, hA, asph, shade: tv,
+        pave: (k: number) => { const hc = hash(x * 12 + k, y * 12, 5); return tR === 3 || wideT ? [0xb7ab98, 0xa89c8a, 0xc2b6a2, 0x9d958a][((hc * 7) | 0) % 4] : [0xbab6ad, 0xb0aca3][((hc * 3) | 0) % 2]; },
+        lowArm: (dx: number, dz: number) => { const xx = x + dx, yy = y + dz; if (!inMap(xx, yy)) return false; const j = idx(xx, yy); return s.road[j] === 1 && !stStone.has(j) && !stTree.has(j); },
+        bend, bendA });
       // 走行中給電の道路：車線の真ん中に、給電コイルの青い線
       if (stCharge.has(i) && !bend) { const ew2 = !!(cE || cW); for (const o of [-Wd * 0.62, -Wd * 0.25, Wd * 0.25, Wd * 0.62]) { const wx = cx + (ew2 ? 0 : o), wz = cz + (ew2 ? o : 0); g.at(0, hA(wx, wz) + 0.06, 0); g.box(wx, 0, wz, ew2 ? TILE : 0.32, 0.02, ew2 ? 0.32 : TILE, 0x3ad0e8); } g.at(0, 0, 0); }
       // 並木道：両側の歩道に街路樹（交差点の中は植えない）
@@ -1140,7 +1132,7 @@ export class View {
         for (let k = 0; k <= 24; k++) { const a = (k / 24) * Math.PI / 2; for (const off of [-(bendA - 0.3), bendA - 0.3]) dot(a, 15 + off, 0.09, 0xdcdcd8); if (t >= 2 && k % 4 < 2) dot(a, 15, 0.12, t === 3 ? 0xf2c230 : 0xeeeeea); }
       }
       // v86：路面標示（等級・幅・交差点の形ごと）、縁石・側溝・植樹帯・ガードパイプ・信号機・標識（render/roadkit.ts）
-      if (!bend) roadTile({ g, kit, s, i, x, y, t, cx, cz, hw, Wd, aE, aW, aS, aN, nConn, kerbless, stone, wide: wideT, ak, hA, mark, sig: sig[i] === 1, fine: fineR, hi: hiR, conn: connAt, lamps: lampPos, sigs: sigPos });
+      if (!bend) roadTile({ g, kit, s, i, x, y, t: tR, cx, cz, hw, Wd, aE, aW, aS, aN, nConn, kerbless, stone, wide: wideT, ak, hA, mark, sig: sig[i] === 1, fine: fineR, hi: hiR, conn: connAt, lamps: lampPos, sigs: sigPos });
       // 電柱・街灯
       const ew = !!(cE || cW), ns = !!(cS || cN);
       const px = cx + (ns ? -(Wd - 0.6) : 0), pz = cz + (ew ? -(Wd - 0.6) : (ns ? 0 : -(Wd - 0.6)));
