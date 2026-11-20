@@ -1,6 +1,6 @@
 // 3D 表示。GameState を読むだけで、書き換えない。経営の更新（月次）と描画の更新（毎フレーム）は別。
 import * as THREE from 'three';
-import { Geo } from './geo';
+import { Geo, type V3 } from './geo';
 import { People, makeLook, pickType, strideOf, seeded, calMonth, RAIN_EVENTS, ACC, type Look, type PType , PEOPLE_TIME } from './people';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -124,6 +124,7 @@ import { realTerrain, realStatic, realRoads, realPaths, drawRealTile, drawRealGr
 import type { GameState, Building, Kind, Layer, MapDef } from '../sim/index';
 import { stationStats } from '../sim/index';
 import { makeShore, buildShoreWater, seaColors } from './shore';
+import { warpTile, field, clipPoly } from './soft';
 import { FIC_PREV_W } from '../sim/config';
 import { grade, FLY_H, FLY_RAMP, OVP_H, OVP_RAMP } from '../sim/grade'; // v94：立体の道路の形（sim と同じ答え）
 /** v93：架空の街の空き地は（v92 の広い地図では 76×68 の内も）、地形の見た目の印（田んぼ・畑・草地・林・空き地のまとまり）で描く。区画ごとの乱数で田畑・草地を選ぶと、上空から市松模様に見えた。印がなければ -1 */
@@ -632,7 +633,7 @@ export class View {
 
   // ---- v70：田んぼ（田園・山あい・盆地の空き地）。季節で水→緑→金→刈り跡と色が変わる ----
   private paddy: THREE.Mesh | null = null; private paddyAze: THREE.Mesh | null = null; private paddyKey = ''; private paddyWait = 0;
-  private matPaddy = new THREE.MeshStandardMaterial({ color: 0x6faa48, roughness: 0.85, metalness: 0 });
+  private matPaddy = new THREE.MeshStandardMaterial({ color: 0x6faa48, vertexColors: true, roughness: 0.85, metalness: 0 }); // v95：頂点色で田ごとの色の違い
   private updatePaddy(s: GameState, dt: number): void {
     if (REAL || !this.map.deco) return;
     const key = `${s.bVersion}:${s.roadVersion}:${this.map.seed}`;
@@ -648,17 +649,34 @@ export class View {
     const m = this.map, deco = m.deco!, occ = new Uint8Array(W * H);
     for (const b of s.buildings) for (let dy = 0; dy < b.h; dy++) for (let dx = 0; dx < b.w; dx++) if (inMap(b.x + dx, b.y + dy)) occ[idx(b.x + dx, b.y + dy)] = 1;
     const sg = new Geo(), ag = new Geo(), h = (x: number, z: number) => heightAt(m, x, z);
+    // v95：まとまりの境は、田を境の曲線（soft.ts の field）で欠く。田の大きさは区画ごとにずらし、田ごとに色を少し変える。
+    // 斜面（区画の中で 1.2m 以上の高低差）は、等高線に沿う細長い 3 枚の田にし、田の面を水平に（下側に土手の面）＝棚田
+    const ind = (i: number) => (deco[i] === 2 && !occ[i] && !s.road[i] && !s.rail?.[i] && !m.water[i] && !m.forest[i] ? 1 : 0);
+    const AZ = 0x7d8a52, BANK = 0x7a7350, r = 0.7, ins = 0.7 / TILE;
+    const aze = (P: [number, number][], ys: number[]) => { // 田の縁のあぜ（外へ r の帯。角は辺の向きに r 延ばして埋める）
+      for (let k = 0; k < P.length; k++) { const a = P[k], b = P[(k + 1) % P.length], ya = ys[k], yb = ys[(k + 1) % P.length];
+        const dx = (b[0] - a[0]) * TILE, dz = (b[1] - a[1]) * TILE, L = Math.hypot(dx, dz); if (L < 0.05) continue; const ux = dx / L, uz = dz / L, ox = -uz * r, oz = ux * r;
+        const A: V3 = [a[0] * TILE, ya, a[1] * TILE], B: V3 = [b[0] * TILE, yb, b[1] * TILE];
+        ag.quad([A[0] - ux * r + ox, ya + 0.18, A[2] - uz * r + oz], [B[0] + ux * r + ox, yb + 0.18, B[2] + uz * r + oz], [B[0], yb + 0.18, B[2]], [A[0], ya + 0.18, A[2]], AZ);
+        const ga = h(A[0] + ox, A[2] + oz), gb = h(B[0] + ox, B[2] + oz); // 棚田の土手（田の面が地面より上の所だけ）
+        if (ya - ga > 0.3 || yb - gb > 0.3) ag.quad([B[0] + ux * r + ox, yb + 0.18, B[2] + uz * r + oz], [A[0] - ux * r + ox, ya + 0.18, A[2] - uz * r + oz], [A[0] - ux * r + ox, ga - 0.3, A[2] - uz * r + oz], [B[0] + ux * r + ox, gb - 0.3, B[2] + uz * r + oz], BANK, 0.85);
+      } };
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const i = idx(x, y); if (deco[i] !== 2 || occ[i] || s.road[i] || s.rail?.[i] || m.water[i] || m.forest[i]) continue;
-      // 1 区画を 2×2 の田に分け、あぜ道で囲む
-      for (let q = 0; q < 4; q++) {
-        const x0 = (x + (q & 1) * 0.5) * TILE + 0.7, z0 = (y + (q >> 1) * 0.5) * TILE + 0.7, x1 = x0 + TILE / 2 - 1.4, z1 = z0 + TILE / 2 - 1.4, e = 0.14;
-        sg.quad([x0, h(x0, z1) + e, z1], [x1, h(x1, z1) + e, z1], [x1, h(x1, z0) + e, z0], [x0, h(x0, z0) + e, z0], 0xffffff);
-        const r = 0.7, ry = 0.32, col = 0x7d8a52;
-        ag.quad([x0 - r, h(x0, z0) + ry, z0], [x1 + r, h(x1, z0) + ry, z0], [x1 + r, h(x1, z0) + ry, z0 - r], [x0 - r, h(x0, z0) + ry, z0 - r], col);
-        ag.quad([x0 - r, h(x0, z1) + ry, z1 + r], [x1 + r, h(x1, z1) + ry, z1 + r], [x1 + r, h(x1, z1) + ry, z1], [x0 - r, h(x0, z1) + ry, z1], col);
-        ag.quad([x0 - r, h(x0, z1) + ry, z1], [x0, h(x0, z1) + ry, z1], [x0, h(x0, z0) + ry, z0], [x0 - r, h(x0, z0) + ry, z0], col);
-        ag.quad([x1, h(x1, z1) + ry, z1], [x1 + r, h(x1, z1) + ry, z1], [x1 + r, h(x1, z0) + ry, z0], [x1, h(x1, z0) + ry, z0], col);
+      const i = idx(x, y); if (!ind(i)) continue;
+      const edge = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].some(([a, b]) => inMap(x + a, y + b) && !ind(idx(x + a, y + b)));
+      const X0 = x * TILE, Z0 = y * TILE, gx = (h(X0 + TILE, Z0) + h(X0 + TILE, Z0 + TILE) - h(X0, Z0) - h(X0, Z0 + TILE)) / 2, gz = (h(X0, Z0 + TILE) + h(X0 + TILE, Z0 + TILE) - h(X0, Z0) - h(X0 + TILE, Z0)) / 2;
+      const terr = Math.max(Math.abs(gx), Math.abs(gz)) > 1.2, rects: [number, number, number, number][] = [];
+      if (terr) { const c1 = 0.3 + 0.08 * (hash(x, y, 91) - 0.5), c2 = 0.66 + 0.08 * (hash(x, y, 92) - 0.5); // 等高線に沿う 3 枚（勾配の向きに並べる）
+        for (const [a, b] of [[0, c1], [c1, c2], [c2, 1]]) rects.push(Math.abs(gx) > Math.abs(gz) ? [x + a, y, x + b, y + 1] : [x, y + a, x + 1, y + b]); }
+      else { const sx = 0.5 + 0.22 * (hash(x, y, 93) - 0.5), sz = 0.5 + 0.22 * (hash(x, y, 94) - 0.5); // 2×2（しきりの位置を区画ごとにずらす）
+        for (const [a0, a1] of [[0, sx], [sx, 1]]) for (const [b0, b1] of [[0, sz], [sz, 1]]) rects.push([x + a0, y + b0, x + a1, y + b1]); }
+      for (const [u0, v0, u1, v1] of rects) {
+        let P: [number, number][] = [[u0 + ins, v1 - ins], [u1 - ins, v1 - ins], [u1 - ins, v0 + ins], [u0 + ins, v0 + ins]];
+        if (edge) { P = clipPoly(P, P.map(([u, v]) => field(ind, u, v))); if (P.length < 3) continue; }
+        const g0 = P.map(([u, v]) => h(u * TILE, v * TILE)), flatY = Math.max(...g0) + 0.14, ys = terr ? P.map(() => flatY) : g0.map(v => v + 0.14);
+        const t = hash(Math.floor(u0 * 7), Math.floor(v0 * 7), 95), gy = Math.round(255 * (0.84 + 0.13 * t)), col = ((gy + 6) << 16) | (gy << 8) | (gy - (t > 0.7 ? 10 : 0)); // 田ごとの明るさ（0〜255 に収める）
+        for (let k = 1; k + 1 < P.length; k++) sg.tri([P[0][0] * TILE, ys[0], P[0][1] * TILE], [P[k][0] * TILE, ys[k], P[k][1] * TILE], [P[k + 1][0] * TILE, ys[k + 1], P[k + 1][1] * TILE], col);
+        aze(P, ys);
       }
     }
     if (!sg.pos.length) return;
@@ -672,6 +690,7 @@ export class View {
     this.landObjs = [];
     const m = this.map, SUB = 3, nx = W * SUB, nz = H * SUB, st0 = this.getState();
     const shore = makeShore(m); // v94：岸をなめらかな曲線に
+    const SOFT = [0, 2, 6, 7, 8, 9], softOn = !!m.deco && !REAL, softT = (i: number) => !m.water[i] && !m.sand?.[i] && !m.wet?.[i] && !m.dug?.[i] && !m.desert?.[i] && !m.snow?.[i] && !(m.steep[i] && m.base) && SOFT.includes(m.deco?.[i] ?? 0);
     const pos = new Float32Array((nx + 1) * (nz + 1) * 3), col = new Float32Array((nx + 1) * (nz + 1) * 3);
     const c = new THREE.Color(), c2 = new THREE.Color();
     // 掘割の線路：区画の地面を掘り下げる（見た目だけ）
@@ -687,7 +706,8 @@ export class View {
       // v93：頂点ごとの乱数（遠景で細かいざらつきに見える）を弱め、大きなむらを足す
       const n = vnoise(i / SUB, j / SUB, 14, 93) * 0.3 + vnoise(i / SUB, j / SUB, 5, 91) * 0.4 + vnoise(i / SUB, j / SUB, 1.4, 17) * 0.24 + hash(i, j, 17) * 0.06;
       c.setHex(0x6c9a52).lerp(c2.setHex(0x86b160), n);
-      const tx = Math.min(W - 1, Math.floor(x / TILE)), tz = Math.min(H - 1, Math.floor(z / TILE)), ti = idx(tx, tz);
+      const tx = Math.min(W - 1, Math.floor(x / TILE)), tz = Math.min(H - 1, Math.floor(z / TILE)); let ti = idx(tx, tz);
+      if (softOn) { const wi = warpTile(x / TILE, z / TILE); if (wi !== ti && softT(ti) && softT(wi)) ti = wi; } // v95：林・田畑・草地の境は、引く区画をノイズでずらして、格子の階段でなく、くねる境に
       if (m.forest[ti]) c.lerp(c2.setHex(0x4f7f45), 0.6);
       if (m.steep[ti] && !m.forest[ti] && m.base) c.lerp(c2.setHex(0x8a7a66), 0.55); // 造作した崖・急斜面は岩肌
       { const dc = m.deco?.[ti]; // v70：地形の見た目の印
@@ -721,9 +741,10 @@ export class View {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = idx(x, y);
       if (!m.forest[i]) continue;
-      const n = y >= H - 6 ? 2 : 5;
+      const n = y >= H - 6 ? 2 : 5, edge = !REAL && [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].some(([a, b]) => inMap(x + a, y + b) && !m.forest[idx(x + a, y + b)]);
       for (let k = 0; k < n; k++) {
         const wx = (x + hash(x * 7 + k, y, 3)) * TILE, wz = (y + hash(x, y * 5 + k, 4)) * TILE;
+        if (edge && field(j => m.forest[j], wx / TILE, wz / TILE) < 0.3 + 0.45 * hash(x + k, y * 3, 7)) continue; // v95：林の縁は木をまばらに（境の曲線の外は描かない）
         tg.at(wx, heightAt(m, wx, wz) - 0.2, wz); tree(cx, 0, 0, 1.2 + hash(x + k, y, 5) * 0.9, hash(x, y + k, 6) < 0.45 ? 1 : 0);
       }
     }
@@ -1654,7 +1675,7 @@ export class View {
             for (const [qx, qz] of [[-7.1, 5.9], [7.1, 5.9], [-7.1, -8.3], [7.1, -8.3]]) { const r = RF[(b.id + Math.round(qx + qz)) & 3]; lg.box(qx, 0, qz, 7.6, 5.5, 6.4, col, col); lg.gable(qx, 5.5, qz, 7.6, 6.4, 1.9, r, 'x', col, 0.4); }
           } else lg.box(0, 0, 0, Math.max(4, b.w * TILE - 6), fam(b.kind) === 'park' ? 0.4 : hh, Math.max(4, b.h * TILE - 6), col, isRes(b.kind) ? 0x8a6a5a : undefined); }
         for (let y = Math.max(2, cy0); y < Math.min(H - 4, cy0 + CH); y++) for (let x = cx0; x < Math.min(W, cx0 + CH); x++) { const i = idx(x, y); if (s.road[i] || s.occ[i] || !buildable(m, i)) continue; const r = hash(x, y, 77), cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE, top = heightAt(m, cx, cz);
-          const ek = extLook(m, x, y); if (s.zone[i]) { lg.at(cx, top, cz); lg.box(0, -2, 0, 27, 2.05, 27, 0xa8997c); } else if (ek >= 0) { if (ek === 6 && y < H - 6) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, hash(Math.floor(x / 3), y >> 1, 31) < 0.5 ? 0x7a7a4c : 0x6a8a46); } } else if (r < (y >= 40 ? 0.72 : 0.5) && y < H - 6 && !(m.sand?.[i] || m.desert?.[i] || m.snow?.[i])) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, r < 0.3 ? 0x8cbc5c : 0x5f9445); } }
+          const ek = extLook(m, x, y); if (s.zone[i]) { lg.at(cx, top, cz); lg.box(0, -2, 0, 27, 2.05, 27, 0xa8997c); } else if (ek >= 0) { if (ek === 6 && y < H - 6 && ![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => inMap(x + a, y + b) && m.deco![idx(x + a, y + b)] !== 6)) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, hash(Math.floor(x / 3), y >> 1, 31) < 0.5 ? 0x7a7a4c : 0x6a8a46); } } else if (r < (y >= 40 ? 0.72 : 0.5) && y < H - 6 && !(m.sand?.[i] || m.desert?.[i] || m.snow?.[i])) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, r < 0.3 ? 0x8cbc5c : 0x5f9445); } }
         if (lg.pos.length) { const lm = new THREE.Mesh(lg.build(false), LOD_MAT); lm.receiveShadow = true; lm.visible = false; this.scene.add(lm); this.chunkLow.set(k, lm); } }
       // v92：空き地だけの塊で、いまカメラから遠いものは、細かい版を後で（近づいたとき）作る
       if (!(blds.get(k)?.length) && arr.every(v => v === 'z0') && this.chunkLow.has(k)) {
@@ -1767,12 +1788,17 @@ export class View {
       if (ek === 6 && flat && y < H - 6) {
         c.g.at(cx, top, cz); const g2 = c.g, svF = g2.surfv; g2.surfv = -2;
         const crops = [0x4f8a3c, 0x6aa352, 0x8fb04a, 0x5c9a4a], pr = hash(Math.floor(x / 3), y >> 1, 31), crop = crops[Math.floor(pr * 4) % 4], bare = pr < 0.3;
-        g2.box(0, -3, 0, 30, 3.04, 30, 0x8d8468, 0x7a6348);
-        for (let k = 0; k < 11; k++) { const z = -12.5 + k * 2.5; g2.box(0, 0.04, z, 29, 0.22, 1.5, 0x6f593f, 0x7d6649); if (!bare) g2.box(0, 0.26, z, 28, 0.3, 0.8, crop); }
+        const dd = m.deco!, ind6 = (j: number) => (dd[j] === 6 ? 1 : 0), e6 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].some(([a, b]) => inMap(x + a, y + b) && dd[idx(x + a, y + b)] !== 6);
+        if (!e6) { g2.box(0, -3, 0, 30, 3.04, 30, 0x8d8468, 0x7a6348); for (let k = 0; k < 11; k++) { const z = -12.5 + k * 2.5; g2.box(0, 0.04, z, 29, 0.22, 1.5, 0x6f593f, 0x7d6649); if (!bare) g2.box(0, 0.26, z, 28, 0.3, 0.8, crop); } }
+        else for (let k = 0; k < 11; k++) { // v95：畑のまとまりの縁は、土台の箱をやめ、うねを境の曲線までの長さに（区画の四角い輪郭を出さない）
+          const z = -12.5 + k * 2.5; let a0 = 99, a1 = -99; for (let t = 0; t <= 8; t++) { const lx = -14.5 + t * 29 / 8; if (field(ind6, (cx + lx) / TILE, (cz + z) / TILE) >= 0.5) { a0 = Math.min(a0, lx); a1 = Math.max(a1, lx); } }
+          if (a1 - a0 < 3) continue; g2.box((a0 + a1) / 2, 0.04, z, a1 - a0, 0.22, 1.5, 0x6f593f, 0x7d6649); if (!bare) g2.box((a0 + a1) / 2, 0.26, z, a1 - a0 - 1, 0.3, 0.8, crop); }
         g2.surfv = svF;
       } else if (ek === 8 || (ek === 7 && r < 0.18)) {
-        const n = ek === 8 ? 4 : 1;
-        for (let k = 0; k < n; k++) { const wx = cx + (hash(x + k, y, 78) - 0.5) * 24, wz = cz + (hash(x, y + k, 79) - 0.5) * 24; c.g.at(wx, heightAt(m, wx, wz) - 0.15, wz); tree(c, 0, 0, 0.9 + hash(x, y + k, 80) * 0.7, hash(x + k, y, 85) < 0.75 ? 1 : 0); } // 屋敷林は常緑樹が多い（落葉樹ばかりだと、春に林の塊がまとめて桜色になり、上空から白い斑点に見えた）
+        const n = ek === 8 ? 4 : 1, dd = m.deco!, e8 = ek === 8 && [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].some(([a, b]) => inMap(x + a, y + b) && dd[idx(x + a, y + b)] !== 8);
+        for (let k = 0; k < n; k++) { const wx = cx + (hash(x + k, y, 78) - 0.5) * (e8 ? 30 : 24), wz = cz + (hash(x, y + k, 79) - 0.5) * (e8 ? 30 : 24);
+          if (e8 && field(j => (dd[j] === 8 ? 1 : 0), wx / TILE, wz / TILE) < 0.3 + 0.45 * hash(x + k, y, 77)) continue; // v95：林の縁は木をまばらに、境の曲線の外は描かない
+          c.g.at(wx, heightAt(m, wx, wz) - 0.15, wz); tree(c, 0, 0, 0.9 + hash(x, y + k, 80) * 0.7, hash(x + k, y, 85) < 0.75 ? 1 : 0); } // 屋敷林は常緑樹が多い（落葉樹ばかりだと、春に林の塊がまとめて桜色になり、上空から白い斑点に見えた）
       }
     } else if (flat && r < (!REAL && y >= 40 ? 0.72 : 0.5) && y < H - 6) { // 田畑（南原は田んぼが多い）
       c.g.at(cx, top, cz);
