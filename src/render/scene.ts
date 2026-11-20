@@ -1684,7 +1684,8 @@ export class View {
           } else lg.box(0, 0, 0, Math.max(4, b.w * TILE - 6), fam(b.kind) === 'park' ? 0.4 : hh, Math.max(4, b.h * TILE - 6), col, isRes(b.kind) ? 0x8a6a5a : undefined); }
         for (let y = Math.max(2, cy0); y < Math.min(H - 4, cy0 + CH); y++) for (let x = cx0; x < Math.min(W, cx0 + CH); x++) { const i = idx(x, y); if (s.road[i] || s.occ[i] || !buildable(m, i)) continue; const r = hash(x, y, 77), cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE, top = heightAt(m, cx, cz);
           const ek = extLook(m, x, y); if (s.zone[i]) { lg.at(cx, top, cz); lg.box(0, -2, 0, 27, 2.05, 27, 0xa8997c); } else if (ek >= 0) { /* v95：遠くの畑は箱を置かない（地面の色が 3×2 区画の畑ごとの土と作物の色で、境はノイズでくねる。箱の四角い輪郭が上空から格子に見えた） */ } else if (r < (y >= 40 ? 0.72 : 0.5) && y < H - 6 && !(m.sand?.[i] || m.desert?.[i] || m.snow?.[i])) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, r < 0.3 ? 0x8cbc5c : 0x5f9445); } }
-        if (lg.pos.length) { const lm = new THREE.Mesh(lg.build(false), LOD_MAT); lm.receiveShadow = true; lm.visible = false; this.scene.add(lm); this.chunkLow.set(k, lm); } }
+        if (!lg.pos.length) { lg.at((cx0 + CH / 2) * TILE, -60, (cy0 + CH / 2) * TILE); lg.box(0, 0, 0, 0.01, 0.01, 0.01, 0x000000); } // v95：遠くの畑の箱をやめて空になった塊も、簡略版を持たせる（持たないと、遠くの空き地の塊を後で作る工夫が効かず、細かい版をすぐ作って面が増えた）
+        { const lm = new THREE.Mesh(lg.build(false), LOD_MAT); lm.receiveShadow = true; lm.visible = false; this.scene.add(lm); this.chunkLow.set(k, lm); } }
       // v92：空き地だけの塊で、いまカメラから遠いものは、細かい版を後で（近づいたとき）作る
       if (!(blds.get(k)?.length) && arr.every(v => v === 'z0') && this.chunkLow.has(k)) {
         const cam = this.camera.position, ccx = ((k % NCX) + 0.5) * CH * TILE, ccz = (Math.floor(k / NCX) + 0.5) * CH * TILE, lim = (this.quality === 'high' ? 1800 : this.quality === 'mid' ? 1100 : 650) * (this.lite ? 0.6 : 1);
