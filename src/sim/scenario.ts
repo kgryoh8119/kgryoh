@@ -1,7 +1,7 @@
 // 初期シナリオ「駅前開発で子育て世帯が増える郊外都市」
 import { onMapChange } from './real';
 import { W, H, P, DEFS, POLICIES, NEIGHBOR_SEED, isRes, FIC_PREV_W } from './config';
-import { getMap, idx, buildable, hash, inMap, NEIGH, syncTerrain, terrainOf, terrainIx, isCastaway } from './map';
+import { getMap, idx, buildable, hash, inMap, NEIGH, syncTerrain, terrainOf, terrainIx, isCastaway, setTerrainVer, TERRAIN_VER } from './map';
 import { startCastaway } from './isle';
 import { recompute, emptyStats } from './core';
 import { addBuilding, removeBuilding } from './events';
@@ -13,12 +13,13 @@ import { mapEntry, baseEntry } from '../maps/registry';
 let N = 0;
 onMapChange(() => { N = W * H; });
 
-export function newGame(opts: { seed?: number; short?: boolean } = {}): GameState {
+export function newGame(opts: { seed?: number; short?: boolean; terrV?: number } = {}): GameState {
   const seed = opts.seed ?? 20261011;
   syncTerrain(null); // 前の街の地形の造作を外す
+  const terrV = opts.terrV ?? TERRAIN_VER; setTerrainVer(seed, terrV); // v94：新しく始めた街は新しい地形（古いセーブを広げるときは古い地形のまま）
   const m = getMap(seed);
   const s: GameState = {
-    version: 2, seed, rng: seed | 0, month: 0, term: 1, termStart: 0,
+    version: 2, seed, ...(terrV ? { terrV } : {}), rng: seed | 0, month: 0, term: 1, termStart: 0,
     termLength: opts.short ? P.shortTermMonths : P.termMonths, mode: 'term', cityName: (REAL ? baseEntry(MAP_ID)?.cityName ?? REAL.name : terrainIx(seed) ? terrainOf(seed).city : baseEntry(MAP_ID)?.cityName ?? '住野市').slice(0, 40),
     cash: P.startCash, loans: [],
     road: new Array(N).fill(0), roadAge: new Array(N).fill(0), roadBoost: {}, zone: new Array(N).fill(0), occ: new Array(N).fill(0), vc: new Array(N).fill(0),

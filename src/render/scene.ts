@@ -123,6 +123,7 @@ import { W, H, TILE, DEFS, isRes, isShop, isCity, fam, floodRisk, getMap, height
 import { realTerrain, realStatic, realRoads, realPaths, drawRealTile, drawRealGround, drawRealStation, drawRealLot, drawRealStore, looksBuiltUp, REAL_CHUNK } from './real';
 import type { GameState, Building, Kind, Layer, MapDef } from '../sim/index';
 import { stationStats } from '../sim/index';
+import { makeShore, drawShoreWater } from './shore';
 import { FIC_PREV_W } from '../sim/config';
 /** v93：架空の街の空き地は（v92 の広い地図では 76×68 の内も）、地形の見た目の印（田んぼ・畑・草地・林・空き地のまとまり）で描く。区画ごとの乱数で田畑・草地を選ぶと、上空から市松模様に見えた。印がなければ -1 */
 const extLook = (m: MapDef, x: number, y: number): number => (!REAL && m.deco && W > FIC_PREV_W && terrainOf(m.seed).id !== 'castaway' ? m.deco[idx(x, y)] : -1);
@@ -611,12 +612,16 @@ export class View {
       const w2 = new THREE.Mesh(wg2, this.matWater); w2.position.set(-far / 2 + 20, -1.62, (24.5 + RY) / 2 * TILE); this.scene.add(w2);
     }
     const om = new THREE.Mesh(outer.build(), this.matTerrain); om.receiveShadow = true; this.scene.add(om);
-    const wd = (H - RY + 0.2) * TILE + (sea ? far : 60), wg = new THREE.PlaneGeometry(far * 2 + MAPW, wd); wg.rotateX(-Math.PI / 2);
-    const water = new THREE.Mesh(wg, this.matWater); water.position.set(MAPW / 2, -1.55, (RY - 0.2) * TILE + wd / 2); this.scene.add(water);
+    // v94 の地形：地図の中の海・川は区画ごとに岸を曲線で描くので、大きな水面は地図の南の縁から外だけ（東西の外の川の帯はそのまま）
+    const v3 = !!this.map.surf, z0w = v3 ? MAPH : (RY - 0.2) * TILE;
+    if (v3) for (const [x0, x1] of [[-far, 0], [MAPW, MAPW + far]]) { const sg2 = new THREE.PlaneGeometry(x1 - x0, MAPH - (RY - 0.2) * TILE); sg2.rotateX(-Math.PI / 2); const s2 = new THREE.Mesh(sg2, this.matWater); s2.position.set((x0 + x1) / 2, -1.55, ((RY - 0.2) * TILE + MAPH) / 2); this.scene.add(s2); }
+    if (v3 && !sea) { const lg = new Geo(); lg.quad([0, -0.02, MAPH + 60], [MAPW, -0.02, MAPH + 60], [MAPW, -0.02, MAPH], [0, -0.02, MAPH], G); const lm = new THREE.Mesh(lg.build(), this.matTerrain); lm.receiveShadow = true; this.scene.add(lm); } // 海のない地形：南の川は地図の中で曲がるので、南の縁の外は陸
+    const wd = MAPH - z0w + (sea ? far : 60), wg = new THREE.PlaneGeometry(far * 2 + MAPW, wd); wg.rotateX(-Math.PI / 2);
+    const water = new THREE.Mesh(wg, this.matWater); water.position.set(MAPW / 2, v3 ? -1.56 : -1.55, z0w + wd / 2); this.scene.add(water);
     { const pg = new THREE.CircleGeometry(2.35 * TILE, 40); pg.rotateX(-Math.PI / 2); const pond = new THREE.Mesh(pg, this.matWater); pond.position.set(44.5 * TILE, -0.7, 50.5 * TILE); this.scene.add(pond);
-      if (W > 76) { const p2 = new THREE.Mesh(new THREE.CircleGeometry(2.75 * TILE, 40).rotateX(-Math.PI / 2), this.matWater); p2.position.set(112.5 * TILE, -0.7, 72.5 * TILE); this.scene.add(p2); }
+      if (W > 76 && !this.map.surf) { const p2 = new THREE.Mesh(new THREE.CircleGeometry(2.75 * TILE, 40).rotateX(-Math.PI / 2), this.matWater); p2.position.set(112.5 * TILE, -0.7, 72.5 * TILE); this.scene.add(p2); }
       // v92：さらに広げた土地のため池。水面の高さは岸（半径の 0.95 倍）の低い所に合わせる（丘のふもとでも水面が地面に埋もれないよう）
-      if (W > FIC_V87_W && T !== 'mountain' && T !== 'inland') for (const [px, py, r] of EXT_PONDS) { const hs: number[] = []; for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; hs.push(heightAt(this.map, (px + Math.cos(a) * r * 0.95) * TILE, (py + Math.sin(a) * r * 0.95) * TILE)); } hs.sort((a, b) => a - b); const lo = hs[3]; // 用水路の溝が岸を切るので、いちばん低い所でなく下から 4 番目に合わせる
+      if (W > FIC_V87_W && T !== 'mountain' && T !== 'inland' && !this.map.surf) for (const [px, py, r] of EXT_PONDS) { const hs: number[] = []; for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; hs.push(heightAt(this.map, (px + Math.cos(a) * r * 0.95) * TILE, (py + Math.sin(a) * r * 0.95) * TILE)); } hs.sort((a, b) => a - b); const lo = hs[3]; // 用水路の溝が岸を切るので、いちばん低い所でなく下から 4 番目に合わせる
         const p3 = new THREE.Mesh(new THREE.CircleGeometry(r * 0.95 * TILE, 40).rotateX(-Math.PI / 2), this.matWater); p3.position.set(px * TILE, lo - 0.3, py * TILE); this.scene.add(p3); } } // 南原のため池（v87：新田のため池も）
   }
 
@@ -661,6 +666,7 @@ export class View {
     for (const o of this.landObjs) { this.scene.remove(o); if ((o as THREE.Mesh).geometry) (o as THREE.Mesh).geometry.dispose(); }
     this.landObjs = [];
     const m = this.map, SUB = 3, nx = W * SUB, nz = H * SUB, st0 = this.getState();
+    const shore = makeShore(m); // v94：岸をなめらかな曲線に
     const pos = new Float32Array((nx + 1) * (nz + 1) * 3), col = new Float32Array((nx + 1) * (nz + 1) * 3);
     const c = new THREE.Color(), c2 = new THREE.Color();
     // 掘割の線路：区画の地面を掘り下げる（見た目だけ）
@@ -669,6 +675,7 @@ export class View {
     for (let j = 0; j <= nz; j++) for (let i = 0; i <= nx; i++) {
       const x = (i / SUB) * TILE, z = (j / SUB) * TILE, k = (j * (nx + 1) + i) * 3;
       let y = heightAt(m, x, z);
+      if (shore) y = shore.adjust(i / SUB, j / SUB, y);
       if (this.cutKey) { const ax = i % SUB === 0 ? [i / SUB - 1, i / SUB] : [Math.floor(i / SUB)], az = j % SUB === 0 ? [j / SUB - 1, j / SUB] : [Math.floor(j / SUB)]; let n = 0, cc = 0; for (const a of ax) for (const b of az) { n++; if (cutT(a, b)) cc++; } if (cc) y -= 6.5 * cc / n; }
       pos[k] = x; pos[k + 1] = y; pos[k + 2] = z;
       // v88：地面の色のむらを、20m 角の乱数（上空から市松模様に見えた）から、なめらかな大小 2 つのむらに
@@ -726,11 +733,12 @@ export class View {
     const wg = new Geo(), mg = new Geo(), tId = terrainOf(m.seed).id;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = idx(x, y), dug = m.dug?.[i], wet = m.wet?.[i];
+      if (shore && shore.wf[i] && !dug && !wet) continue; // v94：岸を曲線で描く水面（下の drawShoreWater）
       if (!dug && !wet && tId === 'castaway') { // v88：無人島の沢と湧水の池（海は地図の外の海面が覆う）
         if (!m.water[i]) continue; const S = W + 1, lo = Math.min(m.heights[y * S + x], m.heights[y * S + x + 1], m.heights[(y + 1) * S + x], m.heights[(y + 1) * S + x + 1]); if (lo < -1.2) continue;
         wg.quad([x * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, y * TILE], [x * TILE, lo + 0.35, y * TILE], 0x3f7fa6); continue;
       }
-      if (!dug && !wet && !REAL && m.water[i] && extWater(tId, x, y)) { // v92：さらに広げた土地の用水路・谷川（地面の高さに合わせる。ため池は円の水面で別に描く）
+      if (!dug && !wet && !REAL && !m.surf && m.water[i] && extWater(tId, x, y)) { // v92：さらに広げた土地の用水路・谷川（地面の高さに合わせる。ため池は円の水面で別に描く）
         if (tId !== 'mountain' && tId !== 'inland' && EXT_PONDS.some(([px, py, r]) => Math.hypot(x + 0.5 - px, y + 0.5 - py) < r)) continue;
         const S = W + 1, lo = Math.min(m.heights[y * S + x], m.heights[y * S + x + 1], m.heights[(y + 1) * S + x], m.heights[(y + 1) * S + x + 1]);
         wg.quad([x * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, (y + 1) * TILE], [(x + 1) * TILE, lo + 0.35, y * TILE], [x * TILE, lo + 0.35, y * TILE], 0x3f7fa6); continue;
@@ -745,6 +753,7 @@ export class View {
       const a0 = x0 + (dug ? inset(-1, 0) : 3), a1 = x0 + TILE - (dug ? inset(1, 0) : 3), b0 = z0 + (dug ? inset(0, -1) : 3), b1 = z0 + TILE - (dug ? inset(0, 1) : 3);
       (wet ? mg : wg).quad([a0, lv, b1], [a1, lv, b1], [a1, lv, b0], [a0, lv, b0], wet ? 0x5f6e4c : 0x3f7fa6);
     }
+    if (shore) drawShoreWater(shore, wg, 0x3f7fa6);
     if (wg.pos.length) { const mesh = new THREE.Mesh(wg.build(), this.matWater); mesh.receiveShadow = true; mesh.frustumCulled = false; this.scene.add(mesh); this.landObjs.push(mesh); }
     if (mg.pos.length) { this.matMarsh ??= new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.25, metalness: 0.1, transparent: true, opacity: 0.85 }); const mesh = new THREE.Mesh(mg.build(), this.matMarsh); mesh.receiveShadow = true; mesh.frustumCulled = false; this.scene.add(mesh); this.landObjs.push(mesh); }
   }

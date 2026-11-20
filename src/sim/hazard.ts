@@ -11,6 +11,8 @@ const CACHE = new WeakMap<MapDef, Haz>();
 /** 海：地図の縁につながった大きな水面（掘った池・川の細い水路は含めない） */
 function build(m: MapDef): Haz {
   const N = W * H, S = W + 1, sea = new Uint8Array(N), seen = new Uint8Array(N);
+  // v94 の地形：海の区画は地形が持っている（川・湖は海に流れ込んでも海と数えない。埋め立てた所は除く）
+  if (m.sea) for (let i = 0; i < N; i++) { if (m.sea[i] && m.water[i] && !(m.dug && m.dug[i])) sea[i] = 1; seen[i] = 1; }
   for (let i0 = 0; i0 < N; i0++) {
     if (!m.water[i0] || seen[i0] || (m.dug && m.dug[i0])) continue;
     const comp = [i0]; seen[i0] = 1; let edge = false;

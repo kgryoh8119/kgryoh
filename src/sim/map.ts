@@ -31,6 +31,10 @@ export interface MapDef {
   waterLv?: Float32Array;
   /** 造作の前の地形（元の地図） */
   base?: MapDef;
+  /** v94：海の区画（地図の縁につながる海。川・湖は含めない）。v94 の地形だけ。津波の計算に使う */
+  sea?: Uint8Array;
+  /** v94：区画ごとの水面の高さ（m。描画用。v94 の地形の自然の水面だけ） */
+  surf?: Float32Array;
   /** v70：地形の見た目だけの印（計算には使わない）。1 砂浜 2 田んぼ 3 岩肌 4 河原 5 雪の頂。v88：6 畑 7 草地（野原） 8 屋敷林・雑木林の跡 9 空き地（土） */
   deco?: Uint8Array;
 }
@@ -49,20 +53,28 @@ export function hash(a: number, b: number, seed: number): number {
 const smooth = (t: number) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
 
 const cache = new Map<number, MapDef>();
+/** v94：地形の版（シードごと）。街の状態の terrV を syncTerrain・newGame・検査で登録する。登録のないシードは v93 までの地形 */
+export const TERRAIN_VER = 94;
+const TVER = new Map<number, number>();
+export function setTerrainVer(seed: number, v: number | undefined): void { if (v) TVER.set(seed, v); else TVER.delete(seed); }
+/** v94 の地形か（新しく始めた街。無人島と実在の街は除く） */
+export const terrainV3 = (seed: number) => !REAL && (TVER.get(seed) ?? 0) >= 94 && !isCastaway(seed);
+const cacheKey = (seed: number) => seed * 2 + (terrainV3(seed) ? 1 : 0);
 
 /** 地形の造作（市長が盛り土・掘削・水面・植林などをした結果）。いま計算している街の分だけを持つ */
-let TERRA: { seed: number; key: string; map: MapDef } | null = null;
+let TERRA: { seed: number; v3: boolean; key: string; map: MapDef } | null = null;
 /** 造作の種類（区画ごと）：0 元のまま・1 水面（池・川・海）・2 陸（埋め立て）・3 森（植林）・4 伐採（林なし）・5 湿地・6 砂地 */
 export const TERRA_T = { none: 0, water: 1, land: 2, forest: 3, clear: 4, wet: 5, sand: 6, desert: 7, snow: 8 } as const;
 /** 街の状態に合わせて地形の造作を反映する（計算・検査・描画の前に呼ぶ） */
-export function syncTerrain(s: { seed: number; terraVer?: number; terraH?: number[]; terraT?: number[] } | null): void {
+export function syncTerrain(s: { seed: number; terrV?: number; terraVer?: number; terraH?: number[]; terraT?: number[] } | null): void {
+  if (s && !REAL) setTerrainVer(s.seed, s.terrV);
   if (REAL || !s || !s.terraVer || (!s.terraH && !s.terraT)) { TERRA = null; return; }
   let sum = 0;
   if (s.terraH) for (let k = 0; k < s.terraH.length; k++) if (s.terraH[k]) sum = (sum * 31 + k * 7 + Math.round(s.terraH[k] * 10)) % 1000000007;
   if (s.terraT) for (let k = 0; k < s.terraT.length; k++) if (s.terraT[k]) sum = (sum * 37 + k * 11 + s.terraT[k]) % 1000000007;
-  const key = `${s.seed}:${s.terraVer}:${sum}`;
+  const key = `${s.seed}:${s.terrV ?? 0}:${s.terraVer}:${sum}`;
   if (TERRA && TERRA.key === key) return;
-  TERRA = { seed: s.seed, key, map: deriveMap(baseMap(s.seed), s.terraH, s.terraT) };
+  TERRA = { seed: s.seed, v3: terrainV3(s.seed), key, map: deriveMap(baseMap(s.seed), s.terraH, s.terraT) };
 }
 /** 元の地形に造作を重ねた地図 */
 function deriveMap(b: MapDef, dh: number[] | undefined, tt: number[] | undefined): MapDef {
@@ -118,7 +130,7 @@ function deriveMap(b: MapDef, dh: number[] | undefined, tt: number[] | undefined
 
 export function getMap(seed: number): MapDef {
   if (REAL) return realMap();
-  if (TERRA && TERRA.seed === seed) return TERRA.map;
+  if (TERRA && TERRA.seed === seed && TERRA.v3 === terrainV3(seed)) return TERRA.map;
   return baseMap(seed);
 }
 /** 架空の街の地形のパターン。lv は選べるようになる市長の経歴レベル。シードの 10 億以上の部分に番号を入れる */
@@ -144,18 +156,23 @@ export const seedForTerrain = (id: string, n = 261011) => { const k = Math.max(0
 /** 造作の前の、元の地形 */
 export function baseMap(seed: number): MapDef {
   if (REAL) return realMap();
-  const c = cache.get(seed);
+  const ck = cacheKey(seed), c = cache.get(ck);
   if (c) return c;
-  if (isCastaway(seed)) { const m = castawayMap(seed); cache.set(seed, m); return m; }
+  if (isCastaway(seed)) { const m = castawayMap(seed); cache.set(ck, m); return m; }
   // v9：44×44 の旧市街はそのままの位置に残し、東（東台）と南（南原）へ広げた。川は地図の南端
   const T = terrainOf(seed).id, noSea = T === 'inland' || T === 'rural' || T === 'mountain', V2 = terrainV2(seed);
   // v70 の湖：東の半分を占める大きな湖（楕円）と、小さな島
   const lakeD = (x: number, y: number) => V2 ? Math.hypot((x - 63) / 11.5, (y - 38) / 15) : Math.hypot(x - 62, y - 46) / 7.3;
-  const RW = V2 ? 2.4 : 1.5; // 大河の幅（半分）
+  const RW = V2 ? 2.4 : 1.5, RW0 = RW; // 大河の幅（半分）
   const RY = noSea ? H - 3.4 : H - 4.8; // 川岸の始まり（海のない地形は細い川）
   const riverX = (y: number) => 52 + 5 * Math.sin(y / 9); // 大河が横切る街：南北の川
+  // v94：新しい地形（新しく始めた街だけ）。大河ははじめの町より南で大きく蛇行し、河口に向かって広がる
+  const V3 = terrainV3(seed);
+  const riverX3 = (y: number) => riverX(y) + 8 * smooth((y - FIC_PREV_H) / 28) * Math.sin((y - FIC_PREV_H) / 9.5) + 3 * smooth((y - FIC_PREV_H) / 40) * Math.sin((y - FIC_PREV_H) / 4.1 + 1);
+  const rw3 = (y: number) => RW + 1.6 * smooth((y - (H - 36)) / 22);
   const heights = new Float32Array((W + 1) * (H + 1));
-  for (let y = 0; y <= H; y++) for (let x = 0; x <= W; x++) {
+  // v94：頂点の標高。v3 は新しい地形（はじめの町の外だけで使い、境目は M94 でなめらかにつなぐ）
+  const hAt = (x: number, y: number, v3: boolean): number => {
     const d1 = Math.hypot(x - 33.5, y - 26) / 11;       // 丘陵台
     const d2 = Math.hypot(x - 39.5, y - 9) / 5;         // 北東の保全林の丘
     const d3 = Math.hypot(x - 6, y - 34) / 5.5;         // 南西の小丘
@@ -170,40 +187,53 @@ export function baseMap(seed: number): MapDef {
     if (T === 'inland') h += 26 * smooth((x - 63) / 9) + (V2 ? 34 * smooth((x - 68) / 5) + 22 * smooth((3 - x) / 2.5) * smooth((y - 18) / 4) : 0); // v70：盆地を囲む東と西の山
     if (T === 'mountain') h += (V2 ? 56 : 38) * smooth((x - 50) / 12) * (0.7 + 0.3 * Math.sin(y / 5)) + (V2 ? 40 : 30) * smooth((y - 40) / 14) * smooth((x - 10) / 30)
       + (V2 ? 14 * smooth((x - 56) / 10) * Math.max(0, Math.sin(x / 3.1) * Math.sin(y / 3.7)) + 150 * smooth((x - 63) / 6) * Math.pow(Math.abs(Math.sin(y / 3.3 + 0.7) * Math.sin(x / 2.6 + 1.1)), 0.8) : 0); // v70：尾根と谷の起伏、東の奥の高い峰
-    if (T === 'river' && y >= 3) { const dr = Math.abs(x - riverX(y)), k = V2 ? smooth((dr - RW + 0.1) / 1.2) : smooth((dr - 1.4) / 1.5); h = V2 ? (h * smooth((dr - RW - 1.6) / 1.4) - 0.5 * (1 - smooth((dr - RW - 1.6) / 1.4))) * k - 2.6 * (1 - k) : h * k - 2.6 * (1 - k); } // v70：太い川と、両岸の河川敷（低い平地）
+    if (T === 'river' && y >= 3) { const RW = v3 ? rw3(y) : RW0, dr = Math.abs(x - (v3 ? riverX3(y) : riverX(y))), k = V2 ? smooth((dr - RW + 0.1) / 1.2) : smooth((dr - 1.4) / 1.5); h = V2 ? (h * smooth((dr - RW - 1.6) / 1.4) - 0.5 * (1 - smooth((dr - RW - 1.6) / 1.4))) * k - 2.6 * (1 - k) : h * k - 2.6 * (1 - k); } // v70：太い川と、両岸の河川敷（低い平地）
     if (T === 'lake') { const dl = V2 ? lakeD(x, y) : Math.hypot(x - 62, y - 46) / 8.5; h = h * smooth(dl - 0.85) - 2.8 * (1 - smooth(dl - 0.85));
       if (V2) { h += 3.2 * smooth(1 - Math.hypot(x - 67, y - 41) / 2.2); h += 18 * smooth((x - 73) / 4) * smooth((y - 16) / 6); } } // 湖の小島と、向こう岸の山
-    if (T === 'island') { const e1 = smooth((x - (W - 6.5)) / 1.6) * (y >= 13.5 && y <= 17.5 ? 0 : 1), e2 = smooth((3.5 - x) / 1.6) * smooth((y - 24) / 2); const e = Math.max(e1, e2); h = h * (1 - e) - 3.2 * e; }
-    h = extHeight(T, x, y, h, seed);
+    if (T === 'island' && !v3) { const e1 = smooth((x - (W - 6.5)) / 1.6) * (y >= 13.5 && y <= 17.5 ? 0 : 1), e2 = smooth((3.5 - x) / 1.6) * smooth((y - 24) / 2); const e = Math.max(e1, e2); h = h * (1 - e) - 3.2 * e; }
+    h = extHeight(T, x, y, h, seed, v3);
     // ゆるい起伏（地図の縁では 0 にして外側の地面とつなぐ）
     const edge = smooth(Math.min(x, y, W - x) / 3);
     const gx = Math.floor(x / 4), gy = Math.floor(y / 4), fx = (x % 4) / 4, fy = (y % 4) / 4;
     const n = (a: number, b: number) => hash(a, b, seed);
     const sx = smooth(fx), sy = smooth(fy);
     h += ((n(gx, gy) * (1 - sx) + n(gx + 1, gy) * sx) * (1 - sy) + (n(gx, gy + 1) * (1 - sx) + n(gx + 1, gy + 1) * sx) * sy - 0.5) * 0.9 * edge;
+    if (v3) return shape94(T, x, y, h, seed, edge);
     // 南の川
     const r = smooth((y - RY) / 1.6);
     h = h * (1 - r) - 3.2 * r;
+    return h;
+  };
+  for (let y = 0; y <= H; y++) for (let x = 0; x <= W; x++) {
+    let h = hAt(x, y, false);
+    if (V3) { const mk = M94(x, y); if (mk > 0) h = h * (1 - mk) + hAt(x, y, true) * mk; }
     heights[y * (W + 1) + x] = h;
   }
+  // v94：はじめの町の外の水（海・大河・南の川）を決め、低い所へ水を流して川と湖をつくり、川の谷を刻む
+  const v94 = V3 ? build94(T, seed, heights, (x, y) => T === 'river' && Math.abs(x + 0.5 - riverX3(y + 0.5)) < rw3(y + 0.5)) : null;
   const water = new Uint8Array(W * H), rail = new Uint8Array(W * H), forest = new Uint8Array(W * H), steep = new Uint8Array(W * H), district = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = idx(x, y);
     const hs = [heights[y * (W + 1) + x], heights[y * (W + 1) + x + 1], heights[(y + 1) * (W + 1) + x], heights[(y + 1) * (W + 1) + x + 1]];
     const lo = Math.min(...hs), hi = Math.max(...hs);
+    const out94 = !!v94 && !inTown94(x, y); // v94：はじめの町の外は新しい地形の水
+    if (out94) water[i] = v94!.water[i];
+    else {
     if (y >= (noSea ? H - 3 : H - 4)) water[i] = 1;
     if (T === 'river' && y >= 3 && Math.abs(x + 0.5 - riverX(y + 0.5)) < RW) water[i] = 1;
     if (T === 'lake' && lakeD(x + 0.5, y + 0.5) < (V2 ? 0.93 : 1) && !(V2 && Math.hypot(x + 0.5 - 67, y + 0.5 - 41) < 1.6)) water[i] = 1;
     if (T === 'island' && ((x >= W - 5 && (y < 14 || y > 16)) || (x <= 2 && y >= 25))) water[i] = 1;
     if (Math.hypot(x + 0.5 - 44.5, y + 0.5 - 50.5) < 2.1 || Math.hypot(x + 0.5 - 112.5, y + 0.5 - 72.5) < 2.5) water[i] = 1; // ため池（v87：新田にもう 1 つ）
     if (extWater(T, x, y)) water[i] = 1; // v92：さらに広げた土地のため池・用水路・谷川
+    }
     // 線路は GameState の rail（市が敷き直せる）。地形としての鉄道用地は持たない
     if (hi - lo > 3.5) steep[i] = 1;
     const d2 = Math.hypot(x + 0.5 - 39.5, y + 0.5 - 9) / 5;
     const d3 = Math.hypot(x + 0.5 - 6, y + 0.5 - 34) / 5.5;
     const d4 = Math.hypot(x + 0.5 - 66, y + 0.5 - 29) / 6.5;
     const d7 = Math.hypot(x + 0.5 - 103, y + 0.5 - 30) / 9, d8 = Math.hypot(x + 0.5 - 90, y + 0.5 - 88) / 7.5;
-    if ((d2 < 0.9 && y > 1) || d3 < 0.75 || d4 < 0.8 || d7 < 0.62 || d8 < 0.7 || y === (noSea ? H - 5 : H - 6) || y === (noSea ? H - 4 : H - 5)) forest[i] = 1;
+    if ((d2 < 0.9 && y > 1) || d3 < 0.75 || d4 < 0.8 || d7 < 0.62 || d8 < 0.7 || (!out94 && (y === (noSea ? H - 5 : H - 6) || y === (noSea ? H - 4 : H - 5)))) forest[i] = 1;
+    if (out94 && v94!.pine[i]) forest[i] = 1; // v94：海辺の松林（砂浜の後ろの帯）
     if ((T === 'mountain' || T === 'inland') && lo > 12 && !water[i]) forest[i] = 1;
     if (extForest(T, x, y)) forest[i] = 1; // v92：さらに広げた土地の丘の林
     if (water[i]) forest[i] = 0;
@@ -217,7 +247,8 @@ export function baseMap(seed: number): MapDef {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = idx(x, y); if (water[i]) continue;
     const hm = (hv(x, y) + hv(x + 1, y) + hv(x, y + 1) + hv(x + 1, y + 1)) / 4, sea = y >= H - 7;
-    if ((T === 'coast' || T === 'island') && nearW(x, y, 1) && hm < 1.2 && (sea || T === 'island')) deco[i] = 1;
+    if (v94 && !inTown94(x, y)) { if (v94.deco[i]) deco[i] = v94.deco[i]; } // v94：砂浜・磯・河原・湖畔の草地
+    else if ((T === 'coast' || T === 'island') && nearW(x, y, 1) && hm < 1.2 && (sea || T === 'island')) deco[i] = 1;
     else if (T === 'lake' && nearW(x, y, 1) && hm < 1.0 && y < H - 6) deco[i] = 1;
     else if (T === 'river' && y < H - 6 && nearW(x, y, 1) && hm < 0.4) deco[i] = 4;
     const snowT = T === 'mountain' ? (V2 ? 118 : 40) : 30, rockT = T === 'mountain' && V2 ? 92 : 20;
@@ -225,8 +256,11 @@ export function baseMap(seed: number): MapDef {
     if (!deco[i] && !forest[i] && !steep[i] && (T === 'rural' || ((T === 'mountain' || T === 'inland') && hm > 2 && hm < 16)) && hash(x >> 1, y >> 1, seed + 77) < (T === 'rural' ? 0.85 : 0.55)) deco[i] = 2;
   }
   if (W > FIC_PREV_W) extDeco(seed, T, heights, water, forest, steep, deco);
-  const m: MapDef = { seed, heights, water, rail, forest, steep, district, deco };
-  cache.set(seed, m);
+  if (v94) for (let i = 0; i < W * H; i++) { const x = i % W, y = (i / W) | 0; if (!inTown94(x, y)) continue; // はじめの町の中の水面の高さ（描画用）。ため池は円で描くので除く
+    if (water[i] && Math.hypot(x + 0.5 - 44.5, y + 0.5 - 50.5) >= 2.1) v94.surf[i] = -1.44;
+    if (water[i] && T === 'island' && x <= 2) v94.sea[i] = 1; }
+  const m: MapDef = { seed, heights, water, rail, forest, steep, district, deco, ...(v94 ? { sea: v94.sea, surf: v94.surf } : {}) };
+  cache.set(ck, m);
   return m;
 }
 
@@ -248,7 +282,7 @@ const mtn = (T: string) => T === 'mountain' || T === 'inland';
 /** 用水路（ため池をつなぐ）。1 本目は北東のため池から南のため池へ、2 本目は南西のため池から東へ */
 const canal1X = (y: number) => { const k = (y - 24) / 98; return 164 - 10 * k + 3.5 * Math.sin(Math.PI * 3 * k); };
 const canal2Y = (x: number) => { const k = (x - 88) / 66; return 128 - 6 * k + 2 * Math.sin(Math.PI * 2 * k); };
-function extHeight(T: string, x: number, y: number, h: number, seed: number): number {
+function extHeight(T: string, x: number, y: number, h: number, seed: number, v3 = false): number {
   const ex = extMask(x, y); if (ex <= 0) return h;
   if (mtn(T)) {
     // 東の山の中に、国道に沿った谷（谷底の田畑と集落の跡）と谷川。谷の入口は v91 までの境目からなだらかに
@@ -265,8 +299,8 @@ function extHeight(T: string, x: number, y: number, h: number, seed: number): nu
   for (const [hx, hy, r, a] of EXT_HILLS) add += a * smooth(1 - Math.hypot(x - hx, y - hy) / r);
   for (const [px, py, r] of EXT_PONDS) add -= 2.6 * smooth(1 - Math.hypot(x - px, y - py) / r);
   // 用水路の溝
-  if (y > 25 && y < 121) add -= 1.8 * (1 - smooth((Math.abs(x - canal1X(y)) - 0.35) / 0.8));
-  if (x > 89 && x < 153) add -= 1.8 * (1 - smooth((Math.abs(y - canal2Y(x)) - 0.35) / 0.8));
+  if (!v3 && y > 25 && y < 121) add -= 1.8 * (1 - smooth((Math.abs(x - canal1X(y)) - 0.35) / 0.8));
+  if (!v3 && x > 89 && x < 153) add -= 1.8 * (1 - smooth((Math.abs(y - canal2Y(x)) - 0.35) / 0.8));
   if (T === 'rural') add *= 0.5;
   return h + add * ex;
 }
@@ -320,6 +354,119 @@ function extDeco(seed: number, T: string, heights: Float32Array, water: Uint8Arr
     let pick = 0, best = -1; for (let k = 0; k < 5; k++) { const v = w[k] * (0.88 + 0.24 * hash(px * 5 + k, py, seed + 303)); if (v > best) { best = v; pick = k + 1; } }
     deco[i] = pick === 1 ? 2 : pick === 2 ? 6 : pick === 3 ? 7 : pick === 4 ? 8 : pick === 5 ? 9 : 0;
   }
+}
+
+// ---------------------------------------------------------------- v94：新しい地形（新しく始めた街だけ。はじめの町 76×68 の中は変えない）
+// 考え方：標高を先に作り（丘・山・台地・低地。大小のむらを重ねる）、海は曲がりくねった海岸線（湾・入江・岬）で切る。
+// 水は低い所を流れる：海・大河・南の川を出口に、標高の低い順に土地をたどって（priority flood）流れの向きを決め、
+// 集まる水の量（流域の広さ）が大きい所を川に、窪地にたまる所を湖にする。川の通る所は谷を刻む。
+/** はじめの町（76×68）の外で 0 → 1 に上がる重み（頂点の座標）。町の区画の 4 隅は 0 なので、町の標高は変わらない */
+export const M94 = (x: number, y: number) => Math.max(smooth((x - FIC_PREV_W) / 8), smooth((y - FIC_PREV_H) / 8));
+/** はじめの町の区画か（区画の座標）。v94 の地形でも、ここの陸・水と標高は v93 までと同じ */
+export const inTown94 = (x: number, y: number) => x < FIC_PREV_W && y < FIC_PREV_H;
+const seaT94 = (T: string) => !(T === 'inland' || T === 'rural' || T === 'mountain');
+/** なめらかなむら（0〜1） */
+function vn94(x: number, y: number, g: number, k: number, seed: number): number {
+  const X = x / g, Y = y / g, gx = Math.floor(X), gy = Math.floor(Y), sx = smooth(X - gx), sy = smooth(Y - gy), q = (a: number, b: number) => hash(a + k * 1013, b - k * 71, seed);
+  return (q(gx, gy) * (1 - sx) + q(gx + 1, gy) * sx) * (1 - sy) + (q(gx, gy + 1) * (1 - sx) + q(gx + 1, gy + 1) * sx) * sy;
+}
+/** 大きさの違うむらを重ねたもの（フラクタル。0〜1、0.5 のまわりに集まる） */
+function fbm94(x: number, y: number, g: number, k: number, seed: number, oct = 4): number {
+  let s = 0, a = 1, t = 0; for (let o = 0; o < oct; o++) { s += a * vn94(x, y, g, k + o * 17, seed); t += a; a *= 0.5; g *= 0.5; } return s / t;
+}
+/** 湾：[中心の列, 奥行き（区画）, 幅]。いちばん目は、はじめの町の南の深い入江（港に向いた湾） */
+const bays94 = (seed: number): [number, number, number][] => [[34 + 8 * hash(1, 2, seed + 941), 52, 7.5], [112 + 16 * hash(3, 4, seed + 941), 22, 10], [160 + 14 * hash(5, 6, seed + 941), 15, 7]];
+/** 海岸からの距離のようなもの（区画。正が陸、負が海）。海のない地形は 99 */
+export function coastL94(T: string, x: number, y: number, seed: number): number {
+  if (!seaT94(T)) return 99;
+  const row = H - 10 + 10 * (fbm94(x, 0.5, 44, 1, seed, 2) - 0.5);
+  let L = row - y + 16 * (fbm94(x, y, 24, 2, seed) - 0.5) + 2.4 * (vn94(x, y, 2.6, 9, seed) - 0.5);
+  for (const [bx, D, w] of bays94(seed)) { // 湾・入江：奥ほど細く、軸は少し曲がる
+    const tip = row - D, ax = bx + 3.5 * Math.sin(y / 6.5 + bx), ww = w * (0.3 + 0.7 * smooth((y - tip) / (D * 0.8)));
+    L -= (D + 4) * Math.exp(-(((x - ax) / ww) ** 2)) * smooth((y - tip + 6) / 10);
+  }
+  const ex = Math.max(smooth((5 - x) / 4), smooth((x - (W - 5)) / 4)); // 地図の東西の縁では、外の地面（v93 までと同じ南の帯）につなぐ
+  L = L * (1 - ex) + (H - 4.2 - y) * ex;
+  if (T === 'island') { // 島：東（本土への橋の土手を除く）と、はじめの町より南の西も海
+    const cz = Math.abs(y - 15.5) < 2.6 && x > W - 16;
+    if (!cz) L = Math.min(L, (W - 10 - x) + 12 * (fbm94(x, y, 18, 3, seed) - 0.5) + 2 * (vn94(x, y, 2.6, 10, seed) - 0.5), W - 3.5 - x);
+    if (y > FIC_PREV_H - 3) L = Math.min(L, x - 6 + 10 * (fbm94(x, y, 16, 4, seed) - 0.5), x - 2.6);
+  }
+  return L;
+}
+/** 磯（岩の海岸）になりやすさ（0〜1）。岬の先に多い */
+const rock94 = (x: number, y: number, seed: number) => smooth((fbm94(x, y, 10, 6, seed, 3) - 0.55) / 0.08);
+/** 海のない地形の、南の縁を流れる川の中心の行（地図の東西の縁では v93 までと同じ位置） */
+const southY94 = (x: number, seed: number) => { const ex = Math.max(smooth((6 - x) / 5), smooth((x - (W - 6)) / 5)); return Math.min(H - 1.7, (H - 1.7) * ex + (H - 6 + 3.4 * Math.sin(x / 11 + 1.3) + 5 * (fbm94(x, 0.5, 20, 14, seed, 2) - 0.5)) * (1 - ex)); };
+/** 新しい地形の標高の仕上げ（頂点）：起伏、海岸、南の川 */
+function shape94(T: string, x: number, y: number, h: number, seed: number, edge: number): number {
+  h += ((fbm94(x, y, 13, 21, seed) - 0.5) * 3.4 + (vn94(x, y, 3.5, 22, seed) - 0.5) * 0.8) * (1 + 0.025 * Math.max(0, h)) * edge;
+  if (seaT94(T)) {
+    // 海岸：砂浜は遠浅でゆるく、磯（岩場）は急に。海岸から 5〜16 区画で元の地形に戻す
+    const L = coastL94(T, x, y, seed), rk = rock94(x, y, seed), hc = -1.55 + L * (0.4 + 2.4 * rk) + (L > 0 ? 0.03 * L * L : 0);
+    if (L <= 0) h = Math.max(-3.4, hc);
+    else if (L < 16) { const k = smooth((L - 5) / 11); h = Math.min(h, hc) * (1 - k) + h * k; }
+  } else { const dr = Math.abs(y - southY94(x, seed)), k = smooth((dr - 1.5) / 1.6); h = h * k - 2.6 * (1 - k); }
+  return h;
+}
+/** 小さな二分ヒープ（標高の低い順に取り出す） */
+class Heap94 { k: number[] = []; v: number[] = [];
+  push(key: number, val: number) { const k = this.k, v = this.v; let i = k.length; k.push(key); v.push(val); while (i > 0) { const p = (i - 1) >> 1; if (k[p] <= key) break; k[i] = k[p]; v[i] = v[p]; i = p; } k[i] = key; v[i] = val; }
+  pop(): number { const k = this.k, v = this.v, top = v[0], lk = k.pop()!, lv = v.pop()!; const n = k.length; if (n) { let i = 0; for (;;) { let c = 2 * i + 1; if (c >= n) break; if (c + 1 < n && k[c + 1] < k[c]) c++; if (k[c] >= lk) break; k[i] = k[c]; v[i] = v[c]; i = c; } k[i] = lk; v[i] = lv; } return top; }
+  get size() { return this.k.length; } }
+export interface Terrain94 { water: Uint8Array; sea: Uint8Array; surf: Float32Array; pine: Uint8Array; deco: Uint8Array; river: Uint8Array; lake: Uint8Array; acc: Float32Array }
+/** 川になる流域の広さ（区画。山ほど雨が多いので重みをつける）と、川幅を 2 区画にする広さ */
+export const RIVER_A94 = 1100, WIDE_A94 = 4500;
+/** はじめの町の外の水を決める（heights の川・湖の所を掘り下げる） */
+function build94(T: string, seed: number, heights: Float32Array, bigRiver: (x: number, y: number) => boolean): Terrain94 {
+  const S = W + 1, N = W * H, water = new Uint8Array(N), sea = new Uint8Array(N), surf = new Float32Array(N).fill(NaN), pine = new Uint8Array(N), deco = new Uint8Array(N), river = new Uint8Array(N), lake = new Uint8Array(N);
+  const hm = (x: number, y: number) => (heights[y * S + x] + heights[y * S + x + 1] + heights[(y + 1) * S + x] + heights[(y + 1) * S + x + 1]) / 4;
+  const Lt = new Float32Array(N).fill(99), noSea = !seaT94(T);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = idx(x, y); if (inTown94(x, y)) continue; const cx = x + 0.5, cy = y + 0.5;
+    const L = coastL94(T, cx, cy, seed); Lt[i] = L;
+    if (L < 0) { water[i] = sea[i] = 1; surf[i] = -1.55; }
+    else if (noSea && Math.abs(cy - southY94(cx, seed)) < 1.5) { water[i] = 1; surf[i] = -1.5; }
+    else if (bigRiver(x, y)) { water[i] = 1; surf[i] = -1.44; }
+  }
+  // 流れ：水（海・大河・南の川）を出口に、低い順にたどる。はじめの町の区画は通らない（町の中に川を引かない）
+  const e = new Float32Array(N), et = new Float32Array(N), fill = new Float32Array(N), par = new Int32Array(N).fill(-1), seen = new Uint8Array(N), order: number[] = [], hp = new Heap94();
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = idx(x, y); et[i] = hm(x, y); e[i] = et[i] + (fbm94(x, y, 7, 31, seed, 2) - 0.5) * 1.8; } // むらを足して、平地でも川が曲がるように
+  for (let i = 0; i < N; i++) if (water[i]) { seen[i] = 1; fill[i] = surf[i]; hp.push(surf[i], i); }
+  while (hp.size) {
+    const i = hp.pop(), x = i % W, y = (i / W) | 0; if (!water[i]) order.push(i);
+    for (const [dx, dy] of NEIGH) { const xx = x + dx, yy = y + dy; if (!inMap(xx, yy) || inTown94(xx, yy)) continue; const j = idx(xx, yy); if (seen[j]) continue;
+      seen[j] = 1; fill[j] = Math.max(e[j], fill[i] + 0.002); par[j] = i; hp.push(fill[j], j); }
+  }
+  const acc = new Float32Array(N); for (const i of order) acc[i] = 1 + Math.max(0, et[i]) / 30;
+  for (let k = order.length - 1; k >= 0; k--) { const i = order[k], p = par[i]; if (p >= 0 && !water[p]) acc[p] += acc[i]; }
+  // 湖：窪地にたまる所（1.3m 以上の深さで、12〜420 区画のまとまり。山に囲まれた広い盆地は湖にしない）
+  const deep = new Uint8Array(N); for (const i of order) if (fill[i] - Math.max(e[i], et[i]) > 1.3) deep[i] = 1;
+  const cs = new Uint8Array(N);
+  for (const i0 of order) { if (!deep[i0] || cs[i0]) continue; const comp = [i0]; cs[i0] = 1;
+    for (let k = 0; k < comp.length; k++) { const i = comp[k], x = i % W, y = (i / W) | 0; for (const [dx, dy] of NEIGH) { const xx = x + dx, yy = y + dy; if (!inMap(xx, yy)) continue; const j = idx(xx, yy); if (deep[j] && !cs[j]) { cs[j] = 1; comp.push(j); } } }
+    if (comp.length >= 12 && comp.length <= 420) { let lv = -Infinity; for (const i of comp) lv = Math.max(lv, fill[i]); for (const i of comp) { lake[i] = 1; surf[i] = lv - 0.05; } } }
+  // 川：流域の広い所。水面は川床（区画の標高の 0.6m 下）で、上流から下流へ下がるだけにする（湖でない窪地や尾根は、川が谷を刻んで抜ける）
+  for (const i of order) { if (!lake[i] && acc[i] < RIVER_A94) continue; if (!lake[i]) { river[i] = 1; surf[i] = et[i] - 0.6; } water[i] = 1; }
+  for (let k = order.length - 1; k >= 0; k--) { const i = order[k], p = par[i]; if ((river[i] || lake[i]) && p >= 0 && river[p]) surf[p] = Math.min(surf[p], surf[i]); }
+  for (const i of order) if (river[i]) surf[i] = Math.max(surf[i], -1.5);
+  // 大きな川は 2 区画の幅に（流れに直角の、低い方の隣）
+  for (const i of order) { if (!river[i] || acc[i] < WIDE_A94) continue; const p = par[i], x = i % W, y = (i / W) | 0, alongX = p === i + 1 || p === i - 1;
+    const cand = (alongX ? [[0, 1], [0, -1]] : [[1, 0], [-1, 0]]).map(([dx, dy]) => [x + dx, y + dy]).filter(([a, b]) => inMap(a, b) && !inTown94(a, b) && !water[idx(a, b)]).sort((A, B) => et[idx(A[0], A[1])] - et[idx(B[0], B[1])]);
+    if (cand.length) { const j = idx(cand[0][0], cand[0][1]); water[j] = 1; river[j] = 1; surf[j] = surf[i]; acc[j] = acc[i]; } }
+  // 谷を刻む：川・湖の区画の 4 隅を水面より下げる（はじめの町の区画の隅は変えない）
+  for (let i = 0; i < N; i++) { if (!(river[i] || lake[i])) continue; const x = i % W, y = (i / W) | 0, t = surf[i] - (lake[i] ? 0.9 : 0.8);
+    for (const [vx, vy] of [[x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1]]) { if (vx <= FIC_PREV_W && vy <= FIC_PREV_H) continue; const v = vy * S + vx; if (heights[v] > t) heights[v] = t; } }
+  // 見た目：砂浜・磯・海辺の松林・河原・湖畔の草地
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = idx(x, y); if (water[i] || inTown94(x, y)) continue; const L = Lt[i], rk = rock94(x + 0.5, y + 0.5, seed), h = hm(x, y);
+    let nRiver = 0, nLake = 0, nSea = 0; for (const [dx, dy] of NEIGH) { const xx = x + dx, yy = y + dy; if (!inMap(xx, yy)) continue; const j = idx(xx, yy); if (sea[j]) nSea++; if (lake[j]) nLake++; if (river[j] && acc[j] >= WIDE_A94) nRiver++; }
+    if (L < 2.4 && (nSea || L < 1.6)) deco[i] = rk > 0.5 ? 3 : 1;
+    else if (L < 4.8 && rk < 0.5 && h < 5 && vn94(x, y, 6, 41, seed) > 0.42) pine[i] = 1;
+    else if (nRiver && h < 8) deco[i] = 4;
+    else if (nLake) deco[i] = 7;
+  }
+  return { water, sea, surf, pine, deco, river, lake, acc };
 }
 
 /** v92：無人島を地図の中央に置くためのずれ（v88 の 128×112 の地図からの区画数）。古い保存データもこの分ずらして広げる */

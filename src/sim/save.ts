@@ -112,7 +112,7 @@ function migrateV1(s: any): void {
 /** 狭い住野市（44×44 か 76×68）を今の大きさ（W×H）へ。旧市街はそのままの位置に置き、広げた土地は新しく始めたときの状態にする。
  *  44×44（v8 まで）は 38 行目より南が林と川だったので、そこも新しい土地にする。76×68（v86 まで）は全体を残す（南の海・川だった帯は、新しい地形では陸になる空き地） */
 export function widenFiction(s: GameState, ow = FIC_OLD, oh = FIC_OLD): void {
-  const fresh = newGame({ seed: s.seed }), N = W * H, ON = ow * oh, NV = (W + 1) * (H + 1);
+  const fresh = newGame({ seed: s.seed, terrV: s.terrV ?? 0 }), N = W * H, ON = ow * oh, NV = (W + 1) * (H + 1);
   // v92：無人島（v88〜v91 の 128×112）は、島を新しい地図の中央に置くので、全体を (ox, oy) だけずらす。ほかの地形は北西の角に合わせる（ずらさない）
   const isle = isCastaway(s.seed), ox = isle ? isleOX() : 0, oy = isle ? isleOY() : 0;
   const inOld = (x: number, y: number) => x - ox >= 0 && y - oy >= 0 && x - ox < ow && y - oy < (ow === FIC_OLD ? 38 : oh);
