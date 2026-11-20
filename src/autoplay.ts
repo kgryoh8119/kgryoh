@@ -223,6 +223,13 @@ export function autoTurn(s: GameState): string[] {
   let builds = 0, acts = 0, needLand = false, saving = false, saveFor = 0, saveKind = ''; // saveFor：ためている金額（これを残せるなら、ほかの安い施設は建ててよい）
   const big = !!REAL && W * H > 6000, maxActs = Math.max(1, (big ? 2 : 6) + [big ? 1 : 2, 0, big ? 0 : -2][ord]), maxBuilds = Math.max(1, (big ? 1 : 3) + [1, 0, big ? 0 : -1][ord]); // 大きな地図（実在都市）は 1 手ごとの再計算が重いので、月の手数を絞る（v87：架空の街は広げても建物の数は同じなので絞らない）
   const can = (cost: number) => s.cash - cost >= reserve;
+  /** v94：工事中の市の施設が開業すると増える人件費（月）と、市債の元金の返済（月）。v93 までは今月の収支だけを見て、
+   *  はじめの数か月に保育園・図書館などをまとめて借りて建て、開業した翌年に赤字・一時借入・増税・政策の打ち切りが続いていた */
+  const committed = () => s.buildings.reduce((a, b) => a + (b.status === 'construction' && isCity(b.kind) ? DEFS[b.kind].staffReq * DEFS[b.kind].wage : 0), 0);
+  const repayM = () => s.loans.filter(l => l.kind === 'bond').reduce((a, l) => a + l.principal / l.months, 0);
+  const runCost = (k: Kind) => DEFS[k].staffReq * DEFS[k].wage + DEFS[k].upkeep;
+  /** 建てて開業したあとの月の収支の見込み（市債の返済を引く） */
+  const headroom = (k?: Kind) => L.operating - committed() - repayM() - (k ? runCost(k) : 0);
   const act = (a: Action, text: string): boolean => { if (acts >= maxActs) return false; const r = dispatch(s, a); if (r.ok) { out.push(text); acts++; } return r.ok; };
   // 国際交流：知名度が届いた都市と姉妹都市になり、半年ごとに交流する
   if (s.month % 6 === 3 && s.cash > 20000) {
@@ -274,6 +281,8 @@ export function autoTurn(s: GameState): string[] {
       if (lot && can(d.cost * 1.1 + lot.cost)) { for (const id of lot.ids) act({ type: 'buyout', id }, `住宅の用地を買収（${nm(kind)}の用地のため）`); acts -= lot.ids.length; spot = findSpot(s, kind, weight) ?? (checkPlace(s, kind, lot.x, lot.y).ok ? { x: lot.x, y: lot.y } : null); }
     }
     if (!spot) { if (urgent) needLand = true; return false; } // 置ける場所がなければ借りもせず、道路を延ばして用地をつくる
+    // v94：開業したあとの人件費・維持費と返済で赤字になるなら建てない（水道・下水・電力は除く。保育・学校はある程度の赤字まで）
+    if (urgent !== 2 && headroom(kind) < (urgent ? [-250, -100, 0] : [0, 150, 300])[ord]) return false;
     // 急ぐもの（水道・保育・学校・下水・電力）は、資金が足りなければ市債で用意する
     if ((!urgent || (urgent === 1 && saveKind && saveKind !== kind)) && saving && s.cash - d.cost * 1.1 < saveFor + reserve) return false; // 急ぐものの資金をためている間は、それを崩してまでほかを建てない
     const cap = urgent === 2 ? 0.95 : urgent ? 0.7 : 0.6; // 水道・下水・電力は上限近くまで、保育・学校は 7 割まで借りる。どんどん攻めろ：急がない施設も 6 割まで借りる
@@ -294,7 +303,7 @@ export function autoTurn(s: GameState): string[] {
   if (s.mode === 'sandbox' && s.approval < 0.55 && (s.acts.townhall === undefined || s.month - s.acts.townhall >= 6) && s.cash > 200) act({ type: 'civic', id: 'townhall' }, `地区ごとの対話集会：返り咲きをめざして（支持率 ${Math.round(s.approval * 100)}%）`);
   const bondF = () => s.loans.filter(l => l.kind === 'bond').reduce((a, l) => a + l.remaining, 0);
   /** 借りても返せるか：毎月の収支から、増えた元金の返済を引いて黒字が残るか */
-  const affordable = (amt: number) => L.operating - (s.loans.filter(l => l.kind === 'bond').reduce((a, l) => a + l.principal / l.months, 0) + amt / P.bondMonths) > [20, 80, 300][ord];
+  const affordable = (amt: number) => L.operating - committed() - (repayM() + amt / P.bondMonths) > [20, 80, 300][ord]; // v94：工事中の施設の人件費も入れる
   const pending = (f: string) => s.buildings.some(b => fam(b.kind) === f && b.status === 'construction');
   /** 区画整理：住宅の裏に取り残された空き地へ道路を通す。入口をふさぐ住宅は買い取る（3 軒まで）。足りなければ市債で */
   let redeveloped = false;
@@ -344,9 +353,9 @@ export function autoTurn(s: GameState): string[] {
     else if (ord !== 2 && op6 > 1400 && s.tax.res > 0.95 && s.tax.res <= 1 && taxOk('res') && (campaign || op6 > 2500)) act({ type: 'tax', key: 'res', v: 0.95 }, '住民税を標準より 5% 下げる：黒字が大きく、暮らしの負担を軽くするため');
   }
   // 安くて支持の上がる政策（子ども食堂）、住宅の負担を軽くする政策（住宅改修支援）、通勤を楽にする政策（自転車道）
-  if (op6 > 120 && !s.policies.kodomo?.on) act({ type: 'policy', id: 'kodomo', on: true }, '子ども食堂への支援を始める：費用が小さく、子育て世帯の満足と支持が上がるため');
-  if (op6 > 400 && !s.policies.homeReform?.on) act({ type: 'policy', id: 'homeReform', on: true }, '住宅改修支援を始める：住宅の負担感（満足の最大の不足）を軽くするため');
-  if (op6 > 500 && !s.policies.bikeLanes?.on && (st.satDrag?.[1] ?? 0) > 0.05) act({ type: 'policy', id: 'bikeLanes', on: true }, '自転車道とシェアサイクルを始める：通勤の不満が大きいため');
+  if (op6 - committed() > 120 && !s.policies.kodomo?.on) act({ type: 'policy', id: 'kodomo', on: true }, '子ども食堂への支援を始める：費用が小さく、子育て世帯の満足と支持が上がるため');
+  if (op6 - committed() - repayM() > 400 && !s.policies.homeReform?.on) act({ type: 'policy', id: 'homeReform', on: true }, '住宅改修支援を始める：住宅の負担感（満足の最大の不足）を軽くするため');
+  if (op6 - committed() - repayM() > 500 && !s.policies.bikeLanes?.on && (st.satDrag?.[1] ?? 0) > 0.05) act({ type: 'policy', id: 'bikeLanes', on: true }, '自転車道とシェアサイクルを始める：通勤の不満が大きいため');
   if (campaign) {
     // 支持率：対話集会はいつでも、市民まつりは選挙の 6 か月前から（効果が 6 か月）
     if (s.approval < 0.56 && (s.acts.townhall === undefined || s.month - s.acts.townhall >= 6) && can(50)) act({ type: 'civic', id: 'townhall' }, `地区ごとの対話集会：選挙まで ${left} か月、支持率 ${Math.round(s.approval * 100)}%`);
