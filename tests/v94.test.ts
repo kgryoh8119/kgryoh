@@ -81,3 +81,15 @@ describe('v94 市長レベルの曲線', () => {
     expect((M.pts - p0) - (t.mayor!.pts - q0)).toBe(WIN_PTS); // 古いセーブは勲章「再選」の分だけ（再選の実績点はさかのぼらない）
   });
 });
+
+describe('v94 オート', () => {
+  it('はじめの 2 年で、まとめて借りて建てて一時借入が続くことがなく、道路に面していない建物も建てない', async () => {
+    const { stepMonth, seedForTerrain, tempDebt } = await import('../src/sim/index');
+    const { autoTurn } = await import('../src/autoplay');
+    const s = newGame({ seed: seedForTerrain('coast', 261011) }); s.tutorial.done = true;
+    let temp = 0;
+    for (let m = 0; m < 24; m++) { autoTurn(s); stepMonth(s); s.events.active = []; if (tempDebt(s) > 0) temp++; }
+    expect(temp).toBeLessThanOrEqual(3); // v93 は 24 か月のうち 10 か月ほど一時借入があった
+    expect(s.buildings.filter(b => b.builtMonth > 0 && accessTile(s, b.x, b.y, b.w, b.h, 1, 1) < 0 && !ROADLESS.has(b.kind)).map(b => b.kind)).toEqual([]);
+  }, 180000);
+});
