@@ -1382,49 +1382,75 @@ export class View {
   }
   private treeCtxCache: Ctx | null = null;
   private treeCtx(g: Geo): Ctx { if (!this.treeCtxCache || this.treeCtxCache.g !== g) this.treeCtxCache = { g, wa: g, wb: g, sign: g, rnd: rng(7), old: false, fine: this.fine() } as unknown as Ctx; return this.treeCtxCache; }
-  /** 立体交差の一覧（車・バスが高架の上を走るための高さに使う） */
-  private flyList: { cx: number; cz: number; ew: boolean }[] = [];
+  /** 立体交差の高架の区間（車・バスが高架の上を走るための高さに使う）。v93：同じ幹線で近くに並ぶ立体交差は 1 本の高架にまとめる。
+   *  ew＝東西方向、line＝道の中心線の座標（東西なら z）、a0・a1＝高架の平らな所の中心の範囲（両端の交差点の中心） */
+  private flySpans: { ew: boolean; line: number; a0: number; a1: number }[] = [];
+  /** 高架の高さ（地面からの高さ）：平らな所（a0−15〜a1+15）は H、その外 30m で地面へ下りる */
+  private static flyH(a: number, a0: number, a1: number, H = 7.5): number {
+    const d = a < a0 - 15 ? a0 - 15 - a : a > a1 + 15 ? a - a1 - 15 : 0, t = Math.max(0, 1 - d / 30); return t * t * (3 - 2 * t) * H;
+  }
   /** 車・バスの高さ：橋・陸橋に加えて、立体交差の中央の車線を進行方向にまっすぐ走るときは高架の上（前は高架の坂を突き抜けていた） */
   vehY(px: number, pz: number, dx: number, dz: number): number {
     let y = this.surfY(px, pz);
-    for (const f of this.flyList) {
-      const a = f.ew ? px - f.cx : pz - f.cz, o = f.ew ? pz - f.cz : px - f.cx;
-      if (Math.abs(a) >= 45 || Math.abs(o) > 4.4) continue;
+    for (const f of this.flySpans) {
+      const a = f.ew ? px : pz, o = (f.ew ? pz : px) - f.line;
+      if (a <= f.a0 - 45 || a >= f.a1 + 45 || Math.abs(o) > 4.4) continue;
       if (Math.abs(f.ew ? dx : dz) < 0.9) continue; // 曲がる車・横切る車は下の道
-      const t = Math.abs(a) <= 15 ? 1 : Math.max(0, 1 - (Math.abs(a) - 15) / 30), bx = f.ew ? f.cx + a : f.cx, bz = f.ew ? f.cz : f.cz + a;
-      y = Math.max(y, heightAt(this.map, bx, bz) + 0.18 + t * t * (3 - 2 * t) * 7.5 + 0.3);
+      const bx = f.ew ? a : f.line, bz = f.ew ? f.line : a;
+      y = Math.max(y, heightAt(this.map, bx, bz) + 0.18 + View.flyH(a, f.a0, f.a1) + 0.3);
     }
     return y;
   }
-  /** 立体交差：交差点の上を、幹線の中央 2 車線が高架でまたぐ（前後の区画は坂） */
+  /** 立体交差：交差点の上を、幹線の中央 2 車線が高架でまたぐ（前後の区画は坂）。
+   *  v93：同じ幹線で 4 区画（120m）以内に続く立体交差は、間で地面まで下りずに 1 本の高架にする（前は交差点ごとに山になり、
+   *  何か所も続けるとジェットコースターのように波打っていた）。桁の厚さは一定、橋脚は 25m おき */
   private drawFlyovers(s: GameState, g: Geo): void {
     const m = this.map, hA = (x: number, z: number) => heightAt(m, x, z);
-    this.flyList = [];
+    this.flySpans = [];
     type V = [number, number, number]; const dq = (p: V, q: V, r: V, t: V, c: number) => { g.quad(p, q, r, t, c); g.quad(t, r, q, p, c); }; // 両面（向きを気にしない）
+    // 立体交差を、向きと道の中心線ごとに集め、近いものをまとめる
+    const lines = new Map<string, { ew: boolean; line: number; at: number[] }>();
     for (const i of s.flyover ?? []) {
       if (!s.road[i]) continue;
       const x = i % W, y = (i / W) | 0, cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE;
       const big = (dx: number, dy: number) => inMap(x + dx, y + dy) && s.road[idx(x + dx, y + dy)] >= 2;
       const ew = big(1, 0) && big(-1, 0) ? true : big(0, 1) && big(0, -1) ? false : big(1, 0) || big(-1, 0);
-      const P = (a: number, o: number): [number, number] => (ew ? [cx + a, cz + o] : [cx + o, cz + a]);
-      this.flyList.push({ cx, cz, ew });
-      const H0 = 7.5, dw = 4.2, yAt = (a: number) => { const t = Math.abs(a) <= 15 ? 1 : Math.max(0, 1 - (Math.abs(a) - 15) / 30); return t * t * (3 - 2 * t) * H0; };
-      const base = (a: number) => { const [px, pz] = P(a, 0); return hA(px, pz) + 0.18; };
-      for (let a = -45; a < 45; a += 2.5) {
-        const b = a + 2.5, ya = base(a) + yAt(a), yb = base(b) + yAt(b);
+      const line = ew ? cz : cx, k = `${ew ? 'e' : 'n'}${line}`;
+      if (!lines.has(k)) lines.set(k, { ew, line, at: [] }); lines.get(k)!.at.push(ew ? cx : cz);
+    }
+    for (const L of lines.values()) {
+      const at = L.at.sort((p, q) => p - q);
+      let a0 = at[0], a1 = at[0];
+      const flush = () => this.flySpans.push({ ew: L.ew, line: L.line, a0, a1 });
+      for (let k = 1; k < at.length; k++) { if (at[k] - a1 <= 4 * TILE) a1 = at[k]; else { flush(); a0 = a1 = at[k]; } }
+      flush();
+    }
+    const H0 = 7.5, dw = 4.2, TH = 1.3;
+    for (const f of this.flySpans) {
+      const P = (a: number, o: number): [number, number] => (f.ew ? [a, f.line + o] : [f.line + o, a]);
+      const yAt = (a: number) => View.flyH(a, f.a0, f.a1, H0), base = (a: number) => { const [px, pz] = P(a, 0); return hA(px, pz) + 0.18; };
+      const A0 = f.a0 - 45, A1 = f.a1 + 45, n = Math.max(1, Math.round((A1 - A0) / 2.5)), st = (A1 - A0) / n;
+      for (let k = 0; k < n; k++) {
+        const a = A0 + k * st, b = a + st, ya = base(a) + yAt(a), yb = base(b) + yAt(b);
         const [x0, z0] = P(a, -dw), [x1, z1] = P(b, -dw), [x2, z2] = P(b, dw), [x3, z3] = P(a, dw);
-        // 路面（上）と、桁の側面・底
+        // 路面（上）と底
         dq([x0, ya, z0], [x1, yb, z1], [x2, yb, z2], [x3, ya, z3], 0x3a3d42);
+        const tha = Math.min(TH, yAt(a)), thb = Math.min(TH, yAt(b));
+        if (tha > 0.25 || thb > 0.25) dq([x0, ya - tha, z0], [x1, yb - thb, z1], [x2, yb - thb, z2], [x3, ya - tha, z3], 0x9a978f);
+        // 桁の側面（高欄の上端まで。厚さは一定で、坂の下では地面に沿って薄くなる）
         for (const sg of [-1, 1]) {
-          const [ax, az] = P(a, sg * dw), [bx, bz] = P(b, sg * dw), th = Math.min(1.4, Math.max(0.2, yAt(a)));
-          const q: [number, number, number][] = [[ax, ya + 0.9, az], [bx, yb + 0.9, bz], [bx, yb - th, bz], [ax, ya - th, az]];
-          dq(q[0], q[1], q[2], q[3], 0xc9c6bf);
+          const [ax, az] = P(a, sg * dw), [bx, bz] = P(b, sg * dw);
+          dq([ax, ya + 0.9, az], [bx, yb + 0.9, bz], [bx, yb - Math.max(0.2, thb), bz], [ax, ya - Math.max(0.2, tha), az], 0xc9c6bf);
         }
-        // 中央線
-        if (Math.floor(a / 5) % 2 === 0) { const [mx0, mz0] = P(a, -0.1), [mx1, mz1] = P(b, 0.1); dq([mx0, ya + 0.04, mz0], [mx1, yb + 0.04, mz0], [mx1, yb + 0.04, mz1], [mx0, ya + 0.04, mz1], 0xeeeeea); }
+        // 中央線（破線）
+        if (Math.floor((a - A0) / 5) % 2 === 0) { const [mx0, mz0] = P(a, -0.1), [mx1, mz1] = P(b, 0.1); dq([mx0, ya + 0.04, mz0], [mx1, yb + 0.04, mz0], [mx1, yb + 0.04, mz1], [mx0, ya + 0.04, mz1], 0xeeeeea); }
       }
-      // 橋脚（交差点の手前と向こう）
-      for (const a of [-13, 13]) { const [px, pz] = P(a, 0), by = hA(px, pz); g.at(px, by, pz); g.box(0, 0, 0, ew ? 1.6 : 6.4, H0 - 1.2, ew ? 6.4 : 1.6, 0xb9b6ae); g.at(0, 0, 0); }
+      // 橋脚：区画の境目ごと（交差点の中心から 15m 離れた所＝交差点の外）と、坂の高い所（両端から 22m）に 1 本ずつ
+      const xs = new Set<number>([Math.round(f.a0 - 22), Math.round(f.a1 + 22)]); for (let a = Math.ceil((f.a0 - 15) / TILE) * TILE; a <= f.a1 + 15; a += TILE) xs.add(a);
+      for (const a of xs) {
+        const h = yAt(a) - TH; if (h < 1.2) continue;
+        const [px, pz] = P(a, 0), by = hA(px, pz); g.at(px, by, pz); g.box(0, 0, 0, f.ew ? 1.6 : 6.4, h, f.ew ? 6.4 : 1.6, 0xb9b6ae); g.at(0, 0, 0);
+      }
     }
   }
   /** まちづくり版の線路：区画の線路を曲線の線にして描く（render/rails.ts） */
