@@ -402,6 +402,8 @@ export interface GameState {
   decisions?: import('./report').Decision[];
   /** v90：ゲームループの記録（閉店した月の並び・開発負担金の累計と先月分（万円）・先月の転入世帯） */
   loopLog?: { closed: number[]; levy: number; levyM: number; inHH: number };
+  /** v95：住民一人ひとりの移動から出した月ごとの事故・火事・犯罪の件数（最大 24 か月。古いセーブにはない） */
+  incid?: import('./people').IncidentMonth[];
 }
 
 export interface Goal { id: string; base: number; target: number; diff: number }

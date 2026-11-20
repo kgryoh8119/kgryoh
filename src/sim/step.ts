@@ -1,4 +1,5 @@
 // 月次処理。1 回の呼び出しで 1 か月進む。描画やフレームレートには依存しない。
+import { monthlyIncidents } from './people';
 import { onMapChange, REAL } from './real';
 import { W, H, P, DEFS, POLICIES, policyCost, AIR_ROUTES, GOALS, VISIONS, isRes, isShop, isCity, isBiz, RES_TYPE, LV_UPKEEP, LV_CAP, lvK, lvOf, stageName, diffOf, hasOp, countOp, SPORTS, SCALE } from './config';
 import { getMap, idx, buildable, syncTerrain, terrainOf, isCastaway } from './map';
@@ -413,6 +414,8 @@ export function stepMonth(s: GameState, opts: { forecast?: boolean } = {}): void
   // 11. イベント
   if (!opts.forecast) tickEvents(s);
 
+  // v95：住民一人ひとりの移動から、今月の事故・火事・犯罪の件数（統計だけ。街の乱数・お金・満足は変えない）
+  if (!opts.forecast) monthlyIncidents(s);
   // 11. 月を進めて再計算
   s.month++;
   recompute(s, !!opts.forecast);
