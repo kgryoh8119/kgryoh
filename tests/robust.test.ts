@@ -1,7 +1,7 @@
 // 改修指示書 v2・優先順位 1：操作の原子性、保存データの検証、財政の整合
 import { describe, it, expect } from 'vitest';
 import { newGame, stepMonth, dispatch, recompute, serialize, deserialize, idx, W, H, P, DEFS, GameState, Action, DISTRICTS } from '../src/sim/index';
-import { planRoad, planZone } from '../src/sim/actions';
+import { planRoad, planZone, checkPlace } from '../src/sim/actions';
 import { ledgerGap, fiscalCrisis, tempDebt } from '../src/sim/step';
 import { addBuilding } from '../src/sim/events';
 import { validateState } from '../src/sim/validate';
@@ -201,7 +201,7 @@ describe('4. 財政の整合', () => {
     let builtCost = 0, otherPaid = 0;
     for (let m = 0; m < 240; m++) {
       if (m === 0) { dispatch(s, { type: 'borrow', amount: 30000 }); builtCost += DEFS.nursery.cost; dispatch(s, { type: 'build', kind: 'nursery', x: 14, y: 16 }); dispatch(s, { type: 'policy', id: 'careStaff', on: true }); }
-      if (m === 2) { builtCost += DEFS.park.cost; dispatch(s, { type: 'build', kind: 'park', x: 3, y: 20 }); }
+      if (m === 2) { builtCost += DEFS.park.cost; let p = null as null | { x: number; y: number }; for (let y = 10; y < 40 && !p; y++) for (let x = 0; x < 40 && !p; x++) if (checkPlace(s, 'park', x, y).ok) p = { x, y }; dispatch(s, { type: 'build', kind: 'park', x: p!.x, y: p!.y }); } // v94：道路に面した所
       if (m === 3) { const b = s.buildings.find(o => o.kind === 'park' && o.status === 'construction')!; dispatch(s, { type: 'demolish', id: b.id }); }
       if (m === 5) dispatch(s, { type: 'renew', id: s.buildings.find(b => b.kind === 'water')!.id });
       if (m === 30) for (const p of ['shopStart', 'homeReform', 'roadCare', 'familyMove']) dispatch(s, { type: 'policy', id: p, on: true });

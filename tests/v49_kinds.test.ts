@@ -12,7 +12,7 @@ test('v49 の施設をまとめて置いて 3 年進める', () => {
     if (ok) placed++; else fail.push(k);
   }
   expect(NEW.length).toBeGreaterThan(100);
-  expect(placed).toBeGreaterThan(NEW.length * 0.8); // 水辺や幹線道路が要るものは置けないことがある
+  expect(placed).toBeGreaterThan(NEW.length * 0.75); // 水辺や幹線道路が要るものは置けないことがある（v94：道路に面した所だけになり、駅のまわりに詰めると 0.8 をわずかに下回る）
   for (let m = 0; m < 36; m++) { stepMonth(s); s.events.active = []; }
   console.log('placed', placed, '/', NEW.length, 'fail', fail.join(','));
   const homes = s.buildings.filter(b => HOUSING_EXTRA.has(b.kind) && b.status === 'operating');

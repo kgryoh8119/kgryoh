@@ -462,7 +462,7 @@ function tryOpenBiz(s: GameState): void {
   for (let i = 0; i < N; i++) {
     const z = s.zone[i];
     if ((z !== 5 && z !== 6) || s.occ[i] || s.road[i] || !buildable(m, i)) continue;
-    const x = i % W, y = (i / W) | 0, acc = accessTile(s, x, y, 1, 1);
+    const x = i % W, y = (i / W) | 0, acc = accessTile(s, x, y, 1, 1, 1, 1); // v94：民間の着工は道路に面した区画だけ
     if (acc < 0 || !info.conn[acc]) continue;
     if (rngNext(s) >= p) continue;
     const kind: Kind = z === 6 ? 'smallFactory' : sd && sd[acc] >= 0 && sd[acc] <= 25 && lack > 1.2 ? 'officeM' : 'officeS';
@@ -479,7 +479,7 @@ function tryOpenShop(s: GameState): void {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = idx(x, y);
     if (s.zone[i] !== 4 || s.occ[i] || s.road[i] || !buildable(m, i)) continue;
-    const acc = accessTile(s, x, y, 1, 1);
+    const acc = accessTile(s, x, y, 1, 1, 1, 1); // v94：道路に面した区画だけ
     if (acc < 0 || !info.conn[acc]) continue;
     for (const kind of ['bakery', 'shop', 'konbini', 'cafe', 'drugstore'] as Kind[]) {
       const ratio = shopPotential(s, acc, kind) / (DEFS[kind].fixed! / P.margin);
@@ -487,7 +487,7 @@ function tryOpenShop(s: GameState): void {
     }
     // スーパー：2×2 の商業区画が空いていて、幹線か国道に面している
     if (x + 1 < W && y + 1 < H && [idx(x + 1, y), idx(x, y + 1), idx(x + 1, y + 1)].every(j => s.zone[j] === 4 && !s.occ[j] && !s.road[j] && buildable(m, j))) {
-      const a2 = accessTile(s, x, y, 2, 2, 2);
+      const a2 = accessTile(s, x, y, 2, 2, 2, 1);
       if (a2 >= 0 && info.conn[a2]) {
         const ratio = shopPotential(s, a2, 'supermarket') / (DEFS.supermarket.fixed! / P.margin);
         if (ratio > best.ratio * 1.05) best = { ratio, x, y, kind: 'supermarket' };
@@ -531,7 +531,7 @@ function privateHousing(s: GameState, waterLv: number): void {
     const z = s.zone[i];
     if (z < 1 || z > 3 || s.occ[i] || s.road[i] || !buildable(m, i)) continue;
     const x = i % W, y = (i / W) | 0;
-    const acc = accessTile(s, x, y, 1, 1);
+    const acc = accessTile(s, x, y, 1, 1, 1, 1); // v94：道路に面した区画だけ
     if (acc < 0 || !info.conn[acc]) continue;
     const vEff = (vacant + pipeline) / Math.max(1, units + pipeline);
     const pressure = clamp((P.targetVacancy - vEff) / P.targetVacancy) + Math.min(1, st.pentUp / 12);
