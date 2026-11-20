@@ -841,9 +841,15 @@ export class View {
       g.at(px, 0, pz); g.box(0, 0, 0, w, hh, w * (0.7 + hash(k, 5, 41) * 0.6), [0x9aa4ad, 0xb7bec4, 0x7d8a96, 0xc9c4b8][k % 4], 0x6a7682); g.at(0, 0, 0);
     }
     // 地図の外の家並み（景観のみ。都会はビル群、山あいと田園は少なめ）
+    // v94：地図の外の地面が陸の所だけに置く（前は島の東と南西の外の海、無人島のまわりの海、南の川の上にも家が立っていた）
+    const outerLand = (px: number, pz: number, r: number) => { if (tId === 'castaway') return false;
+      const noSea = tId === 'inland' || tId === 'rural' || tId === 'mountain', RY = noSea ? H - 3.4 : H - 4.8;
+      if (pz > RY * TILE - r - 6 || pz < r) return false;
+      if (tId === 'island' && (px > MAPW - r || (px < r && pz > 24.5 * TILE - r - 6))) return false;
+      return true; };
     for (let k = 0; k < (tId === 'urban' ? 60 : tId === 'mountain' || tId === 'rural' ? 50 : 150); k++) {
       const side = k % 2, px = side ? MAPW + 60 + hash(k, 1, 31) * 900 : -60 - hash(k, 1, 31) * 900, pz = 80 + hash(k, 2, 31) * (H - 9) * TILE;
-      if (Math.abs(pz - 15.5 * TILE) < 24) continue;
+      if (Math.abs(pz - 15.5 * TILE) < 24 || !outerLand(px, pz, 8)) continue;
       g.at(px, 0, pz, Math.floor(hash(k, 3, 31) * 4) * Math.PI / 2);
       const w = 7 + hash(k, 4, 31) * 3, d = 6 + hash(k, 5, 31) * 2, wall = [0xf2efe6, 0xe9e2d0, 0xd9cfc0, 0xcfd6da][k % 4], roof = [0x3b3f46, 0x2f3a4a, 0x5a3a2e, 0x4a4a4a][(k >> 2) % 4];
       g.box(0, 0, 0, w, 5.4, d, wall); g.gable(0, 5.4, 0, w, d, 2, roof, 'x', wall);
