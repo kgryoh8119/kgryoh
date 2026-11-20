@@ -685,3 +685,22 @@ table.t td.good{color:var(--good);font-weight:700}table.t td.bad{color:var(--bad
 .f90-play-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
 .f90-play-c{display:flex;flex-direction:column;gap:4px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-width:0}
 .f90-play-c small{color:var(--ink-3);font-size:11.5px;line-height:1.45;overflow-wrap:anywhere}.f90-play-c .btn{align-self:flex-start}
+/* v95：市役所の人物の発言（吹き出し）。数値の表（計算結果）・住民の声（引用）と見た目を分ける */
+.st-brief{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--paper-2)}
+.st-brief h2{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.st-brief h2 small{flex:1 1 160px}
+.st-mode{margin-left:auto}
+.st-say{display:flex;gap:8px;align-items:flex-start;margin:8px 0;min-width:0}
+.st-ava{flex:0 0 32px;width:32px;height:32px;border-radius:50%;background:var(--sc);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px var(--paper)}
+.st-bub{position:relative;flex:1 1 auto;min-width:0;background:var(--paper);border:1px solid var(--line);border-radius:4px 12px 12px 12px;padding:6px 10px;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.st-bub p{margin:2px 0 0}
+.st-who{display:block;font-size:12px;color:var(--ink-2)}
+.st-who small{margin-left:6px;font-weight:400;color:var(--ink-3)}
+.st-reply{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.st-sec .st-bub{border-color:#b9a6dc}
+.st-small .st-ava{flex-basis:24px;width:24px;height:24px;font-size:12px}
+.st-small .st-bub{font-size:12px;padding:4px 8px}
+.st-past summary{cursor:pointer;font-size:12px;color:var(--ink-2)}
+.st-when{margin:6px 0 0;font-size:11px;color:var(--ink-3)}
+.st-tab{margin-bottom:6px}
+.f90-box .st-say{margin:4px 0 8px}

@@ -5,6 +5,7 @@ import { DEFS, POLICIES, policyCost, DISTRICTS, W, H, type PolicyDef, type Kind 
 import type { GameState, Voice, Issue } from '../sim/index';
 import { getMap } from '../sim/map';
 import { housingBlocked } from '../sim/wire';
+import { staffPlain, trialTalk, runTalk, resultTalk, reportTalk } from './staff';
 import { gapsOf, indicatorOf, issueIndicators, policyTarget, TRIAL_SHOW, type Decision, type DecisionResult, type AnnualReport, type TrialOption, type TrialResult, type Expect } from '../sim/report';
 
 const esc = (t: string) => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -26,7 +27,7 @@ export function issueSteps(s: GameState, i: Issue, f: IssueFlow | null, first: b
     <div class="f90-steps">${btn('cause', '① 原因を見る', open === 'cause')}${btn('trial', '② 対策を試算', open === 'trial')}${btn('trial', '③ 実行', false, f?.key === i.key && f.trial?.ok ? '' : ' disabled title="先に②で対策を選んで試算してください"')}${btn('result', `④ 数か月後の結果${mine.length ? `（${mine.length}）` : ''}${fresh ? '<em class="f90-new">結果が出ました</em>' : ''}`, open === 'result')}</div>`;
   if (open === 'cause') h += causeHtml(s, i);
   if (open === 'trial' && f) h += trialHtml(s, i, f);
-  if (open === 'result') h += resultsHtml(s, mine);
+  if (open === 'result') h += resultsHtml(s, i, mine);
   return h;
 }
 
@@ -67,7 +68,8 @@ function trialHtml(s: GameState, i: Issue, f: IssueFlow): string {
       : rg ? (rg.length ? `<div class="f90-scroll"><table class="t"><tr><th>指標（転入の楽観〜慎重）</th><th>しない場合との差の幅</th></tr>${rg.map(x => { const d = indicatorOf(x.id); return d ? `<tr><td>${esc(d.name)}<small>${esc(d.unit)}</small></td><td>${sgn(x.lo, d.digits ?? 0)}〜${sgn(x.hi, d.digits ?? 0)}</td></tr>` : ''; }).join('')}</table></div>` : '<p class="note">転入の多少では、差の幅はほとんど変わりません。</p>')
       : f.opts[f.pick]?.range ? `<button class="btn small" data-act="ix" data-arg="range|${k}">転入が多い・少ない場合の幅も見る（数秒）</button>` : '';
     const o = f.opts[f.pick];
-    t = `<p class="f90-sub">${CALC} 12 か月後の予測（太字は基準、小さい数字は予測の幅）。できごとや景気の変化は入っていません</p>
+    const mi = indicatorOf(issueIndicators(i.key)[0] ?? ''), talk = staffPlain() ? '' : trialTalk(i, o?.label ?? '', mi ? { name: mi.name, unit: mi.unit, a: T.without[12]?.[mi.id]?.[1] ?? 0, b: T.with[12]?.[mi.id]?.[1] ?? 0, digits: mi.digits ?? 0 } : null, o?.warn ?? '');
+    t = `${talk}<p class="f90-sub">${CALC} 12 か月後の予測（太字は基準、小さい数字は予測の幅）。できごとや景気の変化は入っていません</p>
       ${o?.warn ? `<p class="note bad f90-warn">⚠ ${esc(o.warn)}</p>` : stallWarn(T, o?.actions ?? null)}
       <div class="f90-scroll"><table class="t f90-cmp"><tr><th>指標</th><th>いま</th><th>しない場合</th><th>する場合</th><th>差</th></tr>${rows}</table></div>
       ${quiet.length ? `<p class="f90-sub">差が予測の誤差より小さい指標（表から省略）：${quiet.map(esc).join('・')}</p>` : ''}${rgHtml}
@@ -94,9 +96,11 @@ export function gapTable(d: Decision, r: DecisionResult | null, all = false): st
   return `<div class="f90-scroll"><table class="t f90-gap"><tr><th>指標</th><th>実行前</th><th>予測の幅</th><th>実績</th><th>予測との差</th></tr>${g.map(x => `<tr class="${x.outside ? 'out' : ''}"><td>${esc(x.name)}<small>${esc(x.unit)}</small></td><td>${num(x.before, x.digits)}</td><td>${num(x.lo, x.digits)}〜${num(x.hi, x.digits)}</td><td class="${x.trend > 0 ? 'good' : x.trend < 0 ? 'bad' : ''}">${num(x.actual, x.digits)}</td><td>${sgn(x.diff, x.digits)}${x.outside ? '<em>幅の外</em>' : ''}</td></tr>`).join('')}</table></div>
     ${r.factors.length ? `<p class="f90-sub">予測から外れた主な要因：${r.factors.map(esc).join('／')}</p>` : ''}`;
 }
-function resultsHtml(s: GameState, mine: Decision[]): string {
+function resultsHtml(s: GameState, i: Issue, mine: Decision[]): string {
   if (!mine.length) return '<div class="f90-box"><p class="note">この課題から実行した対策はまだありません。②で試算して③で実行すると、3・6・12 か月後の結果がここに出ます。</p></div>';
-  return `<div class="f90-box">${mine.slice().reverse().map(d => { const r = d.results.slice().sort((a, b) => b.at - a.at)[0] ?? null;
+  const last = mine[mine.length - 1], fresh = mine.filter(d => d.results.some(r => !(d.seen ?? []).includes(r.at)));
+  const talk = staffPlain() ? '' : fresh.length ? fresh.map(resultTalk).join('') : runTalk(i, last);
+  return `<div class="f90-box">${talk}${mine.slice().reverse().map(d => { const r = d.results.slice().sort((a, b) => b.at - a.at)[0] ?? null;
     d.seen = [...new Set([...(d.seen ?? []), ...d.results.map(x => x.at)])]; // 見た印（街の計算には使わない）
     return `<h4>${esc(d.label)} <small>${dateStr(d.month)} に実行${r ? `・${r.at} か月後の結果 ${CALC}` : ''}</small></h4>${gapTable(d, r)}`; }).join('')}</div>`;
 }
@@ -115,7 +119,7 @@ export function reportHtml(rep: AnnualReport): string {
   const rows = rep.rows.length ? rep.rows.map(x => `<div class="f90-rrow"><h4><span class="f90-verdict ${V[x.verdict][1]}">${V[x.verdict][0]}</span>${esc(x.d.label)}<small>${dateStr(x.d.month)}・${esc(x.d.kind)}</small></h4>${gapTable(x.d, x.r)}</div>`).join('')
     : '<p class="note">この期間に記録した施策はありません（政策の開始・終了、施設の建設・更新、税率・用途の変更などを記録します）。</p>';
   const ch = rep.change.map(c => { const d = c.b - c.a, good = Math.abs(d) < 1e-9 ? '' : (d > 0) === (c.better === 'up') ? 'good' : 'bad'; return `<tr><td>${esc(c.name)}<small>${esc(c.unit)}</small></td><td>${num(c.a, c.digits)}</td><td>${num(c.b, c.digits)}</td><td class="${good}">${sgn(d, c.digits)}</td></tr>`; }).join('');
-  return `<div class="dialog wide f90-report" role="dialog" aria-modal="true" aria-label="年次報告"><header><small>${dateStr(rep.from)} 〜 ${dateStr(Math.max(rep.from, rep.to - 1))}</small><h2>📘 ${esc(rep.title)}</h2></header><div class="body">
+  return `<div class="dialog wide f90-report" role="dialog" aria-modal="true" aria-label="年次報告"><header><small>${dateStr(rep.from)} 〜 ${dateStr(Math.max(rep.from, rep.to - 1))}</small><h2>📘 ${esc(rep.title)}</h2></header><div class="body">${reportTalk(rep)}
     <section><h3>この期間の街の変化 ${CALC}</h3><div class="f90-scroll"><table class="t"><tr><th>指標</th><th>はじめ</th><th>おわり</th><th>変化</th></tr>${ch}</table></div></section>
     <section><h3>実行した施策：実行前 → 予測の幅 → 実績 → 差 ${CALC}</h3><p class="f90-sub">各施策の主な指標を、実行したときの予測（12 か月後まで。3・6 か月の時点も）と比べます。色は実行前より良くなった（緑）／悪くなった（赤）。</p>${rows}</section>
     ${rep.quotes.length ? `<section><h3>街の様子 ${VOICE}</h3><p class="f90-sub">数値ではなく、いま届いている声の一部です。</p>${rep.quotes.map(q => `<blockquote class="f90-q ${q.tone}">${esc(q.text)}<cite>— ${esc(q.who)}</cite></blockquote>`).join('')}</section>` : ''}
