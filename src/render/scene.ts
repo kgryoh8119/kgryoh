@@ -606,11 +606,19 @@ export class View {
     }
     flat(-far, -far, MAPW + far, 0, -0.02, G);
     if (isle) { flat(-far, 0, 0, 24.5 * TILE, -0.02, G); flat(-far, 24.5 * TILE, 0, RY * TILE, -3.2, 0x566b5a); flat(MAPW, 0, MAPW + far, RY * TILE, -3.2, 0x566b5a); }
-    else { flat(-far, 0, 0, RY * TILE, -0.02, G); flat(MAPW, 0, MAPW + far, RY * TILE, -0.02, G); }
-    const sea = !noSea; // v70：海のある地形は、南の水面を水平線まで広げる（前は 60m 先から陸地で、川のように見えていた）
+    const sea = !noSea, v3s = !!this.map.surf && sea && !isle;
+    // v95：v94 の海辺の地形は、地図の東西の縁で海岸が RY の行にないので、地図の外の海岸線を縁の海岸の位置から 600m かけて RY へつなぐ（縁で陸と海が食い違う直線の継ぎ目を消す）
+    const edgeY = (x: number) => { if (!v3s) return RY; let y = H - 1; while (y > 0 && this.map.sea?.[idx(x, y)]) y--; return y >= H - 1 ? RY : y + 1; };
+    const yE = [edgeY(0), edgeY(W - 1)], D = 600;
+    if (!isle) for (const sd of [0, 1]) { const xs = sd === 0 ? [-far, -D, -D * 0.75, -D * 0.5, -D * 0.25, 0] : [MAPW, MAPW + D * 0.25, MAPW + D * 0.5, MAPW + D * 0.75, MAPW + D, MAPW + far];
+      const zc = (xw: number) => { const t = Math.min(1, (sd === 0 ? -xw : xw - MAPW) / D), k = t * t * (3 - 2 * t); return (yE[sd] + (RY - yE[sd]) * k) * TILE; };
+      for (let k = 0; k + 1 < xs.length; k++) { const a = xs[k], b = xs[k + 1], za = zc(a), zb = zc(b), T1 = 1.6 * TILE;
+        outer.quad([a, -0.02, za], [b, -0.02, zb], [b, -0.02, 0], [a, -0.02, 0], G);
+        outer.quad([a, -1.4, za + T1], [b, -1.4, zb + T1], [b, -1.4, zb], [a, -1.4, za], 0xa9a07f);
+        outer.quad([a, -3.2, MAPH + 60], [b, -3.2, MAPH + 60], [b, -3.2, zb + T1], [a, -3.2, za + T1], 0x566b5a); } } // v70：海のある地形は、南の水面を水平線まで広げる（前は 60m 先から陸地で、川のように見えていた）
     if (!sea) flat(-far, MAPH + 60, MAPW + far, MAPH + far, -0.02, 0x6f9652);
     else flat(-far, MAPH + 60, MAPW + far, MAPH + far, -3.4, 0x4f6658);
-    for (const [x0, x1] of [[-far, 0], [MAPW, MAPW + far]]) { flat(x0, RY * TILE, x1, (RY + 1.6) * TILE, -1.4, 0xa9a07f); flat(x0, (RY + 1.6) * TILE, x1, MAPH + 60, -3.2, 0x566b5a); }
+    if (isle) for (const [x0, x1] of [[-far, 0], [MAPW, MAPW + far]]) { flat(x0, RY * TILE, x1, (RY + 1.6) * TILE, -1.4, 0xa9a07f); flat(x0, (RY + 1.6) * TILE, x1, MAPH + 60, -3.2, 0x566b5a); }
     if (isle) { // 島：東と南西の外も海
       const sg = new THREE.PlaneGeometry(far, RY * TILE + 40); sg.rotateX(-Math.PI / 2);
       const e = new THREE.Mesh(seaColors(sg), this.matSea); e.position.set(MAPW + far / 2 - 20, -1.62, RY * TILE / 2 - 20); this.scene.add(e);
@@ -620,7 +628,7 @@ export class View {
     const om = new THREE.Mesh(outer.build(), this.matTerrain); om.receiveShadow = true; this.scene.add(om);
     // v94 の地形：地図の中の海・川は区画ごとに岸を曲線で描くので、大きな水面は地図の南の縁から外だけ（東西の外の川の帯はそのまま）
     const v3 = !!this.map.surf, z0w = v3 ? MAPH : (RY - 0.2) * TILE;
-    if (v3) for (const [x0, x1] of [[-far, 0], [MAPW, MAPW + far]]) { const sg2 = new THREE.PlaneGeometry(x1 - x0, MAPH - (RY - 0.2) * TILE); sg2.rotateX(-Math.PI / 2); const s2 = new THREE.Mesh(seaColors(sg2), this.matSea); s2.position.set((x0 + x1) / 2, -1.55, ((RY - 0.2) * TILE + MAPH) / 2); this.scene.add(s2); }
+    if (v3) for (const [sd, x0, x1] of [[0, -far, 0], [1, MAPW, MAPW + far]]) { const zs = (Math.min(RY, yE[sd]) - 0.2) * TILE, sg2 = new THREE.PlaneGeometry(x1 - x0, MAPH - zs); sg2.rotateX(-Math.PI / 2); const s2 = new THREE.Mesh(seaColors(sg2), this.matSea); s2.position.set((x0 + x1) / 2, -1.55, (zs + MAPH) / 2); this.scene.add(s2); }
     if (v3 && !sea) { const lg = new Geo(); lg.quad([0, -0.02, MAPH + 60], [MAPW, -0.02, MAPH + 60], [MAPW, -0.02, MAPH], [0, -0.02, MAPH], G); const lm = new THREE.Mesh(lg.build(), this.matTerrain); lm.receiveShadow = true; this.scene.add(lm); } // 海のない地形：南の川は地図の中で曲がるので、南の縁の外は陸
     const wd = MAPH - z0w + (sea ? far : 60), wg = new THREE.PlaneGeometry(far * 2 + MAPW, wd); wg.rotateX(-Math.PI / 2);
     const water = new THREE.Mesh(seaColors(wg), this.matSea); water.position.set(MAPW / 2, v3 ? -1.56 : -1.55, z0w + wd / 2); this.scene.add(water);
@@ -1675,7 +1683,7 @@ export class View {
             for (const [qx, qz] of [[-7.1, 5.9], [7.1, 5.9], [-7.1, -8.3], [7.1, -8.3]]) { const r = RF[(b.id + Math.round(qx + qz)) & 3]; lg.box(qx, 0, qz, 7.6, 5.5, 6.4, col, col); lg.gable(qx, 5.5, qz, 7.6, 6.4, 1.9, r, 'x', col, 0.4); }
           } else lg.box(0, 0, 0, Math.max(4, b.w * TILE - 6), fam(b.kind) === 'park' ? 0.4 : hh, Math.max(4, b.h * TILE - 6), col, isRes(b.kind) ? 0x8a6a5a : undefined); }
         for (let y = Math.max(2, cy0); y < Math.min(H - 4, cy0 + CH); y++) for (let x = cx0; x < Math.min(W, cx0 + CH); x++) { const i = idx(x, y); if (s.road[i] || s.occ[i] || !buildable(m, i)) continue; const r = hash(x, y, 77), cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE, top = heightAt(m, cx, cz);
-          const ek = extLook(m, x, y); if (s.zone[i]) { lg.at(cx, top, cz); lg.box(0, -2, 0, 27, 2.05, 27, 0xa8997c); } else if (ek >= 0) { if (ek === 6 && y < H - 6 && ![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => inMap(x + a, y + b) && m.deco![idx(x + a, y + b)] !== 6)) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, hash(Math.floor(x / 3), y >> 1, 31) < 0.5 ? 0x7a7a4c : 0x6a8a46); } } else if (r < (y >= 40 ? 0.72 : 0.5) && y < H - 6 && !(m.sand?.[i] || m.desert?.[i] || m.snow?.[i])) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, r < 0.3 ? 0x8cbc5c : 0x5f9445); } }
+          const ek = extLook(m, x, y); if (s.zone[i]) { lg.at(cx, top, cz); lg.box(0, -2, 0, 27, 2.05, 27, 0xa8997c); } else if (ek >= 0) { /* v95：遠くの畑は箱を置かない（地面の色が 3×2 区画の畑ごとの土と作物の色で、境はノイズでくねる。箱の四角い輪郭が上空から格子に見えた） */ } else if (r < (y >= 40 ? 0.72 : 0.5) && y < H - 6 && !(m.sand?.[i] || m.desert?.[i] || m.snow?.[i])) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, r < 0.3 ? 0x8cbc5c : 0x5f9445); } }
         if (lg.pos.length) { const lm = new THREE.Mesh(lg.build(false), LOD_MAT); lm.receiveShadow = true; lm.visible = false; this.scene.add(lm); this.chunkLow.set(k, lm); } }
       // v92：空き地だけの塊で、いまカメラから遠いものは、細かい版を後で（近づいたとき）作る
       if (!(blds.get(k)?.length) && arr.every(v => v === 'z0') && this.chunkLow.has(k)) {
