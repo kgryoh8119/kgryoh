@@ -135,8 +135,10 @@ export function reach(s: GameState, src: number, R: number): { t: Int32Array; d:
   return out;
 }
 
-/** 区画 (x,y,w,h) に接する道路タイル。市外につながる道路を優先 */
-export function accessTile(s: GameState, x: number, y: number, w: number, h: number, minRoad = 1): number {
+/** 区画 (x,y,w,h) に接する道路タイル。市外につながる道路を優先。
+ *  near：実在都市版（地図どおり）は既存の建物が道路の格子から離れているので、ACCESS_R 区画までの道路でつながっているとみなす。
+ *  v94：新しく建てる場所の判定（建設の確認・民間の着工）は near = 1（敷地に面した道路だけ）で呼ぶ */
+export function accessTile(s: GameState, x: number, y: number, w: number, h: number, minRoad = 1, near = ACCESS_R): number {
   const info = roadInfo(s);
   let any = -1;
   const check = (cx: number, cy: number): number => {
@@ -151,9 +153,9 @@ export function accessTile(s: GameState, x: number, y: number, w: number, h: num
   for (let k = 0; k < w; k++) { const a = check(x + k, y - 1); if (a >= 0) return a; }
   for (let k = 0; k < h; k++) { const a = check(x - 1, y + k); if (a >= 0) return a; }
   for (let k = 0; k < h; k++) { const a = check(x + w, y + k); if (a >= 0) return a; }
-  if (ACCESS_R > 1 && any < 0) {
+  if (near > 1 && any < 0) {
     // 近い順に周りを探す（細い道でつながっているとみなす）
-    for (let r = 2; r <= ACCESS_R; r++) {
+    for (let r = 2; r <= near; r++) {
       let best = -1, bd = 1e9;
       for (let yy = y - r; yy < y + h + r; yy++) for (let xx = x - r; xx < x + w + r; xx++) {
         if (xx >= x - r + 1 && xx < x + w + r - 1 && yy >= y - r + 1 && yy < y + h + r - 1) continue;
@@ -175,8 +177,8 @@ export function accessTile(s: GameState, x: number, y: number, w: number, h: num
 export const ROADLESS: ReadonlySet<string> = new Set(['farm', 'paddy', 'field', 'teaField', 'orchard', 'flowerFarm', 'horseFarm', 'pigFarm', 'forestry', 'tameike', 'biotope', 'forestPark', 'solar', 'solarSlope', 'solarFloat', 'windFarm', 'dam', 'pier']);
 export const ROADLESS_R = 4;
 /** 建物の入口になる道路タイル：ふつうは敷地に面した道路。ROADLESS の種類は 4 区画以内の近い道路でもよい */
-export function siteAccess(s: GameState, kind: string, x: number, y: number, w: number, h: number): number {
-  const a = accessTile(s, x, y, w, h);
+export function siteAccess(s: GameState, kind: string, x: number, y: number, w: number, h: number, near = ACCESS_R): number {
+  const a = accessTile(s, x, y, w, h, 1, near);
   if (a >= 0 || !ROADLESS.has(kind)) return a;
   const info = roadInfo(s); let best = -1, bd = 1e9;
   for (let yy = y - ROADLESS_R; yy < y + h + ROADLESS_R; yy++) for (let xx = x - ROADLESS_R; xx < x + w + ROADLESS_R; xx++) {

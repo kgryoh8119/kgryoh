@@ -1088,7 +1088,7 @@ export function findStoreSite(s: GameState): number {
   for (let y = 2; y < H - 6; y++) for (let x = 1; x < W - 2; x++) {
     let ok = true;
     for (let dy = 0; dy < 2 && ok; dy++) for (let dx = 0; dx < 2; dx++) { const i = idx(x + dx, y + dy); if (s.occ[i] || s.road[i] || !buildable(m, i)) { ok = false; break; } }
-    if (ok && accessTile(s, x, y, 2, 2, 2) >= 0) return idx(x, y);
+    if (ok && accessTile(s, x, y, 2, 2, 2, 1) >= 0) return idx(x, y);
   }
   return -1;
 }
@@ -1098,7 +1098,7 @@ export function findSite(s: GameState, w: number, h: number, minRoad = 1): numbe
   const m = getMap(s.seed);
   const free = (x: number, y: number) => { for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) { if (x + dx >= W || y + dy >= H) return false; const i = idx(x + dx, y + dy); if (s.occ[i] || s.road[i] || !buildable(m, i) || (s.rail?.[i] && s.railGrade?.[i] !== 2) || s.zone[i]) return false; } return true; };
   // 決まった順に探す（同じ状態なら同じ場所）。端から少し内側を優先
-  for (let y = 1; y < H - h; y++) for (let x = 1; x < W - w; x++) if (free(x, y) && accessTile(s, x, y, w, h, minRoad) >= 0) return idx(x, y);
+  for (let y = 1; y < H - h; y++) for (let x = 1; x < W - w; x++) if (free(x, y) && accessTile(s, x, y, w, h, minRoad, 1) >= 0) return idx(x, y); // v94：道路に面した所だけ
   return -1;
 }
 

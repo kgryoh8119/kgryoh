@@ -80,7 +80,7 @@ export function checkPlace(s: GameState, kind: Kind, x: number, y: number, free 
     if ((kind === 'railDepot' || kind === 'slDepot') && !(s.rail?.some(v => v > 0) || s.buildings.some(b => b.kind === 'station'))) { reasons.push('線路と駅が要ります'); level = 'error'; }
     if (d.vision && s.vision !== d.vision) { reasons.push(`ビジョン「${VISIONS.find(v => v.id === d.vision)?.name ?? ''}」を選んだ街だけが建てられます`); level = 'error'; }
     if (d.req === 'water') { let near = false; for (let dy = -3; dy <= d.h + 2 && !near; dy++) for (let dx = -3; dx <= d.w + 2; dx++) { const cx = x + dx, cy = y + dy; if (inMap(cx, cy) && m.water[idx(cx, cy)]) { near = true; break; } } if (!near) { reasons.push('水辺（川・海・池）から 90m 以内ではありません'); level = 'error'; } }
-    if (d.req === 'arterial' && !isBiz(kind) && accessTile(s, x, y, d.w, d.h, 2) < 0) { reasons.push('幹線道路か国道に面していません'); level = 'error'; }
+    if (d.req === 'arterial' && !isBiz(kind) && accessTile(s, x, y, d.w, d.h, 2, 1) < 0) { reasons.push('幹線道路か国道に面していません'); level = 'error'; }
     const near = (r: number, f: (i: number) => boolean) => { for (let dy = -r; dy < d.h + r; dy++) for (let dx = -r; dx < d.w + r; dx++) { const cx = x + dx, cy = y + dy; if (inMap(cx, cy) && f(idx(cx, cy))) return true; } return false; };
     if (d.req === 'mountain') { if (!near(3, i => !!(m.steep[i] || m.forest[i])) || !ropewayTop(m, x, y, d.w, d.h)) { reasons.push('山のふもとではありません（近くに急斜面か保全林があり、15m 以上高い山頂が 420m 以内に要ります）'); level = 'error'; } }
     if (d.req === 'nature' && !near(3, i => !!(m.forest[i] || m.water[i]))) { reasons.push('林か水辺の近く（90m 以内）に置いてください'); level = 'error'; }
@@ -103,7 +103,7 @@ export function checkPlace(s: GameState, kind: Kind, x: number, y: number, free 
     if (cost > s.cash) { reasons.unshift(`資金が足りません（${acq.length ? '建設費と用地費' : '建設費'} ${man(cost)}）`); level = 'error'; }
     if (kind === 'station' && s.rail && stationRailLevel(s, x, y, d.w, d.h) === 0) { reasons.push('線路に面していません。線路の横に置くか、先に線路を敷いてください'); if (level === 'ok') level = 'warn'; }
     if (isBiz(kind) && !free) { const bs = bizScore(s, kind, x, y); reasons.push(`来てもらえる見込み ${Math.round(bs.score * 100)}%${bs.why.length ? `（${bs.why.join('、')}）` : ''}`); if (level === 'ok' && bs.score < 0.5) level = 'warn'; }
-    const acc = siteAccess(s, kind, x, y, d.w, d.h);
+    const acc = siteAccess(s, kind, x, y, d.w, d.h, free ? undefined : 1); // v94：新しく建てる所は、敷地に面した道路だけを見る（実在都市版の「近くの道路でつながる」は既存の建物だけ）
     // v94：道路に面していない所には建てない（田畑・ため池・メガソーラーなど ROADLESS の種類と、サンドボックスの自由配置は除く）
     if (acc < 0 && !free && !ROADLESS.has(kind)) { reasons.push(ROAD_MSG); level = 'error'; }
     else if (acc < 0) { reasons.push(ROADLESS.has(kind) ? '道路に接していません（120m 以内にも道路がなく、このままでは稼働できません）' : '道路に接していません。このままでは稼働できません'); if (level === 'ok') level = 'warn'; }
