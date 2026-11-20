@@ -160,11 +160,13 @@ export function gradeLayout(s: GameState, fly: number[] = s.flyover ?? [], ovpL:
   return { spans, spanOf, flyRamp, flyOk: new Set(acc.map(o => o.i)), flyBad, ovp, ovpRamp, ovpBad, footBad };
 }
 
-const cache = new WeakMap<GameState, { k: string; v: GradeLayout }>();
-/** いまの状態の形（道路・線路・橋などが変わると roadVersion が上がるので、それと並びで使い回す） */
+type Key = [number, unknown, unknown, unknown, unknown, unknown, number, number, number];
+const cache = new WeakMap<GameState, { k: Key; v: GradeLayout }>();
+/** いまの状態の形。道路・線路・橋などが変わると roadVersion が上がり、立体の並びは変えるたびに新しい配列になるので、
+ *  その版と配列（と長さ）が同じ間は使い回す（道路を引く区画ごとに呼ばれるので、文字列を作らずに比べる） */
 export function grade(s: GameState): GradeLayout {
-  const k = `${s.roadVersion}|${(s.flyover ?? []).join(',')}|${(s.overpass ?? []).join(',')}|${(s.footbridge ?? []).join(',')}|${(s.bridge ?? []).length}|${(s.tunnel ?? []).length}`;
-  const c = cache.get(s); if (c && c.k === k) return c.v;
+  const k: Key = [s.roadVersion, s.flyover, s.overpass, s.footbridge, s.bridge, s.tunnel, s.flyover?.length ?? 0, s.overpass?.length ?? 0, s.footbridge?.length ?? 0];
+  const c = cache.get(s); if (c && c.k.every((v, q) => v === k[q])) return c.v;
   const v = gradeLayout(s); cache.set(s, { k, v }); return v;
 }
 
