@@ -6,6 +6,7 @@ import { P, DEFS, W, H, SCALE, isRes, isShop, isCity, fam, lvK, hasOp, countOp }
 import type { GameState, Building } from './types';
 import { NHH } from './types';
 import { GATEWAYS } from './core';
+import { stationStats } from './big';
 
 // ---------------------------------------------------------------- 定数（現実の相場。出典は設計の文書 7 章）
 export const ROLE_NAMES = ['未就学児', '小学生', '中学生', '働く人', '家の大人', '高齢者'] as const;
@@ -651,6 +652,7 @@ export function compareWithAggregate(s: GameState): { label: string; people: num
     { label: '中学生', people: st.byRole[R_JHS], agg: Math.round(s.stats.jhsKids) },
     { label: '小学校の在籍', people: [...st.enroll.entries()].filter(([id]) => s.buildings.find(b => b.id === id && fam(b.kind) === 'school')).reduce((a, [, v]) => a + v, 0), agg: Math.round(school) },
     { label: '市内で働く市民', people: st.localWork, agg: Math.round(s.stats.localJobs * 0.65) },
-    { label: '駅の朝の乗車', people: sumMap(st.boardings), agg: 0 },
+    { label: '駅の朝の乗車（既存は 1 日の乗降）', people: sumMap(st.boardings), agg: stationStats(s).reduce((a, x) => a + x.riders, 0) },
+    { label: '住民税（万円/月。既存は景気の係数込み）', people: Math.round(st.taxResident), agg: Math.round(s.ledger.at(-1)?.taxResident ?? 0) },
   ];
 }

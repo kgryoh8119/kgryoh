@@ -1848,7 +1848,7 @@ export class UI {
     const inc = s.incid ?? [];
     return `<h3>住民一人ひとりから（${n0(st.n)} 人）</h3>
       <p class="note">住民は世帯から一人ずつ作り、学校・職場・駅・休日の行き先を割り当てています。下の数はその積み上げです（人口 ${n0(Math.round(s.stats.pop))} 人と一致）。</p>
-      <p>通勤・通学の手段：${st.modes.map((v, i) => `${MODE_NAMES[i]} ${Math.round(100 * v / mt)}%`).join('・')}。働く人 ${n0(st.byRole[3])} 人のうち市内で働く ${n0(st.localWork)}・市外へ ${n0(st.outWork)}・在宅勤務 ${n0(st.teleWork)}。駅の朝の乗車 ${n0(board)} 人。</p>
+      <p>通勤・通学の手段：${st.modes.map((v, i) => `${MODE_NAMES[i]} ${Math.round(100 * v / mt)}%`).join('・')}。働く人 ${n0(st.byRole[3])} 人のうち市内で働く ${n0(st.localWork)}・市外へ ${n0(st.outWork)}・在宅勤務 ${n0(st.teleWork)}。駅の朝の乗車 ${n0(board)} 人。住民の所得（職場の種類・正規と非正規・年金）から積み上げた住民税は月 ${n0(Math.round(st.taxResident))} 万円（いまの歳入の式では ${n0(Math.round(s.ledger.at(-1)?.taxResident ?? 0))} 万円。歳入は今の式のまま）。</p>
       <table class="tbl"><thead><tr><th>できごと</th><th>先月</th><th>直近 12 か月</th><th>年の見込み</th></tr></thead><tbody>${kinds.map(row).join('')}</tbody></table>
       <p>交通事故は直近 ${y.months} か月で ${n0(y.traffic)} 件（人口 10 万人あたり年 ${n0(y.per100k)} 件。全国の相場は約 250 件）、死者 ${n0(y.killed)} 人・負傷 ${n0(y.hurt)} 人。歩道とガードレール・信号機・ゾーン 30・街灯・自転車レーン（道路の「通りの整備」）、歩道橋、交番、陸橋・高架化、ホームドアで減ります。${y.seen ? `画面で見えた事故 ${n0(y.seen)} 件（件数には足していません）。` : ''}</p>
       ${inc.length >= 3 ? `<div class="chartbox"><h4>交通事故 <small>件/月</small></h4>${chartSvg({ id: 'st-incid', series: [{ name: '交通事故', color: '#c0392b', values: inc.map(x => x.car + x.ped + x.bike) }], fmt: v => n0(v), zero: true, xLabel: i => dateStr(inc[Math.min(inc.length - 1, i)].m) }, 340, 120)}</div>` : ''}`;

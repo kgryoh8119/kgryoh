@@ -13,7 +13,7 @@ let tStep = 0, tPeople = 0;
 for (let m = 0; m < Y * 12; m++) {
   const t0 = performance.now(); stepMonth(s); tStep += performance.now() - t0;
   s.events.active = []; s.notes = []; s.goalPick = false; s.pendingElection = null;
-  const t1 = performance.now(); peopleStats(s); tPeople += performance.now() - t1;
+  if (env.PCALL) { const t1 = performance.now(); peopleStats(s); tPeople += performance.now() - t1; }
 }
 if (K > 1) { for (const b of s.buildings) if (b.hh) b.hh = b.hh.map(v => v * K); recompute(s); }
 const t2 = performance.now(); let st = peopleStats(s); const tOne = performance.now() - t2;
