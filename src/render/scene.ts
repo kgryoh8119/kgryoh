@@ -628,8 +628,8 @@ export class View {
     const key = `${s.bVersion}:${s.roadVersion}:${this.map.seed}`;
     this.paddyWait -= dt;
     if (key !== this.paddyKey && this.paddyWait <= 0) { this.paddyKey = key; this.paddyWait = 1.5; this.buildPaddy(s); }
-    const cm = calMonth(s.month), C: Record<number, [number, number]> = { 3: [0x86aebc, 0.3], 4: [0x7fa9a0, 0.35], 5: [0x79b04c, 0.85], 6: [0x6aa83f, 0.85], 7: [0x78a83a, 0.85], 8: [0xc9a944, 0.9], 9: [0xd6b04a, 0.9] };
-    const [col, rough] = C[cm] ?? [0x9c8a62, 0.95]; // 冬は刈り跡の土色
+    const cm = calMonth(s.month), C: Record<number, [number, number]> = { 3: [0x8e8a6c, 0.5], 4: [0x7c8a62, 0.55], 5: [0x79b04c, 0.85], 6: [0x6aa83f, 0.85], 7: [0x78a83a, 0.85], 8: [0xc9a944, 0.9], 9: [0xd6b04a, 0.9] };
+    const [col, rough] = C[cm] ?? [0x9c8a62, 0.95]; // 冬は刈り跡の土色。v94：3・4 月の水を張った田は、水色（上空から湖や浸水に見えた）をやめ、空を少し映した泥色〜くすんだ緑に
     this.matPaddy.color.setHex(col); this.matPaddy.roughness = rough;
   }
   private buildPaddy(s: GameState): void {
