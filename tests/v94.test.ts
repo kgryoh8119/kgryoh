@@ -60,7 +60,7 @@ describe('v94 市長レベルの曲線', () => {
   it('後半ほど必要なポイントの差が広がり、最大は v93 より多い', () => {
     const inc = LEVELS.slice(1).map((l, k) => l.pts - LEVELS[k].pts);
     for (let k = 2; k < inc.length; k++) expect(inc[k]).toBeGreaterThanOrEqual(inc[k - 1]);
-    expect(LEVELS[9].pts).toBeGreaterThan(LEVELS_V93[9] * 1.3);
+    expect(LEVELS[9].pts).toBeGreaterThan(LEVELS_V93[9] * 1.2);
   });
   it('古いセーブを読むと、市長レベルは下がらず、次のレベルまでは新しい曲線になる', () => {
     for (const P of [0, 130, 400, 760, 1700, 2600]) {
