@@ -56,13 +56,16 @@ const cache = new Map<number, MapDef>();
 /** v94：地形の版（シードごと）。街の状態の terrV を syncTerrain・newGame・検査で登録する。登録のないシードは v93 までの地形 */
 export const TERRAIN_VER = 94;
 const TVER = new Map<number, number>();
-export function setTerrainVer(seed: number, v: number | undefined): void { if (v) TVER.set(seed, v); else TVER.delete(seed); }
+let tverGen = 0;
+export function setTerrainVer(seed: number, v: number | undefined): void { if ((TVER.get(seed) ?? 0) === (v || 0)) return; tverGen++; if (v) TVER.set(seed, v); else TVER.delete(seed); }
+/** いちばん最近の地図（getMap は何度も呼ばれるので、地形の版の判定を毎回しない） */
+let LAST: { seed: number; gen: number; map: MapDef } | null = null;
 /** v94 の地形か（新しく始めた街。無人島と実在の街は除く） */
 export const terrainV3 = (seed: number) => !REAL && (TVER.get(seed) ?? 0) >= 94 && !isCastaway(seed);
 const cacheKey = (seed: number) => seed * 2 + (terrainV3(seed) ? 1 : 0);
 
 /** 地形の造作（市長が盛り土・掘削・水面・植林などをした結果）。いま計算している街の分だけを持つ */
-let TERRA: { seed: number; v3: boolean; key: string; map: MapDef } | null = null;
+let TERRA: { seed: number; v3: boolean; gen: number; key: string; map: MapDef } | null = null;
 /** 造作の種類（区画ごと）：0 元のまま・1 水面（池・川・海）・2 陸（埋め立て）・3 森（植林）・4 伐採（林なし）・5 湿地・6 砂地 */
 export const TERRA_T = { none: 0, water: 1, land: 2, forest: 3, clear: 4, wet: 5, sand: 6, desert: 7, snow: 8 } as const;
 /** 街の状態に合わせて地形の造作を反映する（計算・検査・描画の前に呼ぶ） */
@@ -74,7 +77,7 @@ export function syncTerrain(s: { seed: number; terrV?: number; terraVer?: number
   if (s.terraT) for (let k = 0; k < s.terraT.length; k++) if (s.terraT[k]) sum = (sum * 37 + k * 11 + s.terraT[k]) % 1000000007;
   const key = `${s.seed}:${s.terrV ?? 0}:${s.terraVer}:${sum}`;
   if (TERRA && TERRA.key === key) return;
-  TERRA = { seed: s.seed, v3: terrainV3(s.seed), key, map: deriveMap(baseMap(s.seed), s.terraH, s.terraT) };
+  TERRA = { seed: s.seed, v3: terrainV3(s.seed), gen: tverGen, key, map: deriveMap(baseMap(s.seed), s.terraH, s.terraT) };
 }
 /** 元の地形に造作を重ねた地図 */
 function deriveMap(b: MapDef, dh: number[] | undefined, tt: number[] | undefined): MapDef {
@@ -130,7 +133,7 @@ function deriveMap(b: MapDef, dh: number[] | undefined, tt: number[] | undefined
 
 export function getMap(seed: number): MapDef {
   if (REAL) return realMap();
-  if (TERRA && TERRA.seed === seed && TERRA.v3 === terrainV3(seed)) return TERRA.map;
+  if (TERRA && TERRA.seed === seed && (TERRA.gen === tverGen || TERRA.v3 === terrainV3(seed))) { TERRA.gen = tverGen; return TERRA.map; }
   return baseMap(seed);
 }
 /** 架空の街の地形のパターン。lv は選べるようになる市長の経歴レベル。シードの 10 億以上の部分に番号を入れる */
@@ -156,8 +159,9 @@ export const seedForTerrain = (id: string, n = 261011) => { const k = Math.max(0
 /** 造作の前の、元の地形 */
 export function baseMap(seed: number): MapDef {
   if (REAL) return realMap();
+  if (LAST && LAST.seed === seed && LAST.gen === tverGen) return LAST.map;
   const ck = cacheKey(seed), c = cache.get(ck);
-  if (c) return c;
+  if (c) { LAST = { seed, gen: tverGen, map: c }; return c; }
   if (isCastaway(seed)) { const m = castawayMap(seed); cache.set(ck, m); return m; }
   // v9：44×44 の旧市街はそのままの位置に残し、東（東台）と南（南原）へ広げた。川は地図の南端
   const T = terrainOf(seed).id, noSea = T === 'inland' || T === 'rural' || T === 'mountain', V2 = terrainV2(seed);
@@ -517,7 +521,7 @@ function castawayMap(seed: number): MapDef {
 }
 
 let realCache: MapDef | null = null;
-onMapChange(() => { cache.clear(); realCache = null; TERRA = null; });
+onMapChange(() => { cache.clear(); realCache = null; TERRA = null; LAST = null; });
 function realMap(): MapDef {
   if (realCache) return realCache;
   const R = REAL!, N = W * H, f = R.flags;
