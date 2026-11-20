@@ -18,7 +18,7 @@ function issueTurn(s: GameState): string | null {
     for (const o of opts) {
       if (!o.actions || !o.actions.length || o.warn || o.fitNote || /やめる/.test(o.label)) continue;
       const isPol = o.actions.every(a => a.type === 'policy');
-      if (isPol && (o.cost ?? 0) > op) continue;
+      if (isPol && (o.cost ?? 0) > 0 && (o.cost ?? 0) > op) continue; // v94：収入になる政策（費用が負）は、赤字でも選べる
       if (!isPol && (o.cost ?? 0) > s.cash) continue;
       let ok = false; for (const a of o.actions) { const r = dispatch(s, a); ok = ok || r.ok; }
       if (ok) { recordDecision(s, o.label, '課題', {}, { issue: iss.key, forecast: false, action: o.actions[0] }); return `${iss.key}:${o.label}`; } // 画面から実行したときと同じく施策の記録を残す
