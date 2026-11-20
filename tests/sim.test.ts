@@ -1,7 +1,7 @@
 // 指示書 12 章の因果テスト。sim 層だけを Node 上で動かす。
 import { describe, it, expect } from 'vitest';
 import {
-  newGame, FIC_W, FIC_H, FIC_PREV_W, FIC_PREV_H, FIC_V87_W, FIC_V87_H, isleOX, isleOY, blockOf, BX, BY, DISTRICTS, buildable, saveMapId, SAVE_VERSION, stationStats, VISIONS, candidates, landPrices, roadPath, routeStats, CIT_N, pyramid, projection, TERRAINS, seedForTerrain, altitude, hasSea, seaDist, tsunamiDepth, modAdd, stepMonth, initLocks, isLocked, annexable, levelOf, N_CITIES, RANK_CATS, newMayor, LEVELS, furusatoCalc, roadCapacity, modMul, ledgerGap, checkPlace, dispatch, recompute, forecast, serialize, deserialize, eventDef, idx, W, H, P, DEFS, isRes, isShop, sumHH, getMap, GameState, Building, Kind, Action, electionOutlook, monthlyBudget, designCap, buildCost, validateState,
+  newGame, accessTile, FIC_W, FIC_H, FIC_PREV_W, FIC_PREV_H, FIC_V87_W, FIC_V87_H, isleOX, isleOY, blockOf, BX, BY, DISTRICTS, buildable, saveMapId, SAVE_VERSION, stationStats, VISIONS, candidates, landPrices, roadPath, routeStats, CIT_N, pyramid, projection, TERRAINS, seedForTerrain, altitude, hasSea, seaDist, tsunamiDepth, modAdd, stepMonth, initLocks, isLocked, annexable, levelOf, N_CITIES, RANK_CATS, newMayor, LEVELS, furusatoCalc, roadCapacity, modMul, ledgerGap, checkPlace, dispatch, recompute, forecast, serialize, deserialize, eventDef, idx, W, H, P, DEFS, isRes, isShop, sumHH, getMap, GameState, Building, Kind, Action, electionOutlook, monthlyBudget, designCap, buildCost, validateState,
   renewCostOf,
 } from '../src/sim/index';
 import { Game } from '../src/game';
@@ -40,13 +40,15 @@ describe('道路接続', () => {
     expect(dispatch(s, { type: 'road', tiles: row(11, 3, 8), road: 1 }).ok).toBe(true);
     dispatch(s, { type: 'zone', tiles: row(10, 3, 8), zone: 1 });
     dispatch(s, { type: 'zone', tiles: row(12, 3, 5), zone: 4 });
-    // 道路に接しない保育園
+    // v94：道路に面していない所には建てられない。孤立した道路に面した保育園は建つが、市外につながらないので稼働しない
     s.cash = 99999;
-    expect(dispatch(s, { type: 'build', kind: 'nursery', x: 6, y: 2 }).ok).toBe(true);
+    const r0 = dispatch(s, { type: 'build', kind: 'nursery', x: 6, y: 2 });
+    expect(r0.ok).toBe(false); expect(r0.msg).toContain('道路に面していません');
+    expect(dispatch(s, { type: 'build', kind: 'nursery', x: 7, y: 12 }).ok).toBe(true);
     run(s, 14);
     const west = s.buildings.filter(b => b.x <= 9 && b.y <= 13 && (isRes(b.kind) || isShop(b.kind)));
     expect(west.length).toBe(0);
-    const n = at(s, 6, 2)!;
+    const n = at(s, 7, 12)!;
     expect(n.status).toBe('operating');
     expect(n.connected).toBe(false);
     expect(n.effCap).toBe(0);
@@ -1076,7 +1078,8 @@ describe('v15：ゲームオーバー・迷惑施設・葬祭・都市計画', (
   it('新しい施設（寺社・城・葬祭など）を置ける', () => {
     const s = newGame({ seed: 7 }); s.cash = 1e7; s.fame = 50;
     for (const k of ['shrine', 'temple', 'castleRuins', 'crematorium', 'cemetery', 'observatory'] as const) {
-      let ok = false; for (let y = 0; y < 68 && !ok; y++) for (let x = 0; x < 76 && !ok; x++) ok = dispatch(s, { type: 'build', kind: k, x, y }).ok;
+      // v94：道路に面した所だけ（道路のない所は確かめずに飛ばす）
+      let ok = false; for (let y = 0; y < FIC_H && !ok; y++) for (let x = 0; x < FIC_W && !ok; x++) if (accessTile(s, x, y, DEFS[k].w, DEFS[k].h) >= 0 && !isLocked(s, idx(x, y)) && checkPlace(s, k, x, y).ok) ok = dispatch(s, { type: 'build', kind: k, x, y }).ok;
       expect(ok).toBe(true);
     }
     expect(validateState(s)).toBeNull();

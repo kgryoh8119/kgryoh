@@ -169,6 +169,24 @@ export function accessTile(s: GameState, x: number, y: number, w: number, h: num
   return any;
 }
 
+/** v94：道路に面していなくてよい種類。田畑・牧場・林業の作業所・ため池・里山の公園・ビオトープ・メガソーラー・風力・ダム・桟橋。
+ *  ほかの建物（住宅・店・市の施設・誘致の施設）は、敷地のどこか一辺が道路に面していないと建てられない。
+ *  この種類は 120m（4 区画）以内の道路から農道・管理用の道で入るものとして扱う（それより遠いと稼働しない） */
+export const ROADLESS: ReadonlySet<string> = new Set(['farm', 'paddy', 'field', 'teaField', 'orchard', 'flowerFarm', 'horseFarm', 'pigFarm', 'forestry', 'tameike', 'biotope', 'forestPark', 'solar', 'solarSlope', 'solarFloat', 'windFarm', 'dam', 'pier']);
+export const ROADLESS_R = 4;
+/** 建物の入口になる道路タイル：ふつうは敷地に面した道路。ROADLESS の種類は 4 区画以内の近い道路でもよい */
+export function siteAccess(s: GameState, kind: string, x: number, y: number, w: number, h: number): number {
+  const a = accessTile(s, x, y, w, h);
+  if (a >= 0 || !ROADLESS.has(kind)) return a;
+  const info = roadInfo(s); let best = -1, bd = 1e9;
+  for (let yy = y - ROADLESS_R; yy < y + h + ROADLESS_R; yy++) for (let xx = x - ROADLESS_R; xx < x + w + ROADLESS_R; xx++) {
+    if (!inMap(xx, yy)) continue; const i = idx(xx, yy); if (!s.road[i]) continue;
+    const d = (info.conn[i] ? 0 : 1000) + Math.max(0, x - xx, xx - (x + w - 1)) + Math.max(0, y - yy, yy - (y + h - 1));
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+
 /** 政策と期限つき効果を合成した係数 */
 /** 新幹線が停まっている（この駅、または市内のどこか） */
 export function shinOpen(s: GameState, b?: Building): boolean { return (b ? [b] : s.buildings).some(o => o.kind === 'station' && o.shin !== undefined && s.month >= o.shin && o.status === 'operating'); }
@@ -442,7 +460,7 @@ export function recompute(s: GameState, lite = false): void {
 
   // 1. 道路接続
   for (const b of B) {
-    b.acc = accessTile(s, b.x, b.y, b.w, b.h);
+    b.acc = siteAccess(s, b.kind, b.x, b.y, b.w, b.h); // v94：田畑・ため池などは近くの道路から入る
     b.connected = b.acc >= 0 && !!info.conn[b.acc];
   }
   // まちづくり版の線路：地図の端の線路から、線路でたどれる区画だけが市外とつながる
@@ -1027,7 +1045,7 @@ function makeVoices(s: GameState): Voice[] {
   if (tot > 0 && old / tot > 0.12) out.push({ key: 'roadAge', who: '就業世帯', district: -1, tone: 'warn', layer: 'age', tile: oi, text: '路面のひび割れと段差がひどく、自転車の子どもが危ないです。', cause: `市道 ${tot} 区間のうち ${old} 区間が老朽度 70 超。容量が 15% 落ち、走行も遅くなります。` });
   // 未接続
   const dis = B.filter(b => (isRes(b.kind) || isShop(b.kind) || isCity(b.kind)) && b.status === 'operating' && !b.connected);
-  if (dis.length) out.push({ key: 'conn', who: '住民・事業者', district: m.district[idx(dis[0].x, dis[0].y)], tone: 'bad', layer: 'conn', tile: idx(dis[0].x, dis[0].y), text: '道が途切れて、車も配達も来られなくなりました。', cause: `${dis.length} 棟が、国道の市外接続点まで道路でつながっていません。未接続の住宅は転出が進み、店舗・施設は稼働できません。` });
+  if (dis.length) out.push({ key: 'conn', who: '住民・事業者', district: m.district[idx(dis[0].x, dis[0].y)], tone: 'bad', layer: 'conn', tile: idx(dis[0].x, dis[0].y), text: '道が途切れて、車も配達も来られなくなりました。', cause: `${dis.length} 棟が、国道の市外接続点まで道路でつながっていません${(() => { const n = dis.filter(b => b.acc < 0).length; return n ? `（うち ${n} 棟は道路に面していません。横に道路を引くか、施設は移設してください）` : ''; })()}。未接続の住宅は転出が進み、店舗・施設は稼働できません。` });
   // ---- v5：ライフライン・医療・治安・環境・福祉・教育・防災 ----
   const lvLow = (k: number, f: (b: Building) => number) => { let n = 0, a = 0; for (const r of res) { const h = sumHH(r); n += h; a += h * f(r); } return n > 40 ? a / n : 1; };
   if (st.powerDemand > 0 && st.powerCap < st.powerDemand) out.push({ key: 'power', who: '全市', district: -1, tone: 'bad', layer: 'life', tile: -1, text: '夕方に停電がありました。冷蔵庫の中身が心配です。', cause: `電力の使用 ${r0(st.powerDemand)} 世帯分に対し、供給は ${r0(st.powerCap)} 世帯分。変電所の増設（電力会社への要望）か、市の発電所（メガソーラー・清掃工場）で増やせます。` });
