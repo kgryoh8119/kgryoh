@@ -327,7 +327,7 @@ export interface GameState {
   /** 街の終わり（人口が 0 になった）。この状態では時間が進まない */
   over?: { month: number; reason: string };
   /** 市長の成長：市長ポイント・勲章（受けた月）・全国ランキングの記録・編入できる残り回数・編入した数・見た印 */
-  mayor?: { pts: number; medals: Record<string, number>; ranks: { year: number; month: number; total: number; cats: Record<string, number>; awards: string[]; pts?: number }[]; annex: number; annexed?: number; seenLv: number; seenRank: number };
+  mayor?: { pts: number; medals: Record<string, number>; ranks: { year: number; month: number; total: number; cats: Record<string, number>; awards: string[]; pts?: number }[]; annex: number; annexed?: number; seenLv: number; seenRank: number; /** v94：市長ポイントの曲線の版（94）と、ポイントを受けた再選の数 */ curve?: number; won?: number };
   /** 姉妹都市（id・提携した月・関係の深さ 0〜1）と、交流をした月 */
   sisters?: { id: string; since: number; rel: number; last?: number }[];
   /** 市政（議会・選挙戦・メディア・国や県・行事・人口動態）。politics.ts の Pol */

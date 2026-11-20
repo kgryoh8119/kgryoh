@@ -7,19 +7,37 @@ import { REAL } from './real';
 import { isCastaway } from './map';
 
 // ---------------------------------------------------------------- 市長レベル
-/** v43：はじめの数年でレベルが上がりすぎないように、必要なポイントを見直した（自動で遊ぶと Lv2 が 2〜4 年目、Lv5 が 16〜19 年目） */
+/** v94：レベル 10 に届くのが早すぎたので曲線を見直した。後半ほど必要なポイントが増える。
+ *  ふつうでうまく運営して 3 期（12 年）前後、平均的な運営（オート）では 4〜5 期で最大に届く目安。
+ *  ポイントは「毎年 3 月の評価（在任の基本点＋順位）」が土台で、表彰・勲章・再選は上乗せ（v93 までは表彰と勲章の差が大きく、うまい人ほど一気に上がった） */
 export const LEVELS: { pts: number; title: string; perk: string }[] = [
   { pts: 0, title: '新人市長', perk: '' },
-  { pts: 120, title: '駆け出し市長', perk: '区域の編入 1' },
-  { pts: 320, title: '頼れる市長', perk: '区域の編入 1・支持率 +1 ポイント' },
-  { pts: 520, title: '敏腕市長', perk: '区域の編入 1・知名度 +3' },
-  { pts: 750, title: '実力派市長', perk: '区域の編入 1・転入 +3%' },
-  { pts: 1000, title: '名物市長', perk: '区域の編入 1・来訪者 +5%' },
-  { pts: 1300, title: '全国区の市長', perk: '区域の編入 1・支持率 +1 ポイント' },
-  { pts: 1650, title: '名市長', perk: '区域の編入 1・暮らしの満足 +0.5 ポイント' },
-  { pts: 2050, title: '改革の旗手', perk: '区域の編入 1・転入 +3%' },
-  { pts: 2500, title: '伝説の市長', perk: '区域の編入 1・知名度 +5' },
+  { pts: 200, title: '駆け出し市長', perk: '区域の編入 1' },
+  { pts: 480, title: '頼れる市長', perk: '区域の編入 1・支持率 +1 ポイント' },
+  { pts: 800, title: '敏腕市長', perk: '区域の編入 1・知名度 +3' },
+  { pts: 1150, title: '実力派市長', perk: '区域の編入 1・転入 +3%' },
+  { pts: 1550, title: '名物市長', perk: '区域の編入 1・来訪者 +5%' },
+  { pts: 2000, title: '全国区の市長', perk: '区域の編入 1・支持率 +1 ポイント' },
+  { pts: 2500, title: '名市長', perk: '区域の編入 1・暮らしの満足 +0.5 ポイント' },
+  { pts: 3050, title: '改革の旗手', perk: '区域の編入 1・転入 +3%' },
+  { pts: 3650, title: '伝説の市長', perk: '区域の編入 1・知名度 +5' },
 ];
+/** v93 までの必要ポイント（古いセーブのレベルを保つための読み替えに使う） */
+export const LEVELS_V93 = [0, 120, 320, 520, 750, 1000, 1300, 1650, 2050, 2500];
+export const CURVE = 94;
+/** 毎年 3 月の評価の在任の基本点と、順位で足す幅。再選 1 回の点 */
+export const RANK_BASE = 90, RANK_SPAN = 80, WIN_PTS = 50;
+/** 古いセーブの市長ポイントを新しい曲線に読み替える：いまのレベルは下げず、レベルの中の進み具合（割合）も保つ。
+ *  勲章で受けた再選の記録（won）は、読み込んだ時点の勝ち数から数える（さかのぼって足さない） */
+export function migrateMayor(s: GameState): void {
+  const M = s.mayor; if (!M || M.curve === CURVE) return;
+  const P = M.pts; let l = 1; for (let k = 0; k < LEVELS_V93.length; k++) if (P >= LEVELS_V93[k]) l = k + 1;
+  const o0 = LEVELS_V93[l - 1], o1 = LEVELS_V93[l], n0 = LEVELS[l - 1].pts, n1 = LEVELS[l]?.pts;
+  const np = o1 === undefined || n1 === undefined ? n0 : n0 + ((P - o0) / (o1 - o0)) * (n1 - n0);
+  if (np > P) M.pts = Math.round(np);
+  M.won ??= wins(s);
+  M.curve = CURVE;
+}
 export function levelOf(pts: number): number { let l = 1; for (let k = 0; k < LEVELS.length; k++) if (pts >= LEVELS[k].pts) l = k + 1; return l; }
 /** レベルの特典（core.ts の modAdd / modMul に足す） */
 export function mayorAdd(s: GameState, key: string): number {
@@ -79,7 +97,7 @@ export function initLocks(s: GameState): void {
   s.mayor = s.mayor ?? newMayor();
   s.mayor.annex = Math.max(s.mayor.annex, mayorDiff(s).start);
 }
-export function newMayor(): NonNullable<GameState['mayor']> { return { pts: 0, medals: {}, ranks: [], annex: 0, seenLv: 1, seenRank: -1 }; }
+export function newMayor(): NonNullable<GameState['mayor']> { return { pts: 0, medals: {}, ranks: [], annex: 0, seenLv: 1, seenRank: -1, curve: CURVE, won: 0 }; }
 
 // ---------------------------------------------------------------- 勲章
 type Medal = { id: string; name: string; desc: string; tier: 1 | 2 | 3; pts: number; done: (s: GameState) => boolean };
@@ -165,7 +183,10 @@ export function computeRank(s: GameState, year: number): RankResult {
 // ---------------------------------------------------------------- 毎月
 export function mayorMonthly(s: GameState): void {
   const M = s.mayor ?? (s.mayor = newMayor());
+  migrateMayor(s);
   const before = levelOf(M.pts);
+  // v94：再選のたびに市長ポイント（4 年の任期をまっとうした実績）
+  { const w = wins(s); if (w > (M.won ?? w)) { const gp = Math.round(WIN_PTS * (w - (M.won ?? w)) * mayorDiff(s).gain); M.pts += gp; s.notes.push(`🗳 再選の実績で、市長ポイント +${gp}`); } M.won = w; }
   for (const md of MEDALS) {
     if (M.medals[md.id] !== undefined) continue;
     let ok = false; try { ok = md.done(s); } catch { ok = false; }
@@ -176,20 +197,21 @@ export function mayorMonthly(s: GameState): void {
   // 年度末（3 月）に、全国市区町村ランキングの発表
   if (s.month % 12 === 11 && s.month >= 11 && !M.ranks.some(r => r.month === s.month)) {
     const year = Math.floor(s.month / 12) + 1, r = computeRank(s, year), prev = M.ranks.at(-1);
-    let pts = Math.round(Math.max(0, (N_CITIES - r.total) / N_CITIES) * 30);
+    // v94：在任の基本点 90 ＋ 順位で 0〜80（v93 までは順位で 0〜30 だけ。表彰の差が大きく、うまい人ほど一気に上がった）
+    let pts = RANK_BASE + Math.round(Math.max(0, (N_CITIES - r.total) / N_CITIES) * RANK_SPAN);
     const award = (name: string, p: number, fx: () => void) => { r.awards.push(name); pts += p; fx(); };
     const mod = (key: string, opx: 'add' | 'mul', v: number, months: number, src: string) => s.modifiers.push({ key, op: opx, v, until: s.month + months, cost: 0, src });
     const cash = (v: number, why: string) => { s.cash += v; s.pending.other -= v; void why; };
     const D = mayorDiff(s);
-    if (r.total <= D.top) award('全国住みよさ大賞（総理大臣表彰）', 100, () => { M.annex++; s.fame = Math.min(100, (s.fame ?? 0) + 5); cash(10000, '副賞'); mod('approval', 'add', 0.03, 12, '全国住みよさ大賞'); });
-    else if (r.total <= D.good) award('優秀自治体賞（大臣表彰）', 50, () => { s.fame = Math.min(100, (s.fame ?? 0) + 2); cash(3000, '副賞'); mod('approval', 'add', 0.015, 12, '優秀自治体賞'); });
-    else if (prev && prev.total - r.total >= 200) award('躍進賞', 25, () => { cash(1000, '副賞'); });
+    if (r.total <= D.top) award('全国住みよさ大賞（総理大臣表彰）', 60, () => { M.annex++; s.fame = Math.min(100, (s.fame ?? 0) + 5); cash(10000, '副賞'); mod('approval', 'add', 0.03, 12, '全国住みよさ大賞'); });
+    else if (r.total <= D.good) award('優秀自治体賞（大臣表彰）', 30, () => { s.fame = Math.min(100, (s.fame ?? 0) + 2); cash(3000, '副賞'); mod('approval', 'add', 0.015, 12, '優秀自治体賞'); });
+    else if (prev && prev.total - r.total >= 200) award('躍進賞', 15, () => { cash(1000, '副賞'); });
     const CAT_FX: Record<string, () => void> = {
       live: () => mod('approval', 'add', 0.01, 12, '住みよさ部門賞'), kids: () => mod('inflow', 'mul', 1.04, 12, '子育て部門賞'),
       fiscal: () => cash(2000, '財政部門賞'), grow: () => mod('inflow', 'mul', 1.03, 12, '人口の伸び部門賞'), tour: () => mod('visitors', 'mul', 1.06, 12, '観光部門賞'),
       safe: () => mod('sat:all', 'add', 0.005, 12, '安全・安心部門賞'), move: () => cash(1500, '交通部門賞'),
     };
-    for (const c of RANK_CATS) if (r.cats[c.id] <= D.cat) award(`${c.name}部門賞${r.cats[c.id] === 1 ? '（全国 1 位）' : ''}`, r.cats[c.id] === 1 ? 35 : 20, CAT_FX[c.id]); // v43：レベルが上がりすぎないように（50/30 → 35/20）
+    for (const c of RANK_CATS) if (r.cats[c.id] <= D.cat) award(`${c.name}部門賞${r.cats[c.id] === 1 ? '（全国 1 位）' : ''}`, r.cats[c.id] === 1 ? 20 : 10, CAT_FX[c.id]); // v43：50/30 → 35/20。v94：20/10（大賞 100→60・優秀賞 50→30・躍進賞 25→15）
     pts = Math.round(pts * D.gain); r.pts = pts; M.pts += pts; M.ranks.push(r); if (M.ranks.length > 40) M.ranks.splice(0, M.ranks.length - 40);
     s.notes.push(`📊 全国市区町村ランキング ${year} 年度：総合 ${r.total.toLocaleString()} 位／${N_CITIES.toLocaleString()}${r.awards.length ? `。${r.awards.join('・')}` : ''}。市長ポイント +${pts}`);
     // ランキングで取れる勲章をすぐ確かめる

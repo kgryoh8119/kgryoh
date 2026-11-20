@@ -11,7 +11,7 @@ import { syncTerrain } from './map';
 import { chainFactor, fxDev } from './economy';
 import { cpiBurden } from './macro';
 import { threatSafety } from './threats';
-import { mayorAdd, mayorMul } from './mayor';
+import { mayorAdd, mayorMul, migrateMayor } from './mayor';
 import { optAdd, optMul, optCap } from './options';
 import { intlAdd, intlMul, intlVisitors } from './intl';
 import { execAdd, execMul, routeAdd, routeCarK } from './admin';
@@ -282,6 +282,7 @@ export function condFactor(age: number): number {
 
 /** 長く遊んだセーブの数値のはみ出しを直す（職員数が上限を超えたままなど）。直しても街の中身は変わらない */
 export function repairState(s: GameState): void {
+  migrateMayor(s); // v94：古いセーブの市長ポイントを新しい曲線に（レベルは下げない）
   // 道路・建物と重なってしまった付帯物を外す（古い版の不具合で混じったデータでも、操作が止まらないように）
   const uniqF = (v: number[] | undefined, ok: (i: number) => boolean) => (Array.isArray(v) ? [...new Set(v)].filter(i => Number.isInteger(i) && i >= 0 && i < s.road.length && ok(i)) : v);
   if (Array.isArray(s.levee)) s.levee = uniqF(s.levee, i => !s.road[i] && !s.occ[i]);
