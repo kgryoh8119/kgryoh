@@ -2,6 +2,7 @@
 // 声（voices）・満足を下げている要因（satDrag）・施設の稼働（effCap / used / staff / connected）・履歴（history）・台帳（ledger）を
 // 同じ元データとして使い、「いちばん先に手を付けるとよいこと」を最大 3 件にしぼる。
 // ここは読むだけ：状態を変えない・乱数を使わない・建設や政策の変更を自動でしない。
+import { grade, gradeIssues } from './grade';
 import { DISTRICTS, type GameState, type Building, type Layer } from './types';
 import { DEFS, GOALS, P, SAT_PARTS, W } from './config';
 import { getMap, isCastaway } from './map';
@@ -93,6 +94,10 @@ export function allIssues(s: GameState): Issue[] {
   const pledge = (id: string) => { const g = (s.goals ?? []).find(x => x.id === id); if (!g || goalProgress(s, g).ok) return 0; return c01(1 - left / 36) * 0.7 + 0.3; };
   const drag = (k: number) => st.satDrag?.[k] ?? 0, part = (k: number) => st.satParts?.[k] ?? 1;
 
+  // ---- v94：形の成り立たない立体の道路（古いセーブ・あとから道路を変えた所）。データは残し、平面として扱っていることを知らせる
+  { const gi = gradeIssues(s); if (gi.length) { const L = grade(s), t0 = [...L.flyBad.keys(), ...L.ovpBad.keys(), ...L.footBad.keys()][0] ?? -1;
+    add({ key: 'grade', title: '形の成り立たない立体交差・陸橋', what: gi.join(' '), where: '市内', cause: '坂の途中に脇道がある・坂の先に道路がない・別の高架とぶつかるなど、現実には作れない形のため。まわりの道路を直すと、もとの立体に戻ります', causeKind: 'road',
+      options: [{ label: '道路を引く・撤去する', act: 'tool', arg: 'road:2' }], tile: t0, layer: 'none', parts: { people: 0.1, trend: 0, deadline: 0, hard: 0.5 }, affected: '通る車' }); } }
   // ---- v88：無人島の開拓の次の一手
   if (isCastaway(s.seed)) {
     const nx = isleNext(s), f = foodSelf(s);

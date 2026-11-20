@@ -1,5 +1,6 @@
 // 再計算：状態から導ける値（接続、実効容量、サービス水準、売上、混雑、満足度、声、集計）を作り直す。
 // 金銭・人口・乱数は変えない。操作の直後と月次処理の最後に呼ぶ。
+import { grade } from './grade';
 import { lvK, reachOf, NIMBY, W, H, P, DEFS, POLICIES, AIR_ROUTES, VISION_PERKS, SAT_W, SCALE, isRes, isShop, isCity, isBiz, fam, LV_CAP, lvOf, hasOp, countOp, SPORTS } from './config';
 import type { Fam, VisionPerk } from './config';
 import { getMap, idx, tx, ty, inMap, NEIGH } from './map';
@@ -39,17 +40,20 @@ export interface RoadInfo {
   /** 距離の上限つきの到達範囲（区画と距離の組）。施設ごとの利用圏の計算に使う */
   reach: Map<string, { t: Int32Array; d: Int16Array }>;
   /** 道路タイルだけの詰めたグラフ */
+  /** n 個の節点のうち、はじめの道路区画の数のあとは高架（nodes は -1） */
   n: number; nodes: Int32Array; nodeOf: Int32Array; adj: Int32Array; free: Float64Array;
   freeTrees: Map<number, Tree>;
 }
 const infoCache = new WeakMap<GameState, { ver: string; info: RoadInfo }>();
+/** 節点ごとの隣の数（東西南北の 4 と、高架の出入口の 4） */
+export const ADJ = 8;
 
 /** 操作の取り消し後などに、道路の解析結果の使い回しをやめる */
 export function invalidateCaches(s: GameState): void { infoCache.delete(s); }
 
 /** 国道の市外接続点から道路でつながるタイル */
 export function roadInfo(s: GameState): RoadInfo {
-  const ships = shipGates(s), ver = ships.length ? s.roadVersion + ':' + ships.join(',') : String(s.roadVersion); // v88：無人島は桟橋・港に面した道路も出入口
+  const ships = shipGates(s), ver = (ships.length ? s.roadVersion + ':' + ships.join(',') : String(s.roadVersion)) + '|' + (s.flyover ?? []).join(',') + '|' + (s.overpass ?? []).join(','); // v88：無人島は桟橋・港に面した道路も出入口
   const c = infoCache.get(s);
   if (c && c.ver === ver) return c.info;
   const conn = new Uint8Array(N);
@@ -67,14 +71,23 @@ export function roadInfo(s: GameState): RoadInfo {
   const nodeOf = new Int32Array(N).fill(-1);
   const list: number[] = [];
   for (let i = 0; i < N; i++) if (s.road[i]) { nodeOf[i] = list.length; list.push(i); }
-  const n = list.length, nodes = Int32Array.from(list), adj = new Int32Array(n * 4).fill(-1), free = new Float64Array(n);
-  for (let k = 0; k < n; k++) {
+  // v94：立体交差の高架は、区画とは別の節点（高架 1 本で 1 つ）。高架の上と下の道は、坂の先の平面の区画（land0・land1）でだけつながる。
+  // 前は交差点の区画そのものを速く・広くしていて、高架の上から下の道へ曲がれることになっていた
+  const GL = grade(s), spans = GL.spans.filter(sp => sp.land0 >= 0 && sp.land1 >= 0 && nodeOf[sp.land0] >= 0 && nodeOf[sp.land1] >= 0);
+  const n0 = list.length, n = n0 + spans.length, nodes = new Int32Array(n).fill(-1), adj = new Int32Array(n * ADJ).fill(-1), free = new Float64Array(n);
+  nodes.set(list);
+  for (let k = 0; k < n0; k++) {
     const i = nodes[k], x = tx(i), y = ty(i);
     free[k] = (0.03 / P.roadSpeed[s.road[i]]) * 60; // 分/タイル（自由走行）
-    if (s.rail?.[i] && !s.railGrade?.[i] && !(s.overpass && s.overpass.includes(i))) free[k] += P.crossingDelay[s.rail[i]] ?? 0; // 踏切で待つ（陸橋なら待たない）
-    if (s.flyover && s.flyover.includes(i)) free[k] *= 0.7; // 立体交差は信号で止まらない
-    for (let e = 0; e < 4; e++) { const nx = x + NEIGH[e][0], ny = y + NEIGH[e][1]; if (inMap(nx, ny)) adj[k * 4 + e] = nodeOf[idx(nx, ny)]; }
+    if (s.rail?.[i] && !s.railGrade?.[i] && !GL.ovp.has(i)) free[k] += P.crossingDelay[s.rail[i]] ?? 0; // 踏切で待つ（形の成り立つ陸橋なら待たない）
+    for (let e = 0; e < 4; e++) { const nx = x + NEIGH[e][0], ny = y + NEIGH[e][1]; if (inMap(nx, ny)) adj[k * ADJ + e] = nodeOf[idx(nx, ny)]; }
   }
+  spans.forEach((sp, q) => {
+    const k = n0 + q; let f = 0; for (const t of sp.tiles) f += (0.03 / P.roadSpeed[s.road[t]]) * 60;
+    free[k] = f * 0.7; // 高架の上は信号で止まらない
+    adj[k * ADJ] = nodeOf[sp.land0]; adj[k * ADJ + 1] = nodeOf[sp.land1];
+    for (const t of [sp.land0, sp.land1]) { const b = nodeOf[t] * ADJ; for (let e = 4; e < ADJ; e++) if (adj[b + e] < 0) { adj[b + e] = k; break; } }
+  });
   const info: RoadInfo = { conn, dist: new Map<number, Int16Array>(), reach: new Map(), n, nodes, nodeOf, adj, free, freeTrees: new Map() };
   infoCache.set(s, { ver, info });
   return info;
@@ -323,7 +336,7 @@ function dijkstra(G: RoadInfo, src: number | number[], cost: Float64Array, out: 
   for (let k = 0; k < n; k++) { d[k] = Infinity; par[k] = -1; }
   const srcs = typeof src === 'number' ? (src < 0 ? [] : [src]) : src;
   if (!srcs.length) return out;
-  if (heap.length < n * 4) { heap = new Int32Array(n * 4); hk = new Float64Array(n * 4); }
+  if (heap.length < n * ADJ) { heap = new Int32Array(n * ADJ); hk = new Float64Array(n * ADJ); }
   let m = 0;
   for (const q of srcs) { d[q] = 0; heap[m] = q; hk[m++] = 0; } // 距離 0 が並ぶだけなのでヒープ条件は保たれる
   while (m > 0) {
@@ -333,8 +346,8 @@ function dijkstra(G: RoadInfo, src: number | number[], cost: Float64Array, out: 
       for (;;) { const l = c * 2 + 1, r = l + 1; let q = c; if (l < m && hk[l] < hk[q]) q = l; if (r < m && hk[r] < hk[q]) q = r; if (q === c) break; const ti = heap[q], tk = hk[q]; heap[q] = heap[c]; hk[q] = hk[c]; heap[c] = ti; hk[c] = tk; c = q; }
     }
     if (k > d[i]) continue;
-    for (let e = 0; e < 4; e++) {
-      const j = adj[i * 4 + e];
+    for (let e = 0; e < ADJ; e++) {
+      const j = adj[i * ADJ + e];
       if (j < 0) continue;
       const nd = k + cost[j];
       if (nd < d[j]) {
@@ -362,7 +375,7 @@ function freeTree(G: RoadInfo, tile: number, srcs?: number[]): Tree {
 }
 
 /** 6 車線・立体交差による容量の倍率 */
-export function laneMul(s: GameState, i: number): number { return (s.wide && s.road[i] === 2 && s.wide.includes(i) ? P.wideCap : 1) * (s.flyover && s.flyover.includes(i) ? 1.8 : 1); }
+export function laneMul(s: GameState, i: number): number { return (s.wide && s.road[i] === 2 && s.wide.includes(i) ? P.wideCap : 1) * (s.flyover && grade(s).flyOk.has(i) ? 1.8 : 1); } // 立体交差は高架のぶんを足した表示用の容量
 /** v21：立体駐車場の近く（240m 以内）は路上駐車が減り、道路の容量が少し増える */
 const PT_CACHE = new WeakMap<GameState, { v: number; n: number; m: number; xs: number[] }>();
 function nearParkingTower(s: GameState, i: number): boolean {
@@ -393,7 +406,7 @@ export function emptyStats(): Stats {
 function pollution(s: GameState, B: Building[], G: RoadInfo, load: Float64Array): Float32Array {
   const m = getMap(s.seed), e = new Float32Array(N);
   const ev = 1 - 0.04 * Math.min(3, countOp(s, 'evStation')); // 電気自動車が増えると排気が減る
-  for (let k = 0; k < G.n; k++) { const i = G.nodes[k]; e[i] += load[k] / 1600 * 3 * ev; }
+  for (let k = 0; k < G.n; k++) { const i = G.nodes[k]; if (i >= 0) e[i] += load[k] / 1600 * 3 * ev; }
   const compostOn = s.buildings.some(b => b.kind === 'compost' && b.status === 'operating');
   for (const b of B) {
     const d = DEFS[b.kind]; if (!d.pollution || b.status === 'construction') continue;
@@ -733,10 +746,12 @@ export function recompute(s: GameState, lite = false): void {
   const G = info, gn = G.n, node = G.nodeOf;
   poolN = 0;
   const load = tmpTree(gn).d, cost = tmpTree(gn).d, cap = tmpTree(gn).d, ageF = tmpTree(gn).d, smart = hasOp(s, 'smartSignal');
-  const wideS = new Set((s.wide ?? []).filter(i => s.road[i] === 2)), flyS = new Set(s.flyover ?? []);
+  const wideS = new Set((s.wide ?? []).filter(i => s.road[i] === 2));
   for (let k = 0; k < gn; k++) {
-    const i = G.nodes[k], old = s.roadAge[i] > 70;
-    load[k] = 0; cap[k] = P.roadCap[s.road[i]] * (s.climate?.snow ? 0.8 : 1) * (old ? 0.85 : 1) * (s.roadBoost[i] ?? 1) * (smart && s.road[i] !== 3 ? 1.1 : 1) * (wideS.has(i) ? P.wideCap : 1) * (flyS.has(i) ? 1.8 : 1); ageF[k] = old ? 1.15 : 1;
+    const i = G.nodes[k];
+    if (i < 0) { load[k] = 0; cap[k] = P.roadCap[2] * 0.8 * (s.climate?.snow ? 0.8 : 1); ageF[k] = 1; continue; } // 高架（中央の 2 車線）
+    const old = s.roadAge[i] > 70;
+    load[k] = 0; cap[k] = P.roadCap[s.road[i]] * (s.climate?.snow ? 0.8 : 1) * (old ? 0.85 : 1) * (s.roadBoost[i] ?? 1) * (smart && s.road[i] !== 3 ? 1.1 : 1) * (wideS.has(i) ? P.wideCap : 1); ageF[k] = old ? 1.15 : 1;
   }
   const peak = modMul(s, 'peakTrips') * (hasOp(s, 'fiberHub') ? 0.96 : 1); // 光回線でテレワークが広がる
   const stTile = stationOk ? station!.acc : -1;
@@ -792,6 +807,7 @@ export function recompute(s: GameState, lite = false): void {
   s.vc.fill(0);
   for (let q = 0; q < gn; q++) {
     const i = G.nodes[q], vc = load[q] / cap[q];
+    if (i < 0) { cost[q] = G.free[q] * (1 + 0.6 * Math.min(2.5, vc) ** 3); continue; }
     s.vc[i] = Math.round(vc * 1000) / 1000;
     if (s.road[i] !== 3 && vc > maxVc) maxVc = vc; // 国道は国の管理なので市の指標から外す
     cost[q] = G.free[q] * ageF[q] * (1 + 0.6 * Math.min(2.5, vc) ** 3);
@@ -836,7 +852,7 @@ export function recompute(s: GameState, lite = false): void {
   const nearCanal = new Uint8Array(N), nearFoot = new Uint8Array(N);
   const mark = (list: number[] | undefined, R: number, out: Uint8Array) => { for (const c of list ?? []) { const cx = c % W, cy = (c / W) | 0; for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) if (inMap(cx + dx, cy + dy)) out[idx(cx + dx, cy + dy)] = 1; } };
   const nearLevee = new Uint8Array(N);
-  mark(s.canal, 3, nearCanal); mark(s.footbridge, 3, nearFoot); mark(s.levee, 4, nearLevee);
+  mark(s.canal, 3, nearCanal); mark(s.footbridge?.filter(i => !grade(s).footBad.has(i)), 3, nearFoot); mark(s.levee, 4, nearLevee);
   // 地形の造作：人がつくった池・林・湿地のそばは環境がよく、湿地は大雨の水をためて浸水を減らす（遊水地）
   const nearNat = new Uint8Array(N), nearWet = new Uint8Array(N);
   if (s.terraT) { const nat: number[] = [], wt: number[] = []; s.terraT.forEach((t, i) => { if (t === 1 || t === 3 || t === 5) nat.push(i); if (t === 5) wt.push(i); }); mark(nat, 2, nearNat); mark(wt, 3, nearWet); }
