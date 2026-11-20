@@ -50,7 +50,7 @@ await look(T(X + 9, Y + 4), 60, 0.55, 0.3); await shot('peds-wide');
 if (ONLY !== 'peds') {
   // 2) 事故の連鎖：追突 → パトカー・救急車・レッカー。歩行者 → 救急車。建物火災 → 消防車。スピード違反 → 白バイ。駐車違反 → 標章
   const run = async (sub, name, wait, tile) => {
-    if (tile !== undefined) await look(tile, 120, 0.7, 0.5);
+    if (tile !== undefined) { await look(tile, 120, 0.7, 0.5); await sim(3); }
     const ok = await page.evaluate(sub => { const v = window.__sumu.view; v.incAuto = false; return v.startIncident(sub); }, sub);
     await sim(1);
     const where = await page.evaluate(() => { const v = window.__sumu.view, q = v.incs[v.incs.length - 1]; return q ? { tile: q.tile, x: q.x, z: q.z } : null; });
@@ -62,11 +62,8 @@ if (ONLY !== 'peds') {
     await shot(name);
   };
   const cityT = await page.evaluate(() => { const s = window.__sumu.game.state, W = window.__sumu.W; const b = s.buildings.filter(b => b.status === 'operating' && b.hh).sort((a, b) => b.hh - a.hh)[0]; return b ? b.y * W + b.x : 0; });
-  await run('rear', 'crash', 40, cityT);
-  await run('ped', 'pedestrian', 30, cityT);
-  await run('bldFire', 'fire', 45, cityT);
-  await run('speed', 'speed', 30, cityT);
-  await run('parking', 'parking', 40, cityT);
+  const W2 = (process.env.SUBS ?? 'rear:crash:40,ped:pedestrian:30,bldFire:fire:45,speed:speed:30,parking:parking:40').split(',');
+  for (const w of W2) { const [a, b, c] = w.split(':'); await run(a, b, Number(c), cityT); }
 }
 console.log('errors', errors.filter(e => !e.includes('ERR_TUNNEL') && !e.includes('404')).slice(0, 5));
 await browser.close();
