@@ -5,6 +5,7 @@ import { Geo } from './geo';
 import { RK, decal, face } from './roadkit';
 import { W, H, TILE, heightAt, idx, hash } from '../sim/index';
 import { railChains } from '../sim/railnet';
+import { grade } from '../sim/grade';
 import type { GameState, MapDef, Building } from '../sim/index';
 
 export interface RailPath {
@@ -178,7 +179,7 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
   const spanOf = (k: number, d: number) => anchors.some(a => a.k === k && !a.under && Math.abs(paths[k].d[a.j] - d) < 52);
   const G = s.railGrade ?? [];
   const ground = (x: number, z: number) => heightAt(m, Math.max(0, Math.min(W * TILE - 0.01, x)), Math.max(0, Math.min(H * TILE - 0.01, z)));
-  const ovp = new Set(s.overpass ?? []), crossing = (i: number) => !!s.road[i] && !G[i] && !ovp.has(i); // 陸橋の区画は踏切ではない
+  const ovp = grade(s).ovp, crossing = (i: number) => !!s.road[i] && !G[i] && !ovp.has(i); // 陸橋の区画は踏切ではない（v94：形の成り立つ陸橋だけ。成り立たない陸橋は踏切のまま）
   const both = (a: number[], b: number[], c: number[], d: number[], col: number) => { g.quad(a as any, b as any, c as any, d as any, col); g.quad(d as any, c as any, b as any, a as any, col); };
   // 上向きの面（線路の向きによって三角形の回りが逆になり、上から見えなくなっていたので、法線が上を向く順に並べる）
   type V3 = [number, number, number];

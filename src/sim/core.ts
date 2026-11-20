@@ -831,7 +831,7 @@ export function recompute(s: GameState, lite = false): void {
   const nearCanal = new Uint8Array(N), nearFoot = new Uint8Array(N);
   const mark = (list: number[] | undefined, R: number, out: Uint8Array) => { for (const c of list ?? []) { const cx = c % W, cy = (c / W) | 0; for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) if (inMap(cx + dx, cy + dy)) out[idx(cx + dx, cy + dy)] = 1; } };
   const nearLevee = new Uint8Array(N);
-  mark(s.canal, 3, nearCanal); mark(s.footbridge, 3, nearFoot); mark(s.levee, 4, nearLevee);
+  mark(s.canal, 3, nearCanal); mark(s.footbridge?.filter(i => !grade(s).footBad.has(i)), 3, nearFoot); mark(s.levee, 4, nearLevee);
   // 地形の造作：人がつくった池・林・湿地のそばは環境がよく、湿地は大雨の水をためて浸水を減らす（遊水地）
   const nearNat = new Uint8Array(N), nearWet = new Uint8Array(N);
   if (s.terraT) { const nat: number[] = [], wt: number[] = []; s.terraT.forEach((t, i) => { if (t === 1 || t === 3 || t === 5) nat.push(i); if (t === 5) wt.push(i); }); mark(nat, 2, nearNat); mark(wt, 3, nearWet); }
