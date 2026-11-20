@@ -109,6 +109,7 @@ import { buildRailPaths, drawRailPaths, railAt, SHIN_LINES, shinDeckY, RAIL_LM, 
 import { Landmarks, type LmItem } from './landmarks';
 import { roadKitMat, roadTile, face, RK } from './roadkit';
 import { roadBase, hasXw } from './roadbase';
+import { crowdPlan, occupancyPhase } from './occupancy';
 import { drawPowerLines, drawUtilities, kyodokoTiles, infraKey, pipeReach, pipeOverlay } from './infra'; // v87
 import { makeTrains, TRAIN_PART as TK_PART, FAMS, CAR_DIM, famColor, type TrainFam } from './trainkit'; // v88
 /** 列車 1 編成の走り（v88：速さ v・止まる位置 stopAt・ドア・車種 fam） */
@@ -2471,11 +2472,16 @@ export class View {
         mesh.castShadow = true; mesh.frustumCulled = false; this.scene.add(mesh); this.festObjs.push(mesh);
       }
     }
+    const occG = new Geo();
     for (const b of s.buildings) {
       if (b.status !== 'operating') continue;
       const cx = (b.x + b.w / 2) * TILE, cz = (b.y + b.h / 2) * TILE;
       if (Math.abs(cx - tx) > R || Math.abs(cz - tz) > R) continue;
-      const n = Math.round(this.lifeCount(s, b) * (fest && (fam(b.kind) === 'park' || fam(b.kind) === 'shop' || b.kind === 'station') ? 2 : 1)), hw = b.w * TILE * 0.36, hd = b.h * TILE * 0.36;
+      // v95：施設の利用者の人だかり（混み具合と時間帯で。render/occupancy.ts）。扱わない施設は従来の数
+      const plan = crowdPlan(s, b, hr, this.place(s, b), this.quality === 'low' || this.lite ? 0.35 : this.quality === 'mid' ? 0.7 : 1);
+      if (plan) { plan.spots.forEach((sp, k) => { if (this.life.length >= 900) return; const L = makeLook(sp.t, seeded(b.id * 977 + k), cm, rain); if (sp.kid) L.scale *= 0.7;
+        this.life.push({ x: sp.x, z: sp.z, y: heightAt(m, sp.x, sp.z) + 0.2, r: sp.r, ph: hash(k * 7 + b.id) * 6.28, sp: sp.sp, L, wp: hash(k * 11 + b.id) * 6.28 }); }); if (plan.props) plan.props(occG, (x, z) => heightAt(m, x, z)); }
+      const n = plan ? 0 : Math.round(this.lifeCount(s, b) * (fest && (fam(b.kind) === 'park' || fam(b.kind) === 'shop' || b.kind === 'station') ? 2 : 1)), hw = b.w * TILE * 0.36, hd = b.h * TILE * 0.36;
       for (let k = 0; k < n && this.life.length < 900; k++) {
         const x = cx + (hash(b.id * 31 + k) * 2 - 1) * hw, z = cz + (hash(b.id * 57 + k * 3) * 2 - 1) * hd;
         const rr = seeded(b.id * 977 + k), L = makeLook(lifeType(b), rr, cm, rain);
@@ -2487,6 +2493,7 @@ export class View {
       if ((b.kind === 'heliport' || (b.kind === 'perinatal' && !s.buildings.some(o => o.kind === 'heliport' && o.status === 'operating'))) && !this.heliAt) { const p = this.place(s, b); this.heliAt = { x: p.x, y: p.y + (b.kind === 'perinatal' ? 9 * 3.6 + 1.2 : 0.5), z: p.z - (b.kind === 'perinatal' ? 0 : 2) }; }
       if (b.kind === 'airport' && !this.planeAt) { const p = this.place(s, b); this.planeAt = { x: p.x, y: p.y, z: p.z, c: Math.cos(p.rot), s: Math.sin(p.rot) }; }
     }
+    if (occG.pos.length) { const om = new THREE.Mesh(occG.build(), this.matFest ??= new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, emissive: 0x331000, emissiveIntensity: 0.6 })); om.castShadow = true; om.frustumCulled = false; this.scene.add(om); this.festObjs.push(om); } // v95：仮設教室・窓の人影・救急車の列
     this.life.forEach((p, i) => this.lifeP.setLook(i, p.L)); this.lifeP.commitLooks();
     this.lifeP.mesh.count = this.life.length;
     if (this.plane) this.plane.visible = !!this.planeAt;
@@ -2509,7 +2516,7 @@ export class View {
     if (!this.lifeP) return;
     this.lifeT += dt;
     if (this.celebT > 0) this.celebT -= dt;
-    const key = `${this.festOn(s) ? 'F' : ''}${s.bVersion}:${Math.round(this.target.x / 200)}:${Math.round(this.target.z / 200)}:${Math.floor(this.hour)}:${(s.teams ?? []).length}:${s.month}:${this.rainNow(s)}`;
+    const key = `${this.festOn(s) ? 'F' : ''}${s.bVersion}:${Math.round(this.target.x / 200)}:${Math.round(this.target.z / 200)}:${Math.floor(this.hour)}:${(s.teams ?? []).length}:${s.month}:${this.rainNow(s)}:${occupancyPhase(this.hour)}`;
     if (key !== this.lifeKey) { this.lifeKey = key; this.rebuildLife(s); }
     const up = new THREE.Vector3(0, 1, 0), t = this.lifeT;
     // 施設の人：その場で少しずつ歩き回る
