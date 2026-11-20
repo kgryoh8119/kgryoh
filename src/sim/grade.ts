@@ -160,6 +160,17 @@ export function gradeLayout(s: GameState, fly: number[] = s.flyover ?? [], ovpL:
   return { spans, spanOf, flyRamp, flyOk: new Set(acc.map(o => o.i)), flyBad, ovp, ovpRamp, ovpBad, footBad };
 }
 
+/** v95：高架の橋脚を立てられる位置（道の向きの区画単位の座標、区画の中心＝整数）。
+ *  下の地上は側道（外側の車線）だけが通り、高架の真下の内側は中央分離帯になる。交差点の区画（横断歩道を含む）と、脇道のつながる区画には立てない
+ *  （交差点は前後の区画の中心どうし＝60m 以上の桁でまたぐ）。坂の低い所は桁下が足りないので描画側で省く */
+export function flyPiers(s: GameState, sp: FlySpan): number[] {
+  const out: number[] = [];
+  for (let a = sp.j0 - FLY_RAMP; a <= sp.j1 + FLY_RAMP; a++) { const t = T(sp.ew, sp.line, a); if (t < 0 || !s.road[t]) continue; if (isJunction(s, t) || sideRoad(s, t, sp.ew)) continue; out.push(a); }
+  return out;
+}
+/** v95：高架の下で中央分離帯を描く区画（交差点・脇道の区画を除く） */
+export function flyMedianTiles(s: GameState, sp: FlySpan): number[] { return flyPiers(s, sp); }
+
 type Key = [number, unknown, unknown, unknown, unknown, unknown, number, number, number];
 const cache = new WeakMap<GameState, { k: Key; v: GradeLayout }>();
 /** いまの状態の形。道路・線路・橋などが変わると roadVersion が上がり、立体の並びは変えるたびに新しい配列になるので、
