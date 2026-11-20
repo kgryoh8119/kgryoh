@@ -1,4 +1,5 @@
 // イベント定義。発生条件は街の状態に連動し、確率・再発待ち・選択肢・費用・即時効果・遅延効果・終結条件を持つ。
+import { safetyEventK } from './people';
 import { noteDisaster } from './politics';
 import { DEFS, P, isShop, isRes, isCity, fam, W, H, SCALE, diffOf, hasOp, SPORTS } from './config';
 import { DISTRICTS } from './types';
@@ -291,7 +292,7 @@ export const EVENTS: EventDef[] = [
   },
   // ======== 事件・事故 ========
   {
-    id: 'accident', title: '通学路で交通事故', prob: 0.03, cooldown: 18, minStreak: 0, expire: 3,
+    id: 'accident', title: '通学路で交通事故', prob: 0.03, cooldown: 18, minStreak: 0, expire: 3, probK: safetyEventK, // v95：交通安全の対策で減る
     cond: s => { if (s.stats.maxVc < 1.0 || s.stats.hhByType[3] < 30) return null; let wi = -1, wv = 0; for (let i = 0; i < W * H; i++) if (s.road[i] === 1 && s.vc[i] > wv) { wv = s.vc[i]; wi = i; } return wi >= 0 ? { target: wi, detail: `抜け道として車が増えた生活道路（混雑率 ${r0(wv * 100)}%）で、登校中の小学生が車にはねられ、けがをしました。保護者から対策を求める声が上がっています。` } : null; },
     options: [
       { label: 'ガードレールと歩道を整備し、速度を抑える', cost: 1200, desc: '1,200 万円。24 か月、治安・安全の水準が上がり、支持率も上がります。', effects: [{ t: 'cash', v: -1200, label: '通学路の安全対策' }, { t: 'mod', key: 'safety', op: 'add', v: 0.15, months: 24 }, { t: 'approval', v: 0.02 }] },

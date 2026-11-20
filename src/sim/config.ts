@@ -109,7 +109,7 @@ export const P = {
   wideCap: 1.5,                    // 6 車線の容量（4 車線の何倍か）
   flyoverCost: 15000,              // 立体交差（万円/か所）
   busStopCost: 150, busStopSubsidy: 3,
-  streetCost: { tree: 120, stone: 220, nopole: 700, charge: 900 } as Record<string, number>, // 並木・石畳・無電柱化（万円/区間） // バス停の設置（万円）と、路線の運行補助（万円/月/停留所）
+  streetCost: { tree: 120, stone: 220, nopole: 700, charge: 900, safe: 300, signal: 450, zone30: 40, light: 30, bike: 150 } as Record<string, number>, // v95：交通安全の対策（歩道とガードレール・信号機・ゾーン 30 の標識と路面表示・街灯・自転車レーン） // 並木・石畳・無電柱化（万円/区間） // バス停の設置（万円）と、路線の運行補助（万円/月/停留所）
   airportUpCost: [0, 0, 40000, 90000], // 空港の拡張（滑走路の延長・国際線ターミナル）
   /** 財政指標の基準（地方公共団体財政健全化法）：実質公債費比率と将来負担比率 */
   fiscalEarly: { kosai: 0.25, shorai: 3.5 }, fiscalRebuild: { kosai: 0.35 },

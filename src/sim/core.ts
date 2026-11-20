@@ -6,7 +6,7 @@ import type { Fam, VisionPerk } from './config';
 import { getMap, idx, tx, ty, inMap, NEIGH } from './map';
 import { railNbrs } from './railnet';
 import type { GameState, Building, Voice, Stats } from './types';
-import { NHH, DISTRICTS } from './types';
+import { NHH, DISTRICTS, STREET_KEYS } from './types';
 import { REAL, onMapChange } from './real';
 import { syncTerrain } from './map';
 import { chainFactor, fxDev } from './economy';
@@ -301,7 +301,7 @@ export function repairState(s: GameState): void {
   if (Array.isArray(s.levee)) s.levee = uniqF(s.levee, i => !s.road[i] && !s.occ[i]);
   if (Array.isArray(s.busStops)) s.busStops = uniqF(s.busStops, i => !!s.road[i]);
   if (s.railKind !== undefined) { if (!Array.isArray(s.railKind) || s.railKind.length !== W * H) s.railKind = undefined; else for (let i = 0; i < W * H; i++) { const v = s.railKind[i]; if (!s.rail?.[i] || !(v === 1 || v === 2)) s.railKind[i] = 0; } }
-  if (s.streets && typeof s.streets === 'object') for (const k of ['tree', 'stone', 'nopole', 'charge'] as const) { const v = (s.streets as any)[k]; if (v !== undefined) (s.streets as any)[k] = Array.isArray(v) ? uniqF(v, i => !!s.road[i]) : []; } else if (s.streets !== undefined) s.streets = {};
+  if (s.streets && typeof s.streets === 'object') for (const k of STREET_KEYS) { const v = (s.streets as any)[k]; if (v !== undefined) (s.streets as any)[k] = Array.isArray(v) ? uniqF(v, i => !!s.road[i]) : []; } else if (s.streets !== undefined) s.streets = {};
   if (Array.isArray(s.footbridge)) s.footbridge = uniqF(s.footbridge, i => !!s.road[i]);
   if (Array.isArray(s.overpass)) s.overpass = uniqF(s.overpass, i => !!s.road[i] && !!s.rail?.[i]);
   if (Array.isArray(s.wide)) s.wide = uniqF(s.wide, i => s.road[i] === 2);

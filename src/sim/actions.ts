@@ -7,6 +7,8 @@ import { validateAction, validateState, derivedFinite, cleanTiles, ACTION_NAMES 
 import { fiscalCrisis, tempDebt, bizScore, rerunCheck, rerunElection, teamCheck, addTeam } from './step';
 import { addBuilding, removeBuilding, startRenew, resolveEvent } from './events';
 import type { GameState, Action, Result, Kind, Building, TerraOp } from './types';
+import { STREET_KEYS, STREET_SAFETY } from './types';
+import type { StreetKey } from './types';
 import { sumHH } from './core';
 import { REAL } from './real';
 import { railNbrs, sharpAt } from './railnet';
@@ -220,13 +222,15 @@ export function planBusStop(s: GameState, tiles: number[], on: boolean): TilePla
 }
 /** 堤防：川・水辺に面した空き地に盛り土の堤防を築く */
 /** 道路の種類を変える：並木道・石畳とカラー舗装・電線の地中化（無電柱化）。none で元に戻す（無料） */
-export function planStreet(s: GameState, tiles: number[], style: 'tree' | 'stone' | 'nopole' | 'charge' | 'none'): TilePlan {
+export function planStreet(s: GameState, tiles: number[], style: StreetKey | 'none'): TilePlan {
   const ok: number[] = [], bad: [number, string][] = [], st = s.streets ?? {};
   for (const i of new Set(tiles)) {
     if (!s.road[i]) { bad.push([i, '道路がありません']); continue; }
     if (style === 'charge' && Math.floor(s.month / 12) + 1 < 20) { bad.push([i, '走行中給電の道路は 20 年目からです（次世代の技術）']); continue; }
     if (style === 'charge' && s.road[i] < 2) { bad.push([i, '走行中給電は幹線道路だけです']); continue; }
     if (style === 'nopole' && s.road[i] !== 1) { bad.push([i, '電線の地中化は生活道路だけです（幹線は電柱がありません）']); continue; }
+    if (style === 'zone30' && s.road[i] !== 1) { bad.push([i, 'ゾーン 30 は生活道路だけです']); continue; }
+    if (style === 'bike' && s.road[i] < 2) { bad.push([i, '自転車レーンは幹線道路と国道だけです']); continue; }
     if (style !== 'none' && (st[style] ?? []).includes(i)) { bad.push([i, 'もうその種類です']); continue; }
     ok.push(i);
   }
@@ -688,10 +692,10 @@ function apply(s: GameState, a: Action): Result {
       const pl = planStreet(s, a.tiles, a.style); if (!pl.ok.length) return { ok: false, msg: pl.bad[0]?.[1] ?? '変えられる道路がありません' };
       if (pl.cost > 0) { if (fiscalCrisis(s)) return { ok: false, msg: crisisMsg(s) }; const e = spend(s, pl.cost, '道路の種類'); if (e) return e; }
       const st = s.streets ?? (s.streets = {});
-      if (a.style === 'none') { const rm = new Set(pl.ok); for (const k of ['tree', 'stone', 'nopole', 'charge'] as const) if (st[k]) st[k] = st[k]!.filter(i => !rm.has(i)); }
+      if (a.style === 'none') { const rm = new Set(pl.ok); for (const k of STREET_KEYS) if (st[k]) st[k] = st[k]!.filter(i => !rm.has(i)); }
       else { const set = new Set(st[a.style] ?? []); for (const i of pl.ok) set.add(i); st[a.style] = [...set]; }
       s.roadVersion++;
-      const nm = { tree: '並木道', stone: '石畳・カラー舗装の道', nopole: '電線を地中に埋めた道（無電柱化）', charge: '走りながら EV に充電できる道路', none: 'ふつうの道路' }[a.style];
+      const nm = ({ tree: '並木道', stone: '石畳・カラー舗装の道', nopole: '電線を地中に埋めた道（無電柱化）', charge: '走りながら EV に充電できる道路', none: 'ふつうの道路', ...Object.fromEntries(Object.entries(STREET_SAFETY).map(([k, v]) => [k, v.name])) } as Record<string, string>)[a.style];
       return { ok: true, msg: `${pl.ok.length} 区間を${nm}にしました${pl.cost ? `（${man(pl.cost)}）` : ''}`, cost: pl.cost };
     }
     case 'busStop': {
@@ -736,7 +740,7 @@ function apply(s: GameState, a: Action): Result {
       const e = spend(s, cost, '道路撤去'); if (e) return e;
       const before = gradeNow(s);
       for (const i of ok) { s.road[i] = 0; s.roadAge[i] = 0; s.vc[i] = 0; delete s.roadBoost[i]; }
-      { const rm = new Set(ok); for (const k of ['tunnel', 'bridge', 'overpass', 'footbridge', 'busStops'] as const) if (s[k]) s[k] = s[k]!.filter(i => !rm.has(i)); if (s.streets) for (const k of ['tree', 'stone', 'nopole', 'charge'] as const) if (s.streets[k]) s.streets[k] = s.streets[k]!.filter(i => !rm.has(i)); }
+      { const rm = new Set(ok); for (const k of ['tunnel', 'bridge', 'overpass', 'footbridge', 'busStops'] as const) if (s[k]) s[k] = s[k]!.filter(i => !rm.has(i)); if (s.streets) for (const k of STREET_KEYS) if (s.streets[k]) s.streets[k] = s.streets[k]!.filter(i => !rm.has(i)); }
       { s.roadVersion++; const after = gradeNow(s), lost = [...before.flyOk].filter(i => !after.flyOk.has(i)).length + [...before.ovp.keys()].filter(i => !after.ovp.has(i)).length;
         if (lost) return { ok: true, msg: `道路を ${ok.length} 区間撤去しました（${man(cost)}）。坂の先の道路がなくなったため、立体交差・陸橋 ${lost} か所は平面（信号・踏切）として使います`, cost }; }
       return { ok: true, msg: `道路を ${ok.length} 区間撤去しました（${man(cost)}）`, cost };

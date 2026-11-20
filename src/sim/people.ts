@@ -345,6 +345,8 @@ export interface PeopleStats {
   risk: { car: Float32Array; ped: Float32Array; bike: Float32Array };
   /** 1 か月の期待件数（種類ごと） */
   expected: Record<IncidentKind, number>;
+  /** v95 の交通安全の対策（通りの整備）で、歩行者と自転車の事故が何倍になったか（対策なしで 1） */
+  newMeasureK: number;
 }
 
 /** 道路の区画を L 字にたどる（徒歩・自転車。近いので道路の網の最短路との差は小さい） */
@@ -398,7 +400,7 @@ function accumulate(s: GameState, p: People, byId: Map<number, Building>, statio
   const st: PeopleStats = {
     n: p.n, byRole: [0, 0, 0, 0, 0, 0], modes: [0, 0, 0, 0, 0], localWork: 0, outWork: 0, teleWork: 0, boardings: new Map(), enroll: new Map(), workers: new Map(), visits: new Map(),
     farSchool: 0, careHome: 0, walk, bike, car, carAm, hourShare: [0, 1, 2, 3, 4].map(() => new Float32Array(24)), taxResident: 0,
-    risk: { car: new Float32Array(N), ped: new Float32Array(N), bike: new Float32Array(N) }, expected: { car: 0, ped: 0, bike: 0, rail: 0, crossing: 0, fire: 0, crime: 0 },
+    risk: { car: new Float32Array(N), ped: new Float32Array(N), bike: new Float32Array(N) }, expected: { car: 0, ped: 0, bike: 0, rail: 0, crossing: 0, fire: 0, crime: 0 }, newMeasureK: 1,
   };
   const gw = GATEWAYS.filter(g => s.road[g]);
   const gate = (t: number) => { let best = -1, bd = 1e9; for (const g of gw) { const d = Math.abs(g % W - t % W) + Math.abs(((g / W) | 0) - ((t / W) | 0)); if (d < bd) { bd = d; best = g; } } return best; };
@@ -463,6 +465,7 @@ function accumulate(s: GameState, p: People, byId: Map<number, Building>, statio
 
   // ---- 交通事故の起きやすさ（区画・1 日の期待件数）
   const M = measures(s);
+  let pbWith = 0, pbWithout = 0;
   for (let t = 0; t < N; t++) {
     const rd = s.road[t]; if (!rd) continue;
     const cap = P.roadCap[rd] ?? 700, vc = s.vc[t] ?? 0;
@@ -471,8 +474,10 @@ function accumulate(s: GameState, p: People, byId: Map<number, Building>, statio
     st.risk.car[t] = car[t] * KM * 1e-6 * RATE.car * CAL * roadK * congK * M.carK(t);
     st.risk.ped[t] = walk[t] * KM * 1e-6 * RATE.ped * CAL * 1.9 * carDen * (rd === 1 && vc > 0.8 ? 1.4 : 1) * M.pedK(t, 12);
     st.risk.bike[t] = bike[t] * KM * 1e-6 * RATE.bike * CAL * 9 * carDen * M.bikeK(t, 12);
+    pbWith += st.risk.ped[t] + st.risk.bike[t]; pbWithout += st.risk.ped[t] / M.newPed(t) + st.risk.bike[t] / M.newBike(t);
     st.expected.car += st.risk.car[t] * 30; st.expected.ped += st.risk.ped[t] * 30; st.expected.bike += st.risk.bike[t] * 30;
   }
+  st.newMeasureK = pbWithout > 0 ? pbWith / pbWithout : 1;
   // 街灯は夜だけ効く：夜の割合のぶんだけ補正
   const nightP = nightShare(st.hourShare[M_WALK]), nightB = nightShare(st.hourShare[M_BIKE]);
   if (M.anyLight) { st.expected.ped = 0; st.expected.bike = 0; for (let t = 0; t < N; t++) { if (!s.road[t]) continue; const lp = M.lightK(t); st.risk.ped[t] *= 1 - nightP * (1 - lp); st.risk.bike[t] *= 1 - nightB * (1 - lp); st.expected.ped += st.risk.ped[t] * 30; st.expected.bike += st.risk.bike[t] * 30; } }
@@ -493,7 +498,7 @@ function accumulate(s: GameState, p: People, byId: Map<number, Building>, statio
 const nightShare = (h: Float32Array) => { let v = 0; for (let k = 0; k < 24; k++) if (k >= 18 || k < 6) v += h[k]; return v; };
 
 // ---------------------------------------------------------------- 対策（区画ごとの係数。設計の文書 7 章の表）
-type Measures = { carK: (t: number) => number; pedK: (t: number, hour: number) => number; bikeK: (t: number, hour: number) => number; lightK: (t: number) => number; anyLight: boolean };
+type Measures = { newPed: (t: number) => number; newBike: (t: number) => number; carK: (t: number) => number; pedK: (t: number, hour: number) => number; bikeK: (t: number, hour: number) => number; lightK: (t: number) => number; anyLight: boolean };
 const mCache = new WeakMap<GameState, { key: string; m: Measures }>();
 function measures(s: GameState): Measures {
   const key = `${s.bVersion}:${s.roadVersion}:${JSON.stringify(s.streets ?? {})}:${(s.footbridge ?? []).join(',')}`, c = mCache.get(s);
@@ -508,6 +513,8 @@ function measures(s: GameState): Measures {
   const z = (t: number) => (z30.has(t) ? 0.77 : 1);
   const m: Measures = {
     carK: t => (signal.has(t) ? 0.7 : 1) * z(t) * patrol[t] * smart,
+    newPed: t => (safe.has(t) ? 0.6 : 1) * (signal.has(t) ? 0.7 : 1) * z(t),
+    newBike: t => (bikeL.has(t) ? 0.75 : 1) * (signal.has(t) ? 0.8 : 1) * z(t),
     pedK: t => (safe.has(t) ? 0.6 : 1) * (signal.has(t) ? 0.7 : 1) * z(t) * (foot[t] ? 0.4 : 1) * patrol[t],
     bikeK: t => (bikeL.has(t) ? 0.75 : 1) * (signal.has(t) ? 0.8 : 1) * z(t) * patrol[t],
     lightK: t => (light.has(t) ? 0.7 : 1),
@@ -583,6 +590,14 @@ export function monthlyIncidents(s: GameState): IncidentMonth {
   });
   e.top = top;
   return e;
+}
+
+/** できごと「通学路で交通事故」の起きやすさの倍率：v95 の交通安全の対策（歩道とガードレール・信号機・ゾーン 30・自転車レーン）で歩行者と自転車の事故が減った割合。
+ *  対策がなければ 1（v94 のバランスのまま）。歩道橋・交番は前から治安の水準に入っているので、ここには入れない */
+export function safetyEventK(s: GameState): number {
+  const sk = (s.streets ?? {}) as Record<string, number[] | undefined>;
+  if (!['safe', 'signal', 'zone30', 'bike'].some(k => sk[k]?.length)) return 1;
+  return Math.max(0.3, Math.min(1, incidentStats(s).st.newMeasureK));
 }
 
 /** 描画の中で起きた事故（view.onIncident）を受け取る。件数の本体（sim の確率）には足さず、「見えた分」として数える */
