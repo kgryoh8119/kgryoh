@@ -450,9 +450,9 @@ function build94(T: string, seed: number, heights: Float32Array, bigRiver: (x: n
   for (const i of order) { if (!lake[i] && acc[i] < RIVER_A94) continue; if (!lake[i]) { river[i] = 1; surf[i] = et[i] - 0.6; } water[i] = 1; }
   for (let k = order.length - 1; k >= 0; k--) { const i = order[k], p = par[i]; if ((river[i] || lake[i]) && p >= 0 && river[p]) surf[p] = Math.min(surf[p], surf[i]); }
   for (const i of order) if (river[i]) surf[i] = Math.max(surf[i], -1.5);
-  // 大きな川は 2 区画の幅に（流れに直角の、低い方の隣）
+  // 大きな川は 2 区画の幅に（流れに直角の隣。左右に振れると岸がぎざぎざになるので、いつも南か東の側。なければ反対側）
   for (const i of order) { if (!river[i] || acc[i] < WIDE_A94) continue; const p = par[i], x = i % W, y = (i / W) | 0, alongX = p === i + 1 || p === i - 1;
-    const cand = (alongX ? [[0, 1], [0, -1]] : [[1, 0], [-1, 0]]).map(([dx, dy]) => [x + dx, y + dy]).filter(([a, b]) => inMap(a, b) && !inTown94(a, b) && !water[idx(a, b)]).sort((A, B) => et[idx(A[0], A[1])] - et[idx(B[0], B[1])]);
+    const cand = (alongX ? [[0, 1], [0, -1]] : [[1, 0], [-1, 0]]).map(([dx, dy]) => [x + dx, y + dy]).filter(([a, b]) => inMap(a, b) && !inTown94(a, b) && !water[idx(a, b)]);
     if (cand.length) { const j = idx(cand[0][0], cand[0][1]); water[j] = 1; river[j] = 1; surf[j] = surf[i]; acc[j] = acc[i]; } }
   // 谷を刻む：川・湖の区画の 4 隅を水面より下げる（はじめの町の区画の隅は変えない）
   for (let i = 0; i < N; i++) { if (!(river[i] || lake[i])) continue; const x = i % W, y = (i / W) | 0, t = surf[i] - (lake[i] ? 0.9 : 0.8);
