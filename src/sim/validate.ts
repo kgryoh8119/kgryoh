@@ -3,7 +3,7 @@
 import { onMapChange, REAL } from './real';
 import { W, H, P, DEFS, POLICIES, GOALS, VISIONS, LV_CAP } from './config';
 import { OPT } from './options';
-import { getMap, buildable, syncTerrain, isCastaway } from './map';
+import { getMap, buildable, syncTerrain, isCastaway, setTerrainVer } from './map';
 import { EVENTS } from './events';
 import { validPol, POL_OPS } from './politics';
 import type { GameState, Action, Effect, Kind } from './types';
@@ -158,6 +158,7 @@ export function validateState(s: unknown): string | null {
   // v90：施策の記録（ないのは古いセーブ。形が崩れていれば記録だけ捨てる。街の計算には使わない）
   if (s.decisions !== undefined && (!Array.isArray(s.decisions) || s.decisions.length > 200 || !s.decisions.every((d: unknown) => isObj(d) && isInt(d.month) && isStr(d.label, 200) && isObj(d.before) && Array.isArray(d.results) && Array.isArray(d.checkAt)))) delete s.decisions;
   // ---- 地図 ----
+  if (isFinite(s.seed)) setTerrainVer(s.seed, intIn(s.terrV, 0, 1000) ? s.terrV : 0); // v94：地形の版（古いセーブは v93 までの地形）
   { const okH = s.terraH === undefined || (Array.isArray(s.terraH) && s.terraH.length === (W + 1) * (H + 1) && s.terraH.every((v: unknown) => finIn(v, -100, 100)));
     const okT = s.terraT === undefined || (Array.isArray(s.terraT) && s.terraT.length === N && s.terraT.every((v: unknown) => intIn(v, 0, 8)));
     syncTerrain(okH && okT && (s.terraVer === undefined || intIn(s.terraVer, 0, 1e9)) ? (s as any) : null); }
@@ -190,6 +191,7 @@ export function validateState(s: unknown): string | null {
   if (s.terraH !== undefined && (!Array.isArray(s.terraH) || s.terraH.length !== (W + 1) * (H + 1) || !s.terraH.every((v: unknown) => finIn(v, -100, 100)))) return '地形の造作（高さ）のデータが不正です';
   if (s.terraT !== undefined && (!Array.isArray(s.terraT) || s.terraT.length !== N || !s.terraT.every((v: unknown) => intIn(v, 0, 8)))) return '地形の造作（種類）のデータが不正です';
   if (s.terraVer !== undefined && !intIn(s.terraVer, 0, 1e9)) return '地形の造作の記録が不正です';
+  if (s.terrV !== undefined && !intIn(s.terrV, 0, 1000)) return '地形の版が不正です';
   for (const k of ['wide', 'flyover'] as const) { const v = s[k]; if (v !== undefined && (!Array.isArray(v) || v.length > N || !v.every((i: unknown) => intIn(i, 0, N - 1) && s.road[i as number]) || new Set(v).size !== v.length)) return k === 'wide' ? '6 車線のデータが不正です' : '立体交差のデータが不正です'; }
   if (s.missions !== undefined && (!Array.isArray(s.missions) || s.missions.length > 50 || !s.missions.every((m: unknown) => isStr(m, 20)))) return '初仕事の記録が不正です';
   if (s.missionBase !== undefined && (!isObj(s.missionBase) || !['roads', 'zoned', 'hh', 'shops', 'parks'].every(k => finIn((s.missionBase as any)[k], 0, 1e7)))) return '初仕事の記録が不正です';

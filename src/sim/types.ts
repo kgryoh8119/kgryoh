@@ -299,6 +299,8 @@ export interface GameState {
   streets?: { tree?: number[]; stone?: number[]; nopole?: number[]; charge?: number[] };
   /** 地形の造作：頂点ごとの標高の上げ下げ（m）、区画ごとの種類（TERRA_T）、変えた回数 */
   terraH?: number[]; terraT?: number[]; terraVer?: number;
+  /** v94：地形の版（94 = 曲がりくねった海岸線・蛇行する川の地形）。ない（古いセーブ）なら v93 までの地形 */
+  terrV?: number;
   /** 6 車線に広げた幹線の区画 */
   wide?: number[];
   /** 立体交差にした交差点の区画（片方の道路が高架でまたぐ） */
