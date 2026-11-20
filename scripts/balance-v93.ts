@@ -32,7 +32,7 @@ function issueTurn(s: GameState): string | null {
 
 for (let k = 0; k < runs; k++) {
   const n = 261011 + seed0 + k;
-  const s = newGame({ seed: seedForTerrain(terr, n) }); s.difficulty = diff; s.tutorial.done = true;
+  const s = newGame({ seed: seedForTerrain(terr, n) }); s.difficulty = diff; s.tutorial.done = true; if (env.ORD) s.autoOrder = Number(env.ORD) as 0 | 1 | 2; // v94：オートの作戦
   const t0 = Date.now(); let errs = 0, nan = 0, acts = 0, firstErr = '', pass = 0, fail = 0, minCash = 1e12;
   const pop0 = s.stats.pop; const log: string[] = [];
   // v94：市長レベルに届いた月・道路に接していない建物（どこで建ったか：auto＝オートの手番／step＝月の処理（民間の着工など））
