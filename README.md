@@ -17,7 +17,7 @@ Node.js 22 で確認しています。
 npm install
 npm run dev        # 開発サーバー（表示された URL を開く）
 npm run build      # 型検査 → dist/ に下記の成果物を作る
-npm test           # テスト（347 件（2 件スキップ、v94 時点））
+npm test           # テスト（369 件（2 件スキップ、v94 時点））
 npm run verify     # ブラウザでの実操作検証（要 Playwright と Chromium）
 ```
 
