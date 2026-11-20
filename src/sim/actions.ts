@@ -17,6 +17,8 @@ import { SIS, EXCHANGES, MAX_SISTERS } from './intl';
 import { polAct } from './politics';
 import { OPT, optionsFor, optSlots, optCost, STYLES, STYLE_COST, sponsorOf } from './options';
 import { isLocked, LOCK_MSG, annexable, blockName, mayorDiff, levelOf } from './mayor';
+import { gradeLayout, grade as gradeNow, rampSideError, isJunction } from './grade';
+export { isJunction };
 
 const man = (v: number) => Math.round(v).toLocaleString() + ' 万円';
 
@@ -121,6 +123,7 @@ export function checkRoad(s: GameState, i: number, road: 1 | 2, byId?: Map<numbe
   if (s.occ[i] && !ab) return '建物があります';
   if (s.road[i] === 3) return '国道は国の管理です';
   if (s.road[i] >= road) return '既に道路があります';
+  if (!s.road[i]) { const e = rampSideError(s, i); if (e) return e; } // v94：坂の途中に脇道はつくれない
   return '';
 }
 
@@ -177,9 +180,12 @@ export function planBridge(s: GameState, tiles: number[], road: 1 | 2): TilePlan
 export function planOverpass(s: GameState, tiles: number[]): TilePlan {
   const ok: number[] = [], bad: [number, string][] = [];
   for (const i of uniq(tiles)) {
-    if (!s.road[i] || !s.rail?.[i]) { bad.push([i, '踏切（道路と線路が交わる区画）ではありません']); continue; }
-    if (s.railGrade?.[i]) { bad.push([i, '線路が高架か地下なので、踏切はありません']); continue; }
     if ((s.overpass ?? []).includes(i)) { bad.push([i, '既に陸橋です']); continue; }
+    if (gradeNow(s).spanOf.has(i)) { bad.push([i, '立体交差の高架・坂と重なります']); continue; }
+    // v94：坂（前後 60m）がまっすぐ下りられる所だけ。置いた後の形で調べる（並べて置いた陸橋どうしの坂の重なりも見る）
+    const L = gradeLayout(s, s.flyover ?? [], [...(s.overpass ?? []), ...ok, i]), why = L.ovpBad.get(i);
+    if (why) { bad.push([i, why]); continue; }
+    if ([...L.ovpRamp.keys()].some(t => gradeNow(s).spanOf.has(t))) { bad.push([i, '陸橋の坂が立体交差の高架と重なります']); continue; }
     ok.push(i);
   }
   return { ok, bad, cost: ok.length * P.overpassCost };
@@ -191,6 +197,7 @@ export function planFootbridge(s: GameState, tiles: number[]): TilePlan {
     if (!s.road[i]) { bad.push([i, '道路ではありません']); continue; }
     if ((s.footbridge ?? []).includes(i)) { bad.push([i, '既に歩道橋があります']); continue; }
     if ((s.tunnel ?? []).includes(i) || (s.bridge ?? []).includes(i)) { bad.push([i, 'トンネルや橋の上には置けません']); continue; }
+    const why = gradeLayout(s, s.flyover ?? [], s.overpass ?? [], [i]).footBad.get(i); if (why) { bad.push([i, why]); continue; } // v94：高架・陸橋・踏切と重ねない
     ok.push(i);
   }
   return { ok, bad, cost: ok.length * P.footbridgeCost };
@@ -335,6 +342,7 @@ export function planRail(s: GameState, tiles: number[], level: 1 | 2 | 3, grade:
       if (g !== 2 && (m.forest[i] || (m.park && m.park[i]) || (m.blocked && m.blocked[i]))) { bad.push([i, landReason(m, i) + '（地下なら敷けます）']); continue; }
       if (g === 0 && s.road[i] === 3) { bad.push([i, '国道とは平面で交差できません（高架か地下で）']); continue; }
       if (g === 3 && m.water[i]) { bad.push([i, '川の上は掘割にできません']); continue; }
+      if (g <= 1 && s.road[i] && (gradeNow(s).spanOf.has(i) || gradeNow(s).ovpRamp.has(i))) { bad.push([i, '立体交差の高架・陸橋の坂と重なります（地下か掘割なら敷けます）']); continue; }
       fresh.push(i);
     }
     const k = g === 0 ? (m.water[i] ? 2 : m.steep[i] ? 1.5 : 1) : g === 1 && m.water[i] ? 1.3 : 1;
@@ -354,6 +362,7 @@ export function planRailGrade(s: GameState, tiles: number[], grade: 0 | 1 | 2 | 
     if (grade !== 2 && s.occ[i]) { bad.push([i, '上に建物があります']); continue; }
     if (grade === 0 && s.road[i] === 3) { bad.push([i, '国道とは平面で交差できません']); continue; }
     if ((grade === 0 || grade === 3) && m.water[i]) { bad.push([i, grade === 3 ? '川の上は掘割にできません' : '川の上は高架のままにします']); continue; }
+    if (grade <= 1 && s.road[i] && (gradeNow(s).spanOf.has(i) || gradeNow(s).ovpRamp.has(i))) { bad.push([i, '立体交差の高架・陸橋の坂と重なります（地下か掘割にしかできません）']); continue; }
     ok.push(i); cost += P.railGradeCost[grade] * (s.rail[i] === 3 ? 2 : s.rail[i] === 2 ? 1.4 : 1);
   }
   return { ok, bad, cost: Math.round(cost) };
@@ -496,20 +505,14 @@ export function planWiden(s: GameState, tiles: number[], on: boolean): TilePlan 
   }
   return { ok, bad, cost: on ? ok.length * P.wideCost : 0 };
 }
-/** 交差点か：道路の区画で、3 方向以上に道路がつながり、そのうち 2 本以上が幹線か国道 */
-export function isJunction(s: GameState, i: number): boolean {
-  if (!s.road[i]) return false;
-  const x = i % W, y = (i / W) | 0; let n = 0, big = s.road[i] >= 2 ? 1 : 0;
-  for (const [dx, dy] of NEIGH) { const xx = x + dx, yy = y + dy; if (!inMap(xx, yy)) continue; const r = s.road[idx(xx, yy)]; if (r) { n++; if (r >= 2) big++; } }
-  return n >= 3 && big >= 2;
-}
+/** 立体交差：幹線どうしの交差点の上を、幹線の中央 2 車線が高架でまたぐ。v94：高架の坂（前後 60m）がまっすぐな幹線に収まり、
+ *  脇道・線路・橋・陸橋・向きの違う高架とぶつからない所だけ（形の規則は grade.ts）。置いた後の形で調べる */
 export function planFlyover(s: GameState, tiles: number[]): TilePlan {
   const ok: number[] = [], bad: [number, string][] = [], set = new Set(s.flyover ?? []);
   for (const i of uniq(tiles)) {
-    if (set.has(i)) bad.push([i, '既に立体交差です']);
-    else if (!isJunction(s, i)) bad.push([i, '幹線どうし（国道を含む）の交差点ではありません']);
-    else if (s.rail?.[i] || (s.bridge ?? []).includes(i) || (s.tunnel ?? []).includes(i) || (s.overpass ?? []).includes(i)) bad.push([i, '線路・橋・トンネルの所には置けません']);
-    else ok.push(i);
+    if (set.has(i)) { bad.push([i, '既に立体交差です']); continue; }
+    const why = gradeLayout(s, [...(s.flyover ?? []), ...ok, i]).flyBad.get(i);
+    if (why) bad.push([i, why]); else ok.push(i);
   }
   return { ok, bad, cost: ok.length * P.flyoverCost };
 }
@@ -726,9 +729,11 @@ function apply(s: GameState, a: Action): Result {
       if (!ok.length) return { ok: false, msg: pl.bad[0]?.[1] ?? '撤去できる市道がありません' };
       const cost = pl.cost;
       const e = spend(s, cost, '道路撤去'); if (e) return e;
+      const before = gradeNow(s);
       for (const i of ok) { s.road[i] = 0; s.roadAge[i] = 0; s.vc[i] = 0; delete s.roadBoost[i]; }
       { const rm = new Set(ok); for (const k of ['tunnel', 'bridge', 'overpass', 'footbridge', 'busStops'] as const) if (s[k]) s[k] = s[k]!.filter(i => !rm.has(i)); if (s.streets) for (const k of ['tree', 'stone', 'nopole', 'charge'] as const) if (s.streets[k]) s.streets[k] = s.streets[k]!.filter(i => !rm.has(i)); }
-      s.roadVersion++;
+      { s.roadVersion++; const after = gradeNow(s), lost = [...before.flyOk].filter(i => !after.flyOk.has(i)).length + [...before.ovp.keys()].filter(i => !after.ovp.has(i)).length;
+        if (lost) return { ok: true, msg: `道路を ${ok.length} 区間撤去しました（${man(cost)}）。坂の先の道路がなくなったため、立体交差・陸橋 ${lost} か所は平面（信号・踏切）として使います`, cost }; }
       return { ok: true, msg: `道路を ${ok.length} 区間撤去しました（${man(cost)}）`, cost };
     }
     case 'repair': {
