@@ -332,11 +332,13 @@ export function autoTurn(s: GameState): string[] {
    *  沿道を需要に応じた用途に指定する。道路の工事費・維持費は、開業後の人件費と市債の返済を引いた収支の見込み（headroom）で見る */
   let gridDone = false;
   const gridDev = (why: string): boolean => {
-    if (gridDone || acts >= maxActs || saving) return false;
-    const gp = planGrid(s, cityCenter(s), { maxCost: Math.max(P.roadCost[1] * 12, s.cash + BL * 0.7 - bondF() - reserve) });
+    if (gridDone || acts >= maxActs) return false;
+    const gp = planGrid(s, cityCenter(s), { maxCost: Math.max(P.roadCost[1] * 12, s.cash + BL * 0.8 - bondF() - reserve) });
     if (!gp) return false;
-    if (headroom() - gp.upkeep < [-80, 40, 200][ord]) return false; // 維持費を払って黒字が残るか（作戦で余裕の幅を変える）
-    if (!can(gp.cost) && bondF() + P.bondUnit <= BL * 0.7 && affordable(P.bondUnit)) act({ type: 'borrow', amount: P.bondUnit }, `市債を ${P.bondUnit.toLocaleString()} 万円発行：計画的な宅地開発の道路のため`);
+    if (saving && s.cash - gp.cost < saveFor + reserve) return false; // 急ぐ施設のためにためている資金は崩さない
+    // 道路の維持費を払っても、開業後の人件費と市債の返済を引いた収支の見込みが大きく崩れないか（家が建てば税で返る投資なので、施設より少し緩く）
+    if (headroom() - gp.upkeep < [-200, -50, 150][ord]) return false;
+    if (!can(gp.cost)) { const need = Math.ceil((gp.cost + reserve - s.cash) / 1000) * 1000; if (bondF() + need <= BL * 0.8 && affordable(need)) act({ type: 'borrow', amount: need }, `市債を ${need.toLocaleString()} 万円発行：計画的な宅地開発の道路のため`); }
     if (!can(gp.cost)) return false;
     const before = gp.road.length, r = dispatch(s, { type: 'road', tiles: gp.road, road: 1 });
     if (!r.ok) return false;
@@ -532,9 +534,9 @@ export function autoTurn(s: GameState): string[] {
   // 7c. v95：土地の有効活用。道路に面した空き地（すぐ建てられる土地）が需要に比べて少なく、道路に面していない空き地が残っていれば、
   //     格子状の生活道路を引いて開発する。作戦で速さを変える（どんどん攻めろ：毎月／バランス：2 か月ごと／財布だいじに：3 か月ごと）
   if (!gridDone && st.waterCap > st.waterDemand * 1.02 && st.sewageCap >= st.sewageDemand && s.month % [1, 2, 3][ord] === 0) {
-    const sp = landSpare(s), hot = st.vacancy < 0.06 || st.pentUp > 0.5 || st.workers < st.localJobs * 0.9;
-    const target = Math.max(24, Math.round(st.households / 45)) * [1.6, 1, 0.6][ord];
-    if (sp.back >= 12 && hot && sp.front < target && (ord !== 2 || L.operating > 250)) gridDev(`道路に面した空き地が ${sp.front} 区画と少なく、道路の通っていない空き地が ${sp.back} 区画残っているため`);
+    const sp = landSpare(s, cityCenter(s)), hot = st.vacancy < 0.06 || st.pentUp > 0.5 || st.workers < st.localJobs * 0.9;
+    const target = Math.max(40, Math.round(st.households / 30)) * [1.6, 1, 0.6][ord] * (st.pentUp > 3 ? 1.5 : 1); // 入れない世帯が多いほど、先に土地を用意しておく
+    if (sp.back >= 12 && hot && sp.near < target && (ord !== 2 || L.operating > 250)) gridDev(`街の中心・駅の近くで道路に面した空き地が ${sp.near} 区画と少なく、道路の通っていない空き地が ${sp.back} 区画残っているため`);
   }
   // 7b. 人口を伸ばす政策：余裕があれば子育て世帯の転入支援と空き家対策
   if (!saving && L.operating > 400 && can(reserve * 2) && !s.policies.familyMove?.on) act({ type: 'policy', id: 'familyMove', on: true }, '子育て世帯転入支援を始める：収支に余裕があり、人口を伸ばすため');

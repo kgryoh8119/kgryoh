@@ -30,6 +30,7 @@ import { loadCareer, canRun, startRun } from '../career';
 import { familiesOf, featured, famTitle, famWhere, moodIcon, driverOf, type Family } from './people';
 import { issueSteps, pastResults, reportHtml, policyCard, buildFacts, voiceDetail, voiceDistrict, districtCenter, type IssueFlow, type PolicyTrial } from './flow';
 import { trialOptions, compareTrial, annualReport, type AnnualReport } from '../sim/report';
+import { staffBrief, staffPlain, setStaffPlain, staffLater, tabTalk } from './staff';
 
 type Tool = { t: 'select' } | { t: 'road'; road: 1 | 2 } | { t: 'tunnel'; road: 1 | 2 } | { t: 'bridge'; road: 1 | 2 } | { t: 'overpass' } | { t: 'footbridge' } | { t: 'canal' } | { t: 'busStop'; on: boolean } | { t: 'railKind'; kind: 0 | 1 | 2 } | { t: 'street'; style: 'tree' | 'stone' | 'nopole' | 'charge' | 'none' } | { t: 'levee' } | { t: 'area'; v: 0 | 1 | 2 } | { t: 'terra'; op: TerraOp } | { t: 'widen'; on: boolean } | { t: 'flyover' } | { t: 'unroad' } | { t: 'rail'; level: 1 | 2 | 3; grade: 0 | 1 | 2 | 3 } | { t: 'railgrade'; grade: 0 | 1 | 2 | 3 } | { t: 'unrail' } | { t: 'repair' } | { t: 'zone'; zone: Zone } | { t: 'devarea'; zone: 1 | 2 | 3 } | { t: 'build'; kind: Kind; move?: number } | { t: 'sandbox'; kind: Kind };
 type Tab = 'home' | 'term' | 'voice' | 'money' | 'policy' | 'fc' | 'fac' | 'mayor' | 'city';
@@ -503,6 +504,8 @@ export class UI {
         break;
       }
       case 'ix': this.issueAct(arg); break;
+      case 'staff': { const [c, k] = arg.split('|'); if (c === 'later') staffLater(k); this.renderSide(); break; } // v95：担当者の発言の「あとで」
+      case 'staffmode': setStaffPlain(arg === 'plain'); this.toast(arg === 'plain' ? '右のパネルを淡々とした表示（従来）にしました。［設定］か課題の見出しのボタンで戻せます' : '市役所の担当者が話しかける表示にしました'); this.renderSide(); if (this.menu) this.renderModal(); break;
       case 'play': { // v90：遊び方の入口（経営とは別の遊び方）
         if (arg === 'photo' || arg === 'ground') { this.menu = false; this.renderModal(); if (arg === 'photo') this.setPhoto(true); else { this.view.setMode('ground'); this.renderViewbar(); this.toast('街歩き：W A S D で歩く・ドラッグで見回す・Esc で戻る（スマホは画面の下のボタン）'); } break; }
         if (arg === 'sandbox') { const st = g.state; if (st.mode === 'sandbox') break; if (!this.confirmPlay) { this.confirmPlay = true; this.renderModal(); setTimeout(() => { this.confirmPlay = false; }, 6000); break; }
@@ -1087,11 +1090,39 @@ export class UI {
     $('tabs').innerHTML = tabs.map(([id, n]) => `<button role="tab" data-act="tab" data-arg="${id}" aria-selected="${this.tab === id}">${n}${id === 'voice' && bad ? `<span class="dot">${bad}</span>` : ''}</button>`).join('') + `<button class="xpl" data-act="explain" aria-pressed="${document.body.classList.contains('explain')}" title="説明の文を表示する・隠す">？</button><button class="fold" data-act="sidetoggle" aria-label="資料パネルをたたむ・ひらく" title="たたむ・ひらく">${phone() ? '×' : $('side').classList.contains('closed') ? '▼' : '▲'}</button>`;
     const p = $('panel'), top = p.scrollTop, same = p.dataset.tab === this.tab;
     p.dataset.tab = this.tab;
-    p.innerHTML = this.tab === 'home' ? this.pHome() : this.tab === 'mayor' ? this.pMayor() : this.tab === 'city' ? this.pCity() + this.pThreats() : this.tab === 'term' ? this.pTerm() : this.tab === 'voice' ? this.pVoice() : this.tab === 'money' ? this.pMoney() : this.tab === 'policy' ? this.pPolicy() : this.tab === 'fc' ? this.pForecast() : this.pFac();
+    p.innerHTML = (this.tab === 'home' ? '' : this.tabTalkFor()) + (this.tab === 'home' ? this.pHome() : this.tab === 'mayor' ? this.pMayor() : this.tab === 'city' ? this.pCity() + this.pThreats() : this.tab === 'term' ? this.pTerm() : this.tab === 'voice' ? this.pVoice() : this.tab === 'money' ? this.pMoney() : this.tab === 'policy' ? this.pPolicy() : this.tab === 'fc' ? this.pForecast() : this.pFac());
     p.scrollTop = same ? top : 0;
   }
   /** 街が発展するのに必要なものの充足（0〜1）。足りないものから順に */
   /** v90：課題の導線（① 原因を見る → ② 対策を試算 → ③ 実行 → ④ 結果）。③で押すまで街は変わらない */
+  /** v95：タブの上の、担当の人物の一言（数字は各タブの計算結果と同じものを言い直すだけ） */
+  private tabTalkFor(): string {
+    if (staffPlain() || this.game.draft) return '';
+    const s = this.s, st = s.stats, t = this.tab;
+    try {
+      if (t === 'money') {
+        const L = monthlyBudget(s), bond = s.loans.filter(l => l.kind === 'bond').reduce((a, l) => a + l.remaining, 0), td = tempDebt(s);
+        return tabTalk('plan', `今月の収支は${yen(L.operating, true)}、資金は${yen(s.cash)}、市債の残高は${yen(bond)}です。${td > 0 ? `一時借入が${yen(td)}残っています。まずこれを返す手を考えましょう。` : L.operating < 0 ? '赤字です。歳出の見直しか、財源の確保を検討しましょう。' : '黒字を保っています。大きな工事は、開業後の人件費と返済も見込んで決めましょう。'}`);
+      }
+      if (t === 'voice') {
+        const bad = s.voices.filter(v => v.tone === 'bad'), top = bad[0] ?? s.voices[0];
+        return tabTalk('life', s.voices.length ? `市民の声が ${s.voices.length} 件届いています。困りごとは ${bad.length} 件${top ? `で、目立つのは「${top.cause || top.text.slice(0, 24)}」の件です` : ''}。下は市民の言葉そのままです。` : '今月は、目立った市民の声は届いていません。');
+      }
+      if (t === 'term' && s.mode === 'term') {
+        const left = s.termLength - (s.month - s.termStart), o = s.goals.length ? electionOutlook(s) : null, kept = pledgeStatus(s).filter(Boolean).length;
+        return tabTalk('sec', `任期は残り ${left} か月です。${o ? `いま選挙なら当選の見込みは ${Math.round(o.win * 100)}%、支持率は ${pct(s.approval)}です。` : ''}${s.goals.length ? `公約 ${s.goals.length} 件のうち、達成中は ${kept} 件です。` : ''}`);
+      }
+      if (t === 'fac') {
+        const city = s.buildings.filter(b => isCity(b.kind)), stop = city.filter(b => b.status === 'suspended').length, old = city.filter(b => b.status === 'operating' && (b.age ?? 0) >= 80).length, cons = city.filter(b => b.status === 'construction').length;
+        return tabTalk('urban', `市の施設は ${city.length} か所です。工事中 ${cons} か所、使用停止 ${stop} か所、老朽度 80 以上が ${old} か所あります。${stop || old ? '更新の順番を一緒に決めましょう。' : 'いまのところ、急ぐ更新はありません。'}`, [], true);
+      }
+      if (t === 'fc') return tabTalk('sec', '計画案を置くと、12 か月先までの影響を試算します。数字は計算結果で、できごとや景気の変化は入っていません。比べたい指標を選んでください。', [], true);
+      if (t === 'policy') { const on = POLICIES.filter(p => s.policies[p.id]?.on); return tabTalk('plan', `いま実施している政策は ${on.length} 件です。効き目は時間をかけて出ます。始める前に、毎月の費用と副作用を確かめてください。`, [], true); }
+      if (t === 'city' && s.pol) return tabTalk('sec', `議会の情報です。来年度の予算案は 2 月に決めます。会派の賛否の見込みは下の表のとおりです。${st.sat < 0.6 ? '暮らしの満足が下がっているので、対話集会も考えましょう。' : ''}`);
+      if (t === 'mayor') return tabTalk('sec', '市長の記録です。経験を積むと、使える権限が増えます。');
+    } catch { return ''; }
+    return '';
+  }
   private issueAct(arg: string): void {
     const [cmd, key, n] = arg.split('|'), g = this.game, s = g.state, iss = allIssues(s).find(i => i.key === key) ?? loopEntryIssue(s, key);
     const f = this.ix?.key === key ? this.ix : (this.ix = { key, open: null, opts: [], pick: -1, trial: null, busy: false, confirm: false });
@@ -1132,7 +1163,9 @@ export class UI {
       <dt>対策</dt><dd class="iopts">${i.options.map(o => `<span><button class="btn small" data-act="${o.act === 'loop' ? 'ix' : o.act}" data-arg="${o.act === 'loop' ? `trial|${esc(i.key)}` : o.arg}">${esc(o.label)}</button>${o.note ? `<small>${esc(o.note)}</small>` : ''}</span>`).join('')}</dd></dl>${this.game.draft ? '' : issueSteps(this.s, i, this.ix, k === firstK)}</div>`;
     // v90：はじめての人には 1 件を「まずこれ」と示す（案内が終わってから。施策をまだ課題から実行していない最初の 2 年）
     const s0 = this.s, firstK = s0.mode === 'term' && s0.tutorial.done && s0.month < 24 && !(s0.decisions ?? []).some(d => d.issue) && list.length ? Math.max(0, list.findIndex(i => i.key === 'care' || i.key === 'aging' || i.key.startsWith('cap:'))) : -1;
-    return `<section class="needtop issues"><h2>今月の街の課題 <small>${list.length ? `${list.length} 件（重要な順${all.length > list.length ? `・候補 ${all.length} 件から` : ''}）` : '大きな課題はありません'}</small></h2>
+    const talk = !staffPlain() && !this.game.draft, o0 = s0.mode === 'term' && s0.goals.length ? electionOutlook(s0) : null;
+    const brief = talk ? staffBrief(s0, { issues: list, outlook: o0 ? { win: o0.win, vote: o0.vote, left: s0.termLength - (s0.month - s0.termStart) } : null, operating: monthlyBudget(s0).operating, cash: s0.cash, events: s0.events.active.map(e => eventDef(e.id).title) }) : '';
+    return `${brief}<section class="needtop issues"><h2>今月の街の課題 <small>${list.length ? `${list.length} 件（重要な順${all.length > list.length ? `・候補 ${all.length} 件から` : ''}）` : '大きな課題はありません'}${talk ? ' <span class="f90-lab calc" title="ゲームの計算で出した数値です">計算結果</span>' : ''}</small>${talk ? '' : '<button class="btn small st-mode" data-act="staffmode" data-arg="talk" title="秘書と各部の担当者が話しかける表示にします">担当者の発言で表示</button>'}</h2>
       ${this.game.speed === 0 && !this.game.blocked ? '<p class="note">時間が止まっています。右上の ▶ で進みます（止めたまま準備しても構いません）。 <button class="btn small" data-act="issue" data-arg="go">時間を進める</button></p>' : ''}${list.length ? list.map(card).join('') : '<p class="note">いまは急いで手を打つ課題がありません。公約やビジョンを進めるか、街を広げる時期です。［声］で住民の様子を確かめられます。</p>'}
       ${this.loopTopicsHtml(list)}
       ${pastResults(this.s, new Set(list.map(i => i.key)))}
@@ -1877,6 +1910,7 @@ export class UI {
         <div class="btnrow"><span>音</span><button class="seg" data-act="sound" aria-pressed="${sound.set.on}">${sound.set.on ? '🔊 音あり' : '🔇 消音'}</button>${(['bgm', 'env', 'sfx', 'voice'] as const).map(k => `<button class="seg" data-act="sndset" data-arg="${k}" aria-pressed="${sound.set[k]}">${({ bgm: 'BGM', env: '街の音', sfx: '効果音', voice: '人の声（読み上げ）' })[k]}</button>`).join('')}</div>
         <label class="switch">音量 <input type="range" id="sndvol" min="0" max="1" step="0.05" value="${sound.set.vol}"></label>
         <p class="note">音はすべてその場で合成しています。iPhone はマナーモード（消音スイッチ）だと鳴りません。人の声は端末の読み上げ機能を使います。</p>
+        <div class="btnrow"><span>右のパネル</span><button class="seg" data-act="staffmode" data-arg="${staffPlain() ? 'talk' : 'plain'}" aria-pressed="${!staffPlain()}">${staffPlain() ? '淡々とした表示（従来）' : '担当者が話しかける'}</button></div>
         <div class="btnrow"><span>軽量表示</span><button class="seg" data-act="lite" aria-pressed="${this.view.lite}">${this.view.lite ? 'オン（スマホ向け）' : 'オフ'}</button></div>
         <p class="note">空き地の田畑や木立を減らし、人と車を少なくして、影を軽くします。スマホではふだんオンです。</p>
         <label class="switch">描画の品質 <select id="quality"><option value="high" ${this.view.quality === 'high' ? 'selected' : ''}>高（影 2048・高解像度）</option><option value="mid" ${this.view.quality === 'mid' ? 'selected' : ''}>中</option><option value="low" ${this.view.quality === 'low' ? 'selected' : ''}>低（影なし）</option></select></label>

@@ -40,11 +40,17 @@ export function frontage(s: GameState): Uint8Array {
   return f;
 }
 
-/** 土地の余り：道路に面した空き区画（すぐ使える）と、道路に面していない空き区画（道路を通せば使える） */
-export function landSpare(s: GameState): { front: number; back: number; zonedBack: number } {
-  const free = devFree(s), f = frontage(s); let front = 0, back = 0, zonedBack = 0;
-  for (let i = 0; i < W * H; i++) { if (!free(i)) continue; if (f[i]) front++; else { back++; if (s.zone[i]) zonedBack++; } }
-  return { front, back, zonedBack };
+/** 土地の余り：道路に面した空き区画（すぐ使える）と、道路に面していない空き区画（道路を通せば使える）。
+ *  near：道路に面した空き区画のうち、街の中心から 24 区画以内か駅の近く（サービスが届き、人が住みたがる所）。
+ *  郊外の国道沿いに空き地がいくら残っていても、中心の近くが埋まったら、中心の近くの奥の土地に道路を通す（細長い沿道の開発より、まとまった街に） */
+export function landSpare(s: GameState, center?: { x: number; y: number }): { front: number; back: number; zonedBack: number; near: number } {
+  const free = devFree(s), f = frontage(s), sd = stationDist(s); let front = 0, back = 0, zonedBack = 0, near = 0;
+  for (let i = 0; i < W * H; i++) {
+    if (!free(i)) continue;
+    if (f[i]) { front++; if (center && (Math.abs(i % W - center.x) + Math.abs(((i / W) | 0) - center.y) <= 24 || (sd && sd[i] >= 0 && sd[i] <= P.mansionStationRange))) near++; }
+    else { back++; if (s.zone[i]) zonedBack++; }
+  }
+  return { front, back, zonedBack, near };
 }
 
 /**

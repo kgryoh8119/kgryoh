@@ -3,6 +3,7 @@
 import { newGame, stepMonth, dispatch, eventDef, seedForTerrain, W, H, idx, getMap, buildable, roadInfo } from '../src/sim/index';
 import { isLocked } from '../src/sim/mayor';
 import { autoTurn } from '../src/autoplay';
+import { landSpare, planGrid } from '../src/autodev';
 import '../src/sim/wire';
 import type { GameState } from '../src/sim/types';
 import { writeFileSync } from 'fs';
@@ -19,6 +20,8 @@ export function landStats(s: GameState) {
   }
   return { city, usedPct: +(used / city * 100).toFixed(1), roadPct: +(roadT / city * 100).toFixed(1), noRoad: locked, zonedStuck };
 }
+const cc = (s: GameState) => { let n = 0, x = 0, y = 0; for (const b of s.buildings) if (b.units) { const h = b.units; n += h; x += b.x * h; y += b.y * h; } return n ? { x: Math.round(x / n), y: Math.round(y / n) } : { x: W >> 1, y: H >> 1 }; };
+(globalThis as any).DBG = !!env.DBG;
 const s = newGame({ seed: seedForTerrain(terr, seed) }); s.difficulty = 'normal'; s.tutorial.done = true; s.autoOrder = ord as 0;
 const t0 = Date.now(); const rows: any[] = []; const words: Record<string, number> = {};
 rows.push({ y: 0, pop: Math.round(s.stats.pop), blocks: s.unlocked?.length, ...landStats(s) });
@@ -29,7 +32,7 @@ for (let mo = 0; mo < Y * 12 && !s.over; mo++) {
   if (s.goalPick) dispatch(s, { type: 'goals', ids: ['wait', 'pop', 'fiscal'] });
   if (s.pendingElection) { if (!s.pendingElection.win) { s.mode = 'term'; s.termStart = s.month; s.goalPick = true; } s.pendingElection = null; }
   s.notes = [];
-  if (mo % 24 === 23) rows.push({ y: (mo + 1) / 12, pop: Math.round(s.stats.pop), cash: Math.round(s.cash), op: Math.round(s.history.at(-1)?.op ?? 0), appr: +s.approval.toFixed(2), blocks: s.unlocked?.length, ...landStats(s) });
+  if (mo % 24 === 23) rows.push({ y: (mo + 1) / 12, pop: Math.round(s.stats.pop), cash: Math.round(s.cash), op: Math.round(s.history.at(-1)?.op ?? 0), appr: +s.approval.toFixed(2), blocks: s.unlocked?.length, ...landStats(s), ...landSpare(s), vac: +s.stats.vacancy.toFixed(3), pent: +s.stats.pentUp.toFixed(1), hh: Math.round(s.stats.households), grid: env.DBG ? planGrid(s, { x: 96, y: 84 })?.gain ?? null : undefined, near: landSpare(s, cc(s)).near });
 }
 console.log(JSON.stringify({ terr, seed, ord, el: s.elections.map(e => +e.vote.toFixed(1)), debt: Math.round(s.loans.reduce((a, l) => a + l.remaining, 0)), sec: Math.round((Date.now() - t0) / 1000) }));
 for (const r of rows) console.log(JSON.stringify(r));
