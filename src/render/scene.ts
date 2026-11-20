@@ -123,7 +123,7 @@ import { W, H, TILE, DEFS, isRes, isShop, isCity, fam, floodRisk, getMap, height
 import { realTerrain, realStatic, realRoads, realPaths, drawRealTile, drawRealGround, drawRealStation, drawRealLot, drawRealStore, looksBuiltUp, REAL_CHUNK } from './real';
 import type { GameState, Building, Kind, Layer, MapDef } from '../sim/index';
 import { stationStats } from '../sim/index';
-import { makeShore, drawShoreWater } from './shore';
+import { makeShore, buildShoreWater, seaColors } from './shore';
 import { FIC_PREV_W } from '../sim/config';
 import { grade, FLY_H, FLY_RAMP, OVP_H, OVP_RAMP } from '../sim/grade'; // v94：立体の道路の形（sim と同じ答え）
 /** v93：架空の街の空き地は（v92 の広い地図では 76×68 の内も）、地形の見た目の印（田んぼ・畑・草地・林・空き地のまとまり）で描く。区画ごとの乱数で田畑・草地を選ぶと、上空から市松模様に見えた。印がなければ -1 */
@@ -310,6 +310,19 @@ ${road ? '' : `${body ? '' : `  { // v78：地図の外は、田畑・草地・�
   };
 }
 /** v88：なめらかな値のむら（g 区画ごとの乱数を補間）。地面の色に使う */
+/** 水面の材質（v93 のさざ波のシェーダー water-wave）。sea：頂点色で水深の色を付け、不透明に（v95） */
+function waterMat(sea: boolean): THREE.MeshStandardMaterial { const m = new THREE.MeshStandardMaterial(sea ? { color: 0xffffff, vertexColors: true, roughness: 0.12, metalness: 0.25 } : { color: 0x3f7fa6, roughness: 0.12, metalness: 0.25, transparent: true, opacity: 0.9 });
+    // さざ波：位置と時刻から波の傾きを作り、法線を揺らす（空や街明かりの映り込みがきらめく）
+    m.onBeforeCompile = sh => { sh.uniforms.uT = NIGHT_UNI.uT;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWq;').replace('#include <project_vertex>', '#include <project_vertex>\nvWq = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWq; uniform float uT;').replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        { vec2 p = vWq.xz; float t = uT, dd = length(vViewPosition); vec2 g = vec2(0.0);
+          float hf = 1.0 - smoothstep(40.0, 220.0, dd); // 遠くは細かい波を消す（ちらつき防止）
+          for (int k = 0; k < 6; k++) { float fk = float(k), a = fk * 2.399 + 0.7, fr = 0.18 * pow(1.55, fk), am = 0.11 / (1.0 + fk * 0.9) * (k > 2 ? hf : 1.0);
+            vec2 dir = vec2(cos(a), sin(a)); g += dir * cos(dot(p, dir) * fr + t * (0.8 + fk * 0.55) + sin(dot(p, dir.yx) * fr * 0.37) * 1.7) * am; }
+          float fd = 1.0 - smoothstep(150.0, 900.0, dd); vec3 nw = normalize(vec3(-g.x * fd, 1.0, -g.y * fd));
+          normal = normalize((viewMatrix * vec4(nw, 0.0)).xyz); }`); };
+    m.customProgramCacheKey = () => sea ? 'water-wave-sea' : 'water-wave'; return m; }
 const vnoise = (x: number, y: number, g: number, k: number) => { const gx = Math.floor(x / g), gy = Math.floor(y / g), fx = x / g - gx, fy = y / g - gy, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy), q = (a: number, b: number) => hash(a, b, k);
   return (q(gx, gy) * (1 - sx) + q(gx + 1, gy) * sx) * (1 - sy) + (q(gx, gy + 1) * (1 - sx) + q(gx + 1, gy + 1) * sx) * sy; };
 /** 最初にカメラを向ける場所（地図ごとの駅） */
@@ -381,18 +394,9 @@ export class View {
   private matCursor = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.6, depthWrite: false, depthTest: false });
   private matHelp = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.3, depthWrite: false, depthTest: false });
   private matGhost = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.6, depthWrite: false });
-  private matWater = (() => { const m = new THREE.MeshStandardMaterial({ color: 0x3f7fa6, roughness: 0.12, metalness: 0.25, transparent: true, opacity: 0.9 });
-    // さざ波：位置と時刻から波の傾きを作り、法線を揺らす（空や街明かりの映り込みがきらめく）
-    m.onBeforeCompile = sh => { sh.uniforms.uT = NIGHT_UNI.uT;
-      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWq;').replace('#include <project_vertex>', '#include <project_vertex>\nvWq = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWq; uniform float uT;').replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-        { vec2 p = vWq.xz; float t = uT, dd = length(vViewPosition); vec2 g = vec2(0.0);
-          float hf = 1.0 - smoothstep(40.0, 220.0, dd); // 遠くは細かい波を消す（ちらつき防止）
-          for (int k = 0; k < 6; k++) { float fk = float(k), a = fk * 2.399 + 0.7, fr = 0.18 * pow(1.55, fk), am = 0.11 / (1.0 + fk * 0.9) * (k > 2 ? hf : 1.0);
-            vec2 dir = vec2(cos(a), sin(a)); g += dir * cos(dot(p, dir) * fr + t * (0.8 + fk * 0.55) + sin(dot(p, dir.yx) * fr * 0.37) * 1.7) * am; }
-          float fd = 1.0 - smoothstep(150.0, 900.0, dd); vec3 nw = normalize(vec3(-g.x * fd, 1.0, -g.y * fd));
-          normal = normalize((viewMatrix * vec4(nw, 0.0)).xyz); }`); };
-    m.customProgramCacheKey = () => 'water-wave'; return m; })();
+  private matWater = waterMat(false);
+  /** v95：地図の中の岸を曲線で描く水面と、地図の外の海の板（頂点色で水深の色。不透明にして、水の下の地面の網の明暗が区画ごとのまだらに透けないように） */
+  private matSea = waterMat(true);
   private matCloud = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, fog: false, transparent: true, opacity: 0.92 });
   /** 自販機の明かり（夜だけ。青白い光の粒） */
   private matVend = new THREE.PointsMaterial({ color: 0xdff0ff, size: 3.2, sizeAttenuation: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }); private vends: THREE.Points | null = null;
@@ -595,7 +599,7 @@ export class View {
     if (T === 'castaway') { // v88：無人島。地図の外はすべて海（遠い北に本土の山なみだけ）
       flat(-far, -far, MAPW + far, MAPH + far, -3.4, 0x4f6658);
       const og = new THREE.PlaneGeometry(MAPW + far * 2, MAPH + far * 2); og.rotateX(-Math.PI / 2);
-      const ocean = new THREE.Mesh(og, this.matWater); ocean.position.set(MAPW / 2, -1.55, MAPH / 2); this.scene.add(ocean);
+      const ocean = new THREE.Mesh(seaColors(og), this.matSea); ocean.position.set(MAPW / 2, -1.55, MAPH / 2); this.scene.add(ocean);
       const om = new THREE.Mesh(outer.build(), this.matTerrain); om.receiveShadow = true; this.scene.add(om);
       { const cx = (70 + isleOX()) * TILE, cz = (80 + isleOY()) * TILE; this.target.set(cx, 0, cz); this.want.x = cx; this.want.z = cz; } this.want.dist = this.dist = 1400; return; // はじめは南の入り江（上陸する所）を見る
     }
@@ -608,17 +612,17 @@ export class View {
     for (const [x0, x1] of [[-far, 0], [MAPW, MAPW + far]]) { flat(x0, RY * TILE, x1, (RY + 1.6) * TILE, -1.4, 0xa9a07f); flat(x0, (RY + 1.6) * TILE, x1, MAPH + 60, -3.2, 0x566b5a); }
     if (isle) { // 島：東と南西の外も海
       const sg = new THREE.PlaneGeometry(far, RY * TILE + 40); sg.rotateX(-Math.PI / 2);
-      const e = new THREE.Mesh(sg, this.matWater); e.position.set(MAPW + far / 2 - 20, -1.62, RY * TILE / 2 - 20); this.scene.add(e);
+      const e = new THREE.Mesh(seaColors(sg), this.matSea); e.position.set(MAPW + far / 2 - 20, -1.62, RY * TILE / 2 - 20); this.scene.add(e);
       const wg2 = new THREE.PlaneGeometry(far, (RY - 24.5) * TILE + 20); wg2.rotateX(-Math.PI / 2);
-      const w2 = new THREE.Mesh(wg2, this.matWater); w2.position.set(-far / 2 + 20, -1.62, (24.5 + RY) / 2 * TILE); this.scene.add(w2);
+      const w2 = new THREE.Mesh(seaColors(wg2), this.matSea); w2.position.set(-far / 2 + 20, -1.62, (24.5 + RY) / 2 * TILE); this.scene.add(w2);
     }
     const om = new THREE.Mesh(outer.build(), this.matTerrain); om.receiveShadow = true; this.scene.add(om);
     // v94 の地形：地図の中の海・川は区画ごとに岸を曲線で描くので、大きな水面は地図の南の縁から外だけ（東西の外の川の帯はそのまま）
     const v3 = !!this.map.surf, z0w = v3 ? MAPH : (RY - 0.2) * TILE;
-    if (v3) for (const [x0, x1] of [[-far, 0], [MAPW, MAPW + far]]) { const sg2 = new THREE.PlaneGeometry(x1 - x0, MAPH - (RY - 0.2) * TILE); sg2.rotateX(-Math.PI / 2); const s2 = new THREE.Mesh(sg2, this.matWater); s2.position.set((x0 + x1) / 2, -1.55, ((RY - 0.2) * TILE + MAPH) / 2); this.scene.add(s2); }
+    if (v3) for (const [x0, x1] of [[-far, 0], [MAPW, MAPW + far]]) { const sg2 = new THREE.PlaneGeometry(x1 - x0, MAPH - (RY - 0.2) * TILE); sg2.rotateX(-Math.PI / 2); const s2 = new THREE.Mesh(seaColors(sg2), this.matSea); s2.position.set((x0 + x1) / 2, -1.55, ((RY - 0.2) * TILE + MAPH) / 2); this.scene.add(s2); }
     if (v3 && !sea) { const lg = new Geo(); lg.quad([0, -0.02, MAPH + 60], [MAPW, -0.02, MAPH + 60], [MAPW, -0.02, MAPH], [0, -0.02, MAPH], G); const lm = new THREE.Mesh(lg.build(), this.matTerrain); lm.receiveShadow = true; this.scene.add(lm); } // 海のない地形：南の川は地図の中で曲がるので、南の縁の外は陸
     const wd = MAPH - z0w + (sea ? far : 60), wg = new THREE.PlaneGeometry(far * 2 + MAPW, wd); wg.rotateX(-Math.PI / 2);
-    const water = new THREE.Mesh(wg, this.matWater); water.position.set(MAPW / 2, v3 ? -1.56 : -1.55, z0w + wd / 2); this.scene.add(water);
+    const water = new THREE.Mesh(seaColors(wg), this.matSea); water.position.set(MAPW / 2, v3 ? -1.56 : -1.55, z0w + wd / 2); this.scene.add(water);
     { const pg = new THREE.CircleGeometry(2.35 * TILE, 40); pg.rotateX(-Math.PI / 2); const pond = new THREE.Mesh(pg, this.matWater); pond.position.set(44.5 * TILE, -0.7, 50.5 * TILE); this.scene.add(pond);
       if (W > 76 && !this.map.surf) { const p2 = new THREE.Mesh(new THREE.CircleGeometry(2.75 * TILE, 40).rotateX(-Math.PI / 2), this.matWater); p2.position.set(112.5 * TILE, -0.7, 72.5 * TILE); this.scene.add(p2); }
       // v92：さらに広げた土地のため池。水面の高さは岸（半径の 0.95 倍）の低い所に合わせる（丘のふもとでも水面が地面に埋もれないよう）
@@ -754,7 +758,7 @@ export class View {
       const a0 = x0 + (dug ? inset(-1, 0) : 3), a1 = x0 + TILE - (dug ? inset(1, 0) : 3), b0 = z0 + (dug ? inset(0, -1) : 3), b1 = z0 + TILE - (dug ? inset(0, 1) : 3);
       (wet ? mg : wg).quad([a0, lv, b1], [a1, lv, b1], [a1, lv, b0], [a0, lv, b0], wet ? 0x5f6e4c : 0x3f7fa6);
     }
-    if (shore) drawShoreWater(shore, wg, 0x3f7fa6);
+    if (shore) { const sg = buildShoreWater(shore); if (sg) { const mesh = new THREE.Mesh(sg, this.matSea); mesh.receiveShadow = true; mesh.frustumCulled = false; this.scene.add(mesh); this.landObjs.push(mesh); } } // v95：水深の色の 1 枚の水面
     if (wg.pos.length) { const mesh = new THREE.Mesh(wg.build(), this.matWater); mesh.receiveShadow = true; mesh.frustumCulled = false; this.scene.add(mesh); this.landObjs.push(mesh); }
     if (mg.pos.length) { this.matMarsh ??= new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.25, metalness: 0.1, transparent: true, opacity: 0.85 }); const mesh = new THREE.Mesh(mg.build(), this.matMarsh); mesh.receiveShadow = true; mesh.frustumCulled = false; this.scene.add(mesh); this.landObjs.push(mesh); }
   }
@@ -1013,7 +1017,7 @@ export class View {
     this.matCloud.color.copy(C(0x2a3350).lerp(C(0xffc9a8), up).lerp(C(0xffffff), high).lerp(C(0x6b7178).multiplyScalar(0.35 + 0.65 * day), Math.min(1, oc * 0.9)));
     if (this.clouds) this.clouds.scale.set(1, 1 + oc * 0.6, 1);
     this.renderer.toneMappingExposure *= 1 - 0.06 * wet;
-    this.matWater.color.copy(C(0x16263c).lerp(C(0x3f7fa6), day));
+    this.matWater.color.copy(C(0x16263c).lerp(C(0x3f7fa6), day)); { const d0 = C(0x3f7fa6); this.matSea.color.setRGB(this.matWater.color.r / d0.r, this.matWater.color.g / d0.g, this.matWater.color.b / d0.b); } // v95：頂点色の水面も同じ明るさで昼夜を変える
     // 空のグラデーションと太陽まわりの明るみ
     const pos = this.sky.geometry.attributes.position, col = this.sky.geometry.attributes.color as THREE.BufferAttribute, v = new THREE.Vector3(), c = new THREE.Color();
     const glow = C(0xffb060).lerp(C(0xfff0d0), high);
@@ -3262,8 +3266,8 @@ export class View {
     for (let i = 0; i < d.length; i += 4) for (let j = 0; j < 3; j++) { const l = d[i + j] / 255; d[i + j] = Math.round(255 * (l <= 0.0031308 ? 12.92 * l : 1.055 * Math.pow(l, 1 / 2.4) - 0.055)); }
     this.envTex.needsUpdate = true;
     try { if (!this.envGen) this.envGen = new THREE.PMREMGenerator(this.renderer); const rt = this.envGen.fromEquirectangular(this.envTex); this.envRT?.dispose(); this.envRT = rt;
-      for (const m of [this.matWinA, this.matWinB, this.matWater, this.matRoad]) { m.envMap = rt.texture; if (!m.userData.env) { m.needsUpdate = true; m.userData.env = 1; } }
-      this.matWinA.envMapIntensity = 0.3 + 0.6 * day; this.matWinB.envMapIntensity = 0.25 + 0.5 * day; this.matWater.envMapIntensity = 0.6 + 0.6 * day; } catch { /* 作れない環境では映り込みなし */ }
+      for (const m of [this.matWinA, this.matWinB, this.matWater, this.matSea, this.matRoad]) { m.envMap = rt.texture; if (!m.userData.env) { m.needsUpdate = true; m.userData.env = 1; } }
+      this.matWinA.envMapIntensity = 0.3 + 0.6 * day; this.matWinB.envMapIntensity = 0.25 + 0.5 * day; this.matWater.envMapIntensity = this.matSea.envMapIntensity = 0.6 + 0.6 * day; } catch { /* 作れない環境では映り込みなし */ }
   }
   /** 夜の明かりの種類を区画ごとに決めて画像にする（シェーダーが読む）。建物の地面の高さも入れて、何階かを数えられるようにする */
   private buildLightProfile(s: GameState): void {
