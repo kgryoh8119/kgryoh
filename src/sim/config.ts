@@ -1275,7 +1275,7 @@ export type Difficulty = 'easy' | 'normal' | 'hard';
 export const DIFFS: Record<Difficulty, { name: string; desc: string; vote: number; luck: number; events: number; transfer: number; cost: number; crisis: number; appr: number; satDown: number }> = {
   easy: { name: 'やさしい', desc: '再選しやすく、できごとが少なめ。国の交付金が多く、建設費も 2 割安い。街づくりをのんびり楽しみたい人に', vote: 12, luck: 0.6, events: 0.5, transfer: 1.12, cost: 0.8, crisis: 2, appr: 0.07, satDown: 0.5 }, // v91：vote 7→12・appr 0.05→0.07・満足が基準より低いときの下げ幅を半分に
   normal: { name: 'ふつう', desc: '目の前の課題に素直に対応していれば再選できる。できごとは標準', vote: 7, luck: 0.85, events: 0.8, transfer: 1.04, cost: 1, crisis: 1.3, appr: 0.04, satDown: 0.65 }, // v91：vote 2→7・appr 0.02→0.04・満足が基準より低いときの下げ幅 6.5 割（課題に対応しながら 48 か月で得票 50% 前後だったのを 55% 前後に）
-  hard: { name: 'むずかしい', desc: '対立候補が強く、できごとも多い。財政にも余裕がない', vote: -1, luck: 1, events: 1.1, transfer: 0.97, cost: 1.1, crisis: 1, appr: 0, satDown: 1 },
+  hard: { name: 'むずかしい', desc: '対立候補が強く、できごとも多い。財政にも余裕がない', vote: 5, luck: 1, events: 1.1, transfer: 0.97, cost: 1.1, crisis: 1, appr: 0.02, satDown: 0.75 }, // v94：vote -1→5・appr 0→0.02・satDown 1→0.75（課題に対応しても 0/8 勝・平均 37〜41% だった。目安は半分くらい勝てる）
 };
 export const diffOf = (s: { difficulty?: Difficulty }) => DIFFS[s.difficulty ?? 'normal'] ?? DIFFS.normal;
 /** プロスポーツ。venue は本拠地にできる施設（先頭ほど良い）。cost は設立・誘致の出資、support は市の毎月の支援、league はリーグのチーム数 */
