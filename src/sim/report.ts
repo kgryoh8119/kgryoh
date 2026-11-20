@@ -320,6 +320,8 @@ export interface TrialOption { label: string; actions: Action[] | null; note: st
   fit?: number;
   /** v91：課題そのものは良くならないが、財源・先送りとして比べる選択肢 */
   trade?: boolean;
+  /** v94：副作用の印（支持率・転出など）。財政の課題の財源の候補で、上位に並べたうえで副作用を見せる */
+  side?: string;
   /** v91：この課題への効き方の短い説明（効果は小さい・財源の選択肢） */
   fitNote?: string }
 /** v93：毎月の費用がかかる対策で、いまの月の収支（直近 6 か月の平均）が赤字になる・赤字が広がるときの注意。
@@ -340,7 +342,7 @@ export const TRIAL_SHOW = 5;
 const ISSUE_POLICY_FIT: Record<string, number> = { roadCare: 0.1 };
 /** 課題ごとの、効く政策 */
 const ISSUE_POLICY: Record<string, string[]> = {
-  care: ['careStaff', 'familyMove'], traffic: ['roadCare'], housing: ['homeReform'], fiscal: ['furusatoPR'], 'sat:5': ['shopStart'], 'sat:0': ['homeReform'], 'sat:13': ['homeReform'],
+  care: ['careStaff', 'familyMove'], traffic: ['roadCare'], housing: ['homeReform'], /* v94：財政は wire.ts の fiscalOptions（収支の良くなる額で並べる） */ 'sat:5': ['shopStart'], 'sat:0': ['homeReform'], 'sat:13': ['homeReform'],
 };
 /** 場所を自動で選べる建設（課題の場所の近くで、置ける空き地をさがす） */
 export function findSite(s: GameState, kind: Kind, tile: number): { x: number; y: number } | null {
