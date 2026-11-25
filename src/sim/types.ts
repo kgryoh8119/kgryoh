@@ -3,6 +3,16 @@
 export const HH_KEYS = ['single', 'couple', 'famYoung', 'famSchool', 'senior'] as const;
 export const HH_NAMES = ['単身', '夫婦のみ', '子育て（未就学）', '子育て（就学）', '高齢'] as const;
 export const NHH = 5;
+/** 道路の通りの整備の種類（v95：歩道とガードレール・信号機と横断歩道・ゾーン 30・街灯・自転車レーンの交通安全の対策を足した） */
+export const STREET_KEYS = ['tree', 'stone', 'nopole', 'charge', 'safe', 'signal', 'zone30', 'light', 'bike'] as const;
+export type StreetKey = typeof STREET_KEYS[number];
+export const STREET_SAFETY: Record<'safe' | 'signal' | 'zone30' | 'light' | 'bike', { name: string; note: string }> = {
+  safe: { name: '歩道とガードレール', note: '歩道と防護柵で人と車を分けます。歩行者の事故が 4 割、死亡の割合が 3 割減ります（相場）' },
+  signal: { name: '信号機と横断歩道', note: '交差点の出会い頭と横断中の事故が 3 割減ります（相場）' },
+  zone30: { name: 'ゾーン 30（速度の抑制）', note: '生活道路の最高速度を 30km/h に。区域の事故が 2 割強、死亡の割合が 4 割減ります（警察庁の評価の相場）' },
+  light: { name: '街灯', note: '夜の歩行者・自転車の事故が 3 割減ります（相場）' },
+  bike: { name: '自転車レーン', note: '幹線道路に自転車の通る所を分けます。自転車の事故が 2 割半減ります（相場）' },
+};
 
 import { REAL, onMapChange } from './real';
 /** 地区名（4 つ）。地図を選ぶと変わる */
@@ -296,7 +306,7 @@ export interface GameState {
   /** バス停の区画（道路）と、堤防の区画 */
   busStops?: number[]; levee?: number[];
   /** 道路の種類（v41）：並木道・石畳とカラー舗装・電線の地中化（無電柱）の区画 */
-  streets?: { tree?: number[]; stone?: number[]; nopole?: number[]; charge?: number[] };
+  streets?: Partial<Record<StreetKey, number[]>>;
   /** 地形の造作：頂点ごとの標高の上げ下げ（m）、区画ごとの種類（TERRA_T）、変えた回数 */
   terraH?: number[]; terraT?: number[]; terraVer?: number;
   /** v94：地形の版（94 = 曲がりくねった海岸線・蛇行する川の地形）。ない（古いセーブ）なら v93 までの地形 */
@@ -402,6 +412,8 @@ export interface GameState {
   decisions?: import('./report').Decision[];
   /** v90：ゲームループの記録（閉店した月の並び・開発負担金の累計と先月分（万円）・先月の転入世帯） */
   loopLog?: { closed: number[]; levy: number; levyM: number; inHH: number };
+  /** v95：住民一人ひとりの移動から出した月ごとの事故・火事・犯罪の件数（最大 24 か月。古いセーブにはない） */
+  incid?: import('./people').IncidentMonth[];
 }
 
 export interface Goal { id: string; base: number; target: number; diff: number }
@@ -423,7 +435,7 @@ export type Action =
   | { type: 'area'; tiles: number[]; v: 0 | 1 | 2 }
   | { type: 'busStop'; tiles: number[]; on: boolean }
   | { type: 'railKind'; tiles: number[]; kind: 0 | 1 | 2 }
-  | { type: 'street'; tiles: number[]; style: 'tree' | 'stone' | 'nopole' | 'charge' | 'none' }
+  | { type: 'street'; tiles: number[]; style: StreetKey | 'none' }
   | { type: 'levee'; tiles: number[] }
   | { type: 'terra'; tiles: number[]; op: TerraOp }
   | { type: 'widen'; tiles: number[]; on: boolean }

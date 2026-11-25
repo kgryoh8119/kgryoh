@@ -1,5 +1,7 @@
 // 画面部品。状態は Game から読み、操作は game.act() に渡すだけ。
 import { buyoutCost } from '../sim/actions';
+import { STREET_SAFETY, type StreetKey } from '../sim/types';
+import { peopleStats, incidentYear, MODE_NAMES, INCIDENT_NAMES, type IncidentKind } from '../sim/people';
 import { devLayout, planRedevelop } from '../devplan';
 import { planText, ROLES } from '../cityplan';
 import { Game, SPEED_NAMES } from '../game';
@@ -31,7 +33,7 @@ import { familiesOf, featured, famTitle, famWhere, moodIcon, driverOf, type Fami
 import { issueSteps, pastResults, reportHtml, policyCard, buildFacts, voiceDetail, voiceDistrict, districtCenter, type IssueFlow, type PolicyTrial } from './flow';
 import { trialOptions, compareTrial, annualReport, type AnnualReport } from '../sim/report';
 
-type Tool = { t: 'select' } | { t: 'road'; road: 1 | 2 } | { t: 'tunnel'; road: 1 | 2 } | { t: 'bridge'; road: 1 | 2 } | { t: 'overpass' } | { t: 'footbridge' } | { t: 'canal' } | { t: 'busStop'; on: boolean } | { t: 'railKind'; kind: 0 | 1 | 2 } | { t: 'street'; style: 'tree' | 'stone' | 'nopole' | 'charge' | 'none' } | { t: 'levee' } | { t: 'area'; v: 0 | 1 | 2 } | { t: 'terra'; op: TerraOp } | { t: 'widen'; on: boolean } | { t: 'flyover' } | { t: 'unroad' } | { t: 'rail'; level: 1 | 2 | 3; grade: 0 | 1 | 2 | 3 } | { t: 'railgrade'; grade: 0 | 1 | 2 | 3 } | { t: 'unrail' } | { t: 'repair' } | { t: 'zone'; zone: Zone } | { t: 'devarea'; zone: 1 | 2 | 3 } | { t: 'build'; kind: Kind; move?: number } | { t: 'sandbox'; kind: Kind };
+type Tool = { t: 'select' } | { t: 'road'; road: 1 | 2 } | { t: 'tunnel'; road: 1 | 2 } | { t: 'bridge'; road: 1 | 2 } | { t: 'overpass' } | { t: 'footbridge' } | { t: 'canal' } | { t: 'busStop'; on: boolean } | { t: 'railKind'; kind: 0 | 1 | 2 } | { t: 'street'; style: StreetKey | 'none' } | { t: 'levee' } | { t: 'area'; v: 0 | 1 | 2 } | { t: 'terra'; op: TerraOp } | { t: 'widen'; on: boolean } | { t: 'flyover' } | { t: 'unroad' } | { t: 'rail'; level: 1 | 2 | 3; grade: 0 | 1 | 2 | 3 } | { t: 'railgrade'; grade: 0 | 1 | 2 | 3 } | { t: 'unrail' } | { t: 'repair' } | { t: 'zone'; zone: Zone } | { t: 'devarea'; zone: 1 | 2 | 3 } | { t: 'build'; kind: Kind; move?: number } | { t: 'sandbox'; kind: Kind };
 type Tab = 'home' | 'term' | 'voice' | 'money' | 'policy' | 'fc' | 'fac' | 'mayor' | 'city';
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -387,7 +389,7 @@ export class UI {
       const nm = t.t === 'terra' ? TERRA_NAMES[t.op] : t.t === 'widen' ? (t.on ? '6 車線に広げる' : '4 車線に戻す') : '立体交差';
       this.renderHint(over || !pl.ok.length ? 'error' : 'ok', pl.ok.length ? `${nm} ${pl.ok.length} ${t.t === 'flyover' ? 'か所' : '区画'}${pl.cost ? `：${yenT(pl.cost)}` : ''}${over ? '（資金が足りません）' : ''}${pl.bad.length ? `／対象外 ${pl.bad.length} 区画（${pl.bad[0][1]}）` : ''}` : (pl.bad[0]?.[1] ?? '区画をドラッグしてください'));
     } else if (t.t === 'street') {
-      const pl = planStreet(s, tiles, t.style), over = pl.cost > s.cash, nm = { tree: '並木道', stone: '石畳・カラー舗装', nopole: '無電柱化', charge: '走行中給電', none: 'ふつうの道路に戻す' }[t.style];
+      const pl = planStreet(s, tiles, t.style), over = pl.cost > s.cash, nm = ({ tree: '並木道', stone: '石畳・カラー舗装', nopole: '無電柱化', charge: '走行中給電', none: 'ふつうの道路に戻す', ...Object.fromEntries(Object.entries(STREET_SAFETY).map(([k, v]) => [k, v.name])) } as Record<string, string>)[t.style];
       this.renderHint(over || !pl.ok.length ? 'error' : 'ok', pl.ok.length ? `${nm} ${pl.ok.length} 区間${pl.cost ? `：${yenT(pl.cost)}` : '（無料）'}${over ? '（お金が足りません）' : ''}` : (pl.bad[0]?.[1] ?? '道路の上をドラッグしてください'));
     } else if (t.t === 'busStop' || t.t === 'levee' || t.t === 'area') {
       const pl = t.t === 'busStop' ? planBusStop(s, tiles, t.on) : t.t === 'levee' ? planLevee(s, tiles) : planArea(s, tiles, t.v), over = pl.cost > s.cash;
@@ -520,7 +522,7 @@ export class UI {
       case 'group': if (phone()) $('side').classList.add('closed'); this.group = this.group === arg ? null : arg; if (arg === 'select') { this.group = null; this.setTool({ t: 'select' }); } this.renderTools(); break;
       case 'tool': {
         const [k, v, w] = arg.split(':');
-        this.setTool(k === 'devarea' ? { t: 'devarea', zone: Number(v) as 1 | 2 | 3 } : k === 'rail' ? { t: 'rail', level: Number(v) as 1 | 2, grade: Number(w || 0) as 0 | 1 | 2 } : k === 'railkind' ? { t: 'railKind', kind: Number(v) as 0 | 1 | 2 } : k === 'railgrade' ? { t: 'railgrade', grade: Number(v) as 0 | 1 | 2 } : k === 'unrail' ? { t: 'unrail' } : k === 'road' ? { t: 'road', road: Number(v) as 1 | 2 } : k === 'tunnel' ? { t: 'tunnel', road: Number(v) as 1 | 2 } : k === 'bridge' ? { t: 'bridge', road: Number(v) as 1 | 2 } : k === 'overpass' ? { t: 'overpass' } : k === 'footbridge' ? { t: 'footbridge' } : k === 'canal' ? { t: 'canal' } : k === 'terra' ? { t: 'terra', op: v as TerraOp } : k === 'widen' ? { t: 'widen', on: v === '1' } : k === 'street' ? { t: 'street', style: v as 'tree' | 'stone' | 'nopole' | 'charge' | 'none' } : k === 'flyover' ? { t: 'flyover' } : k === 'busStop' ? { t: 'busStop', on: v === '1' } : k === 'levee' ? { t: 'levee' } : k === 'area' ? { t: 'area', v: Number(v) as 0 | 1 | 2 } : k === 'unroad' ? { t: 'unroad' } : k === 'repair' ? { t: 'repair' } : k === 'zone' ? { t: 'zone', zone: Number(v) as Zone } : k === 'build' ? { t: 'build', kind: v as Kind } : { t: 'sandbox', kind: v as Kind });
+        this.setTool(k === 'devarea' ? { t: 'devarea', zone: Number(v) as 1 | 2 | 3 } : k === 'rail' ? { t: 'rail', level: Number(v) as 1 | 2, grade: Number(w || 0) as 0 | 1 | 2 } : k === 'railkind' ? { t: 'railKind', kind: Number(v) as 0 | 1 | 2 } : k === 'railgrade' ? { t: 'railgrade', grade: Number(v) as 0 | 1 | 2 } : k === 'unrail' ? { t: 'unrail' } : k === 'road' ? { t: 'road', road: Number(v) as 1 | 2 } : k === 'tunnel' ? { t: 'tunnel', road: Number(v) as 1 | 2 } : k === 'bridge' ? { t: 'bridge', road: Number(v) as 1 | 2 } : k === 'overpass' ? { t: 'overpass' } : k === 'footbridge' ? { t: 'footbridge' } : k === 'canal' ? { t: 'canal' } : k === 'terra' ? { t: 'terra', op: v as TerraOp } : k === 'widen' ? { t: 'widen', on: v === '1' } : k === 'street' ? { t: 'street', style: v as StreetKey | 'none' } : k === 'flyover' ? { t: 'flyover' } : k === 'busStop' ? { t: 'busStop', on: v === '1' } : k === 'levee' ? { t: 'levee' } : k === 'area' ? { t: 'area', v: Number(v) as 0 | 1 | 2 } : k === 'unroad' ? { t: 'unroad' } : k === 'repair' ? { t: 'repair' } : k === 'zone' ? { t: 'zone', zone: Number(v) as Zone } : k === 'build' ? { t: 'build', kind: v as Kind } : { t: 'sandbox', kind: v as Kind });
         this.group = null; this.renderTools(); if (phone()) { $('side').classList.add('closed'); this.sel = null; this.renderInfo(); }
         break;
       }
@@ -949,7 +951,8 @@ export class UI {
       item('street:stone', '石畳・カラー舗装にする', `${P.streetCost.stone}万円/区間`, '歩きやすい石畳とれんが色の歩道に。来訪者と知名度が上がり、高齢世帯が歩きやすくなります。商店街や駅前に', t.t === 'street' && t.style === 'stone') +
       item('street:nopole', '電線を地中に埋める（無電柱化）', `${P.streetCost.nopole}万円/区間`, '生活道路の電柱をなくします。地震や台風で電柱が倒れる被害が減り、景観が良くなります（費用は大きめ）', t.t === 'street' && t.style === 'nopole') +
       item('street:charge', '走りながら充電できる道路（次世代）', `${P.streetCost.charge}万円/区間`, '幹線道路の下にコイルを埋め、走る EV に電気を送ります。物流が強くなり、知名度が上がります。20 年目から', t.t === 'street' && t.style === 'charge') +
-      item('street:none', 'ふつうの道路に戻す', '無料', '並木・石畳・無電柱化をやめます', t.t === 'street' && t.style === 'none') +
+      (Object.keys(STREET_SAFETY) as (keyof typeof STREET_SAFETY)[]).map(k => item('street:' + k, STREET_SAFETY[k].name, `${P.streetCost[k]}万円/区間`, STREET_SAFETY[k].note + '（v95：住民の移動から出す事故の件数に効きます）', t.t === 'street' && t.style === k)).join('') +
+      item('street:none', 'ふつうの道路に戻す', '無料', '並木・石畳・無電柱化・交通安全の対策をやめます', t.t === 'street' && t.style === 'none') +
       item('repair', '補修', `${P.roadRepairCost}万円/区間`, '老朽度を 0 に戻します。老朽度 70 超で容量が 15% 落ちます', t.t === 'repair') +
       item('unroad', '撤去', `${P.roadRemoveCost}万円/区間`, '市道のみ。国道は国の管理で撤去できません', t.t === 'unroad') +
       (this.s.rail ? `<h3 style="margin-top:10px">鉄道</h3><p>市が費用を負担し、鉄道事業者に工事してもらいます。駅は線路に面していて、線路が地図の端（市外）までつながっていると使えます。</p>` +
@@ -1831,7 +1834,24 @@ export class UI {
         ${ch('st-vc', '朝の最大混雑率', '%', h.map(x => x.maxVc * 100), v => v.toFixed(0), '#8e44ad')}
         ${rk.length >= 2 ? `<div class="chartbox"><h4>全国ランキング（総合） <small>位・上ほど良い</small></h4>${chartSvg({ id: 'st-rank', series: [{ name: '総合順位', color: 'var(--c1)', values: rk.map(r => -r.total) }], fmt: v => n0(-v), xLabel: i => `${rk[Math.min(rk.length - 1, i)].year} 年度` }, 340, 120)}</div>` : ''}
       </div>`}
+      ${this.peopleStatsHtml()}
       <div class="btnrow"><button class="btn primary" data-act="stats">閉じる</button></div></div></div>`;
+  }
+  /** v95：住民一人ひとりから積み上げた統計（通勤・通学の手段、駅の乗車、事故・火事・犯罪の件数） */
+  private peopleStatsHtml(): string {
+    const s = this.game.state; let st; try { st = peopleStats(s); } catch { return ''; }
+    if (!st.n) return '';
+    const mt = st.modes.reduce((a, x) => a + x, 0) || 1, y = incidentYear(s), last = (s.incid ?? []).at(-1);
+    let board = 0; for (const v of st.boardings.values()) board += v;
+    const kinds: IncidentKind[] = ['car', 'bike', 'ped', 'crossing', 'rail', 'fire', 'crime'];
+    const row = (k: IncidentKind) => `<tr><td>${INCIDENT_NAMES[k]}</td><td>${last ? n0(last[k]) : '—'}</td><td>${n0(y.total[k])}</td><td>${(st.expected[k] * 12).toFixed(1)}</td></tr>`;
+    const inc = s.incid ?? [];
+    return `<h3>住民一人ひとりから（${n0(st.n)} 人）</h3>
+      <p class="note">住民は世帯から一人ずつ作り、学校・職場・駅・休日の行き先を割り当てています。下の数はその積み上げです（人口 ${n0(Math.round(s.stats.pop))} 人と一致）。</p>
+      <p>通勤・通学の手段：${st.modes.map((v, i) => `${MODE_NAMES[i]} ${Math.round(100 * v / mt)}%`).join('・')}。働く人 ${n0(st.byRole[3])} 人のうち市内で働く ${n0(st.localWork)}・市外へ ${n0(st.outWork)}・在宅勤務 ${n0(st.teleWork)}。駅の朝の乗車 ${n0(board)} 人。住民の所得（職場の種類・正規と非正規・年金）から積み上げた住民税は月 ${n0(Math.round(st.taxResident))} 万円（いまの歳入の式では ${n0(Math.round(s.ledger.at(-1)?.taxResident ?? 0))} 万円。歳入は今の式のまま）。</p>
+      <table class="tbl"><thead><tr><th>できごと</th><th>先月</th><th>直近 12 か月</th><th>年の見込み</th></tr></thead><tbody>${kinds.map(row).join('')}</tbody></table>
+      <p>交通事故は直近 ${y.months} か月で ${n0(y.traffic)} 件（人口 10 万人あたり年 ${n0(y.per100k)} 件。全国の相場は約 250 件）、死者 ${n0(y.killed)} 人・負傷 ${n0(y.hurt)} 人。歩道とガードレール・信号機・ゾーン 30・街灯・自転車レーン（道路の「通りの整備」）、歩道橋、交番、陸橋・高架化、ホームドアで減ります。${y.seen ? `画面で見えた事故 ${n0(y.seen)} 件（件数には足していません）。` : ''}</p>
+      ${inc.length >= 3 ? `<div class="chartbox"><h4>交通事故 <small>件/月</small></h4>${chartSvg({ id: 'st-incid', series: [{ name: '交通事故', color: '#c0392b', values: inc.map(x => x.car + x.ped + x.bike) }], fmt: v => n0(v), zero: true, xLabel: i => dateStr(inc[Math.min(inc.length - 1, i)].m) }, 340, 120)}</div>` : ''}`;
   }
   /** 画面の中の窓（公約の選択など）を描き直す。同じ窓なら、読んでいた位置（スクロール）を保つ */
   renderModal(): void {

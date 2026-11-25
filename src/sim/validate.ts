@@ -7,6 +7,7 @@ import { getMap, buildable, syncTerrain, isCastaway, setTerrainVer } from './map
 import { EVENTS } from './events';
 import { validPol, POL_OPS } from './politics';
 import type { GameState, Action, Effect, Kind } from './types';
+import { STREET_KEYS } from './types';
 
 let N = 0;
 onMapChange(() => { N = W * H; });
@@ -42,7 +43,7 @@ export function validateAction(s: GameState, a: unknown): string | null {
   switch (a.type) {
     case 'bridge': { const t = cleanTiles(a.tiles); if (typeof t === 'string') return t; return a.road === 1 || a.road === 2 ? null : '道路の種類が不正です'; }
     case 'area': { const t = cleanTiles(a.tiles); if (typeof t === 'string') return t; return a.v === 0 || a.v === 1 || a.v === 2 ? null : '区域の種類が不正です'; }
-    case 'street': { const t = cleanTiles(a.tiles); if (typeof t === 'string') return t; return ['tree', 'stone', 'nopole', 'charge', 'none'].includes(a.style) ? null : '道路の種類が不正です'; }
+    case 'street': { const t = cleanTiles(a.tiles); if (typeof t === 'string') return t; return [...STREET_KEYS, 'none'].includes(a.style) ? null : '道路の種類が不正です'; }
     case 'busStop': { const t = cleanTiles(a.tiles); if (typeof t === 'string') return t; return typeof a.on === 'boolean' ? null : '設置か撤去かが不正です'; }
     case 'airportUp': return isInt(a.id) ? null : '空港の番号が不正です';
     case 'airRoute': return typeof a.route === 'string' && a.route.length < 20 && typeof a.on === 'boolean' ? null : '路線が不正です';
@@ -198,12 +199,13 @@ export function validateState(s: unknown): string | null {
   if (s.celeb !== undefined && (!isObj(s.celeb) || !['festival', 'parade', 'milestone'].includes(s.celeb.kind) || !intIn(s.celeb.month, 0, 1e6) || !isStr(s.celeb.label, 60))) return 'お祝いの記録が不正です';
   if (s.voiceSeen !== undefined && (!isObj(s.voiceSeen) || Object.keys(s.voiceSeen).length > 200 || !Object.values(s.voiceSeen).every((v: any) => isObj(v) && intIn(v.since, 0, 1e6) && isStr(v.who, 40) && isStr(v.text, 200)))) return '住民の声の記録が不正です';
   if (s.thanks !== undefined && (!Array.isArray(s.thanks) || s.thanks.length > 20 || !s.thanks.every((t: any) => isObj(t) && isStr(t.key, 40) && intIn(t.month, 0, 1e6) && isStr(t.who, 40) && isStr(t.text, 200) && isStr(t.was, 200) && intIn(t.months, 0, 1e6)))) return '住民の声の記録が不正です';
+  if (s.incid !== undefined && (!Array.isArray(s.incid) || s.incid.length > 24 || !s.incid.every((x: any) => isObj(x) && intIn(x.m, 0, 1e6) && ['car', 'ped', 'bike', 'rail', 'crossing', 'fire', 'crime', 'killed', 'hurt', 'seen'].every(k => intIn(x[k], 0, 1e6)) && intIn(x.top, -1, N - 1)))) return '事故の統計のデータが不正です'; // v95
   if (s.area !== undefined && (!Array.isArray(s.area) || s.area.length !== N || !s.area.every((v: unknown) => intIn(v, 0, 2)))) return '線引きのデータが不正です';
   if (s.airRoutes !== undefined && (!Array.isArray(s.airRoutes) || s.airRoutes.length > 20 || !s.airRoutes.every((r: any) => isObj(r) && isStr(r.id, 20) && intIn(r.since, 0, 1e6)))) return '航空路線のデータが不正です';
   if (s.econ !== undefined && (!isObj(s.econ) || !finIn(s.econ.cycle, -2, 2) || !finIn(s.econ.fx, 50, 300) || !intIn(s.econ.shock, 0, 1000))) return '景気のデータが不正です';
   if (s.fiscal !== undefined && (!isObj(s.fiscal) || !finIn(s.fiscal.kosai, 0, 100) || !finIn(s.fiscal.shorai, 0, 1000) || !['ok', 'early', 'rebuild'].includes(s.fiscal.status) || !intIn(s.fiscal.since, 0, 1e6))) return '財政指標のデータが不正です';
   if (Array.isArray(s.busStops) && !s.busStops.every((i: number) => s.road[i])) return 'バス停のデータが不正です';
-  if (s.streets !== undefined && (typeof s.streets !== 'object' || s.streets === null || !['tree', 'stone', 'nopole', 'charge'].every(k => (s.streets as any)[k] === undefined || (Array.isArray((s.streets as any)[k]) && (s.streets as any)[k].every((i: unknown) => Number.isInteger(i) && s.road[i as number]))))) return '道路の種類のデータが不正です';
+  if (s.streets !== undefined && (typeof s.streets !== 'object' || s.streets === null || ![...STREET_KEYS].every(k => (s.streets as any)[k] === undefined || (Array.isArray((s.streets as any)[k]) && (s.streets as any)[k].every((i: unknown) => Number.isInteger(i) && s.road[i as number]))))) return '道路の種類のデータが不正です';
   if (Array.isArray(s.levee) && !s.levee.every((i: number) => !s.road[i] && !s.occ[i])) return '堤防のデータが不正です';
   for (const k of ['bridge', 'overpass', 'footbridge', 'canal', 'busStops', 'levee'] as const) { const v = s[k]; if (v !== undefined && (!Array.isArray(v) || v.length > N || !v.every((i: unknown) => intIn(i, 0, N - 1)) || new Set(v).size !== v.length)) return '橋・陸橋・歩道橋・水路のデータが不正です'; }
   if (s.bridge && !s.bridge.every((i: number) => s.road[i] === 1 || s.road[i] === 2)) return '橋のデータが不正です';
