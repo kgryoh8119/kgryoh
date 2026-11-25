@@ -80,6 +80,8 @@ export function roleComp(t: number): number[] {
 
 /** 建物の中心（建物の番号ごと。build のはじめに作り直す） */
 let CX = new Float64Array(0), CY = new Float64Array(0);
+/** いまの CX・CY・メモがどの街のものか */
+let lastS: GameState | null = null, lastKey = '';
 function centers(s: GameState): void {
   let mx = 0; for (const b of s.buildings) if (b.id > mx) mx = b.id;
   CX = new Float64Array(mx + 1); CY = new Float64Array(mx + 1);
@@ -149,8 +151,10 @@ export function people(s: GameState): People { return build(s).p; }
 
 function build(s: GameState): { p: People; st: PeopleStats } {
   const key = keyOf(s), c0 = cache.get(s);
-  if (c0 && c0.key === key) return c0;
-  nearMemo.clear(); candCache.clear(); centers(s);
+  // 建物の中心・近くの施設のメモはモジュールで 1 つだけ持つので、別の街（保存から読み込んだ複製・予測の複製）を計算したあとに
+  // この街の作り置きを使うときは、この街の中心で作り直す（前は別の街の中心のまま距離を測り、保存・読込の前後で結果がずれた）
+  if (c0 && c0.key === key) { if (lastS !== s || lastKey !== key) { nearMemo.clear(); candCache.clear(); centers(s); lastS = s; lastKey = key; } return c0; }
+  nearMemo.clear(); candCache.clear(); centers(s); lastS = s; lastKey = key;
   const res = s.buildings.filter(b => isRes(b.kind) && b.status === 'operating');
   const byId = new Map(s.buildings.map(b => [b.id, b] as [number, Building]));
   const hhT = [0, 0, 0, 0, 0]; for (const b of res) for (let t = 0; t < NHH; t++) hhT[t] += b.hh?.[t] ?? 0;
@@ -573,7 +577,9 @@ const incCache = new WeakMap<GameState, { m: number; key: string; pop: number; s
 function incidentStats(s: GameState): { st: PeopleStats; k: number } {
   const key = `${s.roadVersion}:${(s.busStops ?? []).length}:${JSON.stringify(s.streets ?? {}).length}:${(s.footbridge ?? []).length}:${(s.pol as { rail?: { door?: boolean } } | undefined)?.rail?.door ? 1 : 0}:${s.buildings.filter(b => b.kind === 'station' || b.kind === 'koban' || b.kind === 'police').length}`;
   const c = incCache.get(s), pop = Math.max(1, s.stats?.pop ?? 1);
-  if (c && c.key === key && s.month - c.m < 3 && s.month >= c.m) return { st: c.st, k: pop / c.pop };
+  // v95：3 か月に 1 回の作り直しは、作り置き（保存しない）があるかどうかで結果が変わり、保存・読込の前後で事故の件数がずれた。
+  // 毎月その時点の住民から出す（住民の作り直しそのものは build の作り置きが建物・道路の変化だけを見て使い回す）
+  if (c && c.key === key && s.month === c.m) return { st: c.st, k: pop / c.pop };
   const st = peopleStats(s); incCache.set(s, { m: s.month, key, pop, st }); return { st, k: 1 };
 }
 export function monthlyIncidents(s: GameState): IncidentMonth {
