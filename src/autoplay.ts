@@ -91,7 +91,9 @@ export function findSpot(s: GameState, kind: Kind, weight?: (b: any) => number, 
   // 先に安い確認：敷地が空いていて、まわりに市外までつながる道路がある所だけ
   const okLot = (x: number, y: number) => {
     for (let dy = 0; dy < d.h; dy++) for (let dx = 0; dx < d.w; dx++) { const i = idx(x + dx, y + dy); if (s.occ[i] || s.road[i] || !buildable(m, i) || (s.rail?.[i] && s.railGrade?.[i] !== 2)) return false; }
-    for (let k = -1; k <= Math.max(d.w, d.h); k++) for (const [xx, yy] of [[x + k, y - 1], [x + k, y + d.h], [x - 1, y + k], [x + d.w, y + k]]) if (xx >= 0 && yy >= 0 && xx < W && yy < H && s.road[idx(xx, yy)] && conn[idx(xx, yy)]) return true;
+    // v97：敷地の辺に面した道路だけを見る（v96 までは角の斜め向かいや敷地より長い範囲も数えていたため、迷惑施設の候補の上位 60 か所が
+    //      すべて「道路に面していません」で断られ、coast で下水処理場の用地が 20 か月見つからなかった）
+    for (let k = 0; k < Math.max(d.w, d.h); k++) for (const [xx, yy] of [[x + k, y - 1], [x + k, y + d.h], [x - 1, y + k], [x + d.w, y + k]]) if ((yy === y - 1 || yy === y + d.h ? k < d.w : k < d.h) && xx >= 0 && yy >= 0 && xx < W && yy < H && s.road[idx(xx, yy)] && conn[idx(xx, yy)]) return true;
     return false;
   };
   const order: [number, number][] = [], B = scanBox(s, conn, Math.max(d.w, d.h) + 1);
@@ -127,7 +129,7 @@ function findBuyLot(s: GameState, kind: Kind, weight?: (b: any) => number): { x:
       if (s.occ[i]) { const b = byId.get(s.occ[i]); if (!b || !isRes(b.kind) || b.w !== 1 || b.h !== 1 || b.sandbox) { ok = false; break; } ids.add(b.id); }
     }
     if (!ok || ids.size > 4) continue;
-    let road = false; for (let k = -1; k <= Math.max(d.w, d.h) && !road; k++) for (const [xx, yy] of [[x + k, y - 1], [x + k, y + d.h], [x - 1, y + k], [x + d.w, y + k]]) if (xx >= 0 && yy >= 0 && xx < W && yy < H && s.road[idx(xx, yy)] && conn[idx(xx, yy)]) { road = true; break; }
+    let road = false; for (let k = 0; k < Math.max(d.w, d.h) && !road; k++) for (const [xx, yy] of [[x + k, y - 1], [x + k, y + d.h], [x - 1, y + k], [x + d.w, y + k]]) if ((yy === y - 1 || yy === y + d.h ? k < d.w : k < d.h) && xx >= 0 && yy >= 0 && xx < W && yy < H && s.road[idx(xx, yy)] && conn[idx(xx, yy)]) { road = true; break; }
     if (!road) continue;
     const cost = [...ids].reduce((a, id) => a + buyoutCost(s, byId.get(id)!), 0);
     const score = cost / 1000 + (Math.abs(x - c.x) + Math.abs(y - c.y)) * (weight ? 0.5 : 0.2);
@@ -220,6 +222,10 @@ export function autoTurn(s: GameState): string[] {
   if (!hadPlan || plan.made === s.month) out.push(`都市計画を${hadPlan ? '見直す' : 'つくる'}：${plan.roles.map((r, d) => `${DISTRICTS[d]}＝${['住宅', '中心市街地', '産業', '観光', '自然', '郊外住宅'][r]}`).join('・')}`);
   const inRole = (...r: number[]) => plan.roles.map((v, d) => (r.includes(v) ? d : -1)).filter(d => d >= 0);
   const ord = s.autoOrder ?? 1; // 作戦（AUTO_ORDERS）
+  // v97：一時借入があった月と、上水・下水・電力が足りなくなった月（続いている間は最初の月）を覚えておく
+  if (tempDebt(s) > 0) s.acts.tempAt = s.month;
+  for (const [f, c, d] of [['water', st.waterCap, st.waterDemand], ['sewage', st.sewageCap, st.sewageDemand], ['power', st.powerCap, st.powerDemand]] as const) { const key = 'short:' + f; if (c < d) { if (s.acts[key] === undefined) s.acts[key] = s.month; } else delete s.acts[key]; }
+  const shortSince = (f: string) => s.acts['short:' + f] ?? -1;
   const reserve = Math.max(3000, P.bondUnit * 0.6) * [0.5, 1, 2.5][ord], BL = bondCap(s) * [1.25, 1, 0.6][ord]; // BL：オートが使う市債の上限（作戦で広げたり絞ったりする。本当の上限を超える分は発行のときに断られる）
   let builds = 0, acts = 0, needLand = false, saving = false, saveFor = 0, saveKind = ''; // saveFor：ためている金額（これを残せるなら、ほかの安い施設は建ててよい）
   const big = !!REAL && W * H > 6000, maxActs = Math.max(1, (big ? 2 : 6) + [big ? 1 : 2, 0, big ? 0 : -2][ord]), maxBuilds = Math.max(1, (big ? 1 : 3) + [1, 0, big ? 0 : -1][ord]); // 大きな地図（実在都市）は 1 手ごとの再計算が重いので、月の手数を絞る（v87：架空の街は広げても建物の数は同じなので絞らない）
@@ -290,7 +296,10 @@ export function autoTurn(s: GameState): string[] {
     if (!can(d.cost * 1.1) && (urgent || (ord === 0 && !saving))) {
       // 足りない分だけ一度に借りる。上限を超えるなら借りない（中途半端に借りて別の物に使ってしまわないように）
       const need = Math.ceil((d.cost * 1.1 + reserve - s.cash) / 1000) * 1000, room = BL * cap - s.loans.filter(l => l.kind === 'bond').reduce((a, l) => a + l.remaining, 0);
-      if (need <= room && affordable(need)) { acts--; act({ type: 'borrow', amount: need }, `市債を ${need.toLocaleString()} 万円発行：${nm(kind)}の建設のため`); }
+      // v97：上水・下水・電力は、収支の見込みが多少苦しくても、財政が崩れない範囲なら市債を組んで先に整える（infraOk）
+      const infra = urgent === 2 && !affordable(need) && infraOk(kind, need);
+      const room2 = infra ? Math.max(room, bondCap(s) * 0.95 - bondF()) : room; // 財布だいじにでも、不足が続く基盤は本当の上限の 95% まで
+      if (need <= room2 && (affordable(need) || infra)) { acts--; act({ type: 'borrow', amount: need }, `市債を ${need.toLocaleString()} 万円発行：${nm(kind)}の建設のため${infra ? "（暮らしに欠かせない基盤なので、収支の見込みが苦しくても市債で先に整える）" : ""}`); }
     }
     if (!can(d.cost * 1.1)) { if (urgent) { saving = true; if (d.cost * 1.1 > saveFor) { saveFor = d.cost * 1.1; saveKind = kind; } } return false; }
     const p = spot;
@@ -305,6 +314,22 @@ export function autoTurn(s: GameState): string[] {
   const bondF = () => s.loans.filter(l => l.kind === 'bond').reduce((a, l) => a + l.remaining, 0);
   /** 借りても返せるか：毎月の収支から、増えた元金の返済を引いて黒字が残るか */
   const affordable = (amt: number) => L.operating - committed() - (repayM() + amt / P.bondMonths) > [20, 80, 300][ord]; // v94：工事中の施設の人件費も入れる
+  /** v97：暮らしに欠かせない基盤（上水・下水・電力）を市債で建ててよいか。v94 の affordable（毎月の収支から返済を引いて黒字が残るか）では、
+   *  coast で収支がほぼ均衡したまま下水処理場が 3 年以上見送られ、成長が止まった（実質公債費比率は 4% と低いのに）。現実の自治体も下水道は
+   *  下水道事業債で先に整える。ただし、①最近 6 か月に一時借入がない、②健全化の段階がふつう、③借りたあとの実質公債費比率が基準（25%）から
+   *  十分に遠い（作戦で 18/16/14%）、④12 か月平均の収支から工事中の施設の人件費・返済・今回の返済を引いた赤字が、標準的な収入の 3/2/1.5% 以内。
+   *  財布だいじには、実際に足りない月が 3 か月続いたときだけ */
+  const infraOk = (k: Kind, amt: number): boolean => {
+    const f = fam(k), sh = shortSince(f);
+    if (!['water', 'sewage', 'power'].includes(f) || (ord === 2 && !(sh >= 0 && s.month - sh >= 3))) return false;
+    if (s.month - (s.acts.tempAt ?? -99) < 6 || (s.fiscal && s.fiscal.status !== 'ok')) return false;
+    const l12 = s.ledger.slice(-12); if (l12.length < 6) return false;
+    const k12 = 12 / l12.length, std = l12.reduce((a, l) => a + l.taxResident + l.taxProperty + l.taxBusiness + l.transfer, 0) * k12;
+    const svc = l12.reduce((a, l) => a + l.repay + l.interest, 0) * k12 + amt / P.bondMonths * 12 + amt * P.bondRate;
+    if (std <= 0 || svc / std > [0.18, 0.16, 0.14][ord]) return false;
+    const op12 = l12.reduce((a, l) => a + l.operating, 0) / l12.length;
+    return op12 - committed() - repayM() - amt / P.bondMonths > -std / 12 * [0.03, 0.02, 0.015][ord];
+  };
   const pending = (f: string) => s.buildings.some(b => fam(b.kind) === f && b.status === 'construction');
   /** 区画整理：住宅の裏に取り残された空き地へ道路を通す。入口をふさぐ住宅は買い取る（3 軒まで）。足りなければ市債で */
   let redeveloped = false;
@@ -420,7 +445,10 @@ export function autoTurn(s: GameState): string[] {
     if (can(cost) && act({ type: 'renew', id: old.id }, `${nm(old.kind)}を更新：老朽度 ${Math.round(old.age)}`)) nRenew++;
     else { saving = true; saveFor = Math.max(saveFor, cost); break; } // 浄水場の更新費をためる
   }
-  if (st.waterCap < st.waterDemand * 1.15 && !pending('water') && !renewing) build('waterS', `水道の余力が少ない（${Math.round(st.waterDemand)} / ${Math.round(st.waterCap)} 世帯）`, undefined, 2);
+  // v97：上水・下水・電力は、工事の期間に増える分を見込んで早めに建てる（変電所は 18 か月かかり、余力 12% で動くと urban で 1 年電力が足りなかった）
+  const hy = s.history.length >= 13 ? s.history[s.history.length - 13] : null, gY = hy && hy.pop > 0 ? Math.max(0, Math.min(0.4, st.pop / hy.pop - 1)) : 0;
+  const ahead = (k: Kind, dem: number) => dem * (1 + gY * DEFS[k].months / 12);
+  if ((st.waterCap < st.waterDemand * 1.15 || st.waterCap < ahead('waterS', st.waterDemand) * 1.03) && !pending('water') && !renewing) build('waterS', `水道の余力が少ない（${Math.round(st.waterDemand)} / ${Math.round(st.waterCap)} 世帯）`, undefined, 2);
   // 2b. 古くなった市の施設の更新：使用停止（老朽度 100）や老朽度 80 を超えたものを、暮らしに大事な順に（月 2 か所まで）
   {
     const PRI: Record<string, number> = { water: 0, sewage: 1, care: 2, fire: 3, school: 4, jhs: 4, health: 5, waste: 6, funeral: 6, welfare: 7, power: 8, library: 9, park: 10, culture: 11 };
@@ -444,8 +472,8 @@ export function autoTurn(s: GameState): string[] {
     if (soon.length && s.cash < needCash + reserve) { saving = true; saveFor = Math.max(saveFor, needCash); }
   }
   // 3. 下水・電力・ガス・ごみ
-  if (st.sewageCap < st.sewageDemand * 1.12 && !pending('sewage')) build('sewageS', '下水処理が追いつかない', undefined, 2);
-  if (st.powerCap < st.powerDemand * 1.12 && !pending('power')) build('substation', '電力の余裕が少ない', undefined, 2);
+  if ((st.sewageCap < st.sewageDemand * 1.12 || st.sewageCap < ahead('sewageS', st.sewageDemand) * 1.03) && !pending('sewage')) build('sewageS', '下水処理が追いつかない', undefined, 2);
+  if ((st.powerCap < st.powerDemand * 1.12 || st.powerCap < ahead('substation', st.powerDemand) * 1.03) && !pending('power')) build('substation', '電力の余裕が少ない', undefined, 2);
   if (st.gasCap < st.gasDemand * 0.97 && !pending('gas')) build('gas', '都市ガスが届かない世帯がある');
   if ((st.telDemand ?? 0) > (st.telCap ?? 1e9) * 0.95 && !pending('telecom')) build('cellTower', '通信が混み合っている');
   if (st.wasteCap < st.wasteDemand * 1.02 && !pending('waste')) { if (!s.policies.sorting?.on && L.operating > 150) act({ type: 'policy', id: 'sorting', on: true }, 'ごみの分別を始める：ごみ処理の余力が少ない'); else build('waste', 'ごみ処理の余力が少ない'); }

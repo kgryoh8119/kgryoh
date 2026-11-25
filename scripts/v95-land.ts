@@ -26,20 +26,27 @@ export function landStats(s: GameState) {
 const cc = (s: GameState) => { let n = 0, x = 0, y = 0; for (const b of s.buildings) if (b.units) { const h = b.units; n += h; x += b.x * h; y += b.y * h; } return n ? { x: Math.round(x / n), y: Math.round(y / n) } : { x: W >> 1, y: H >> 1 }; };
 (globalThis as any).DBG = !!env.DBG;
 const s = newGame({ seed: seedForTerrain(terr, seed) }); s.difficulty = 'normal'; s.tutorial.done = true; s.autoOrder = ord as 0;
-const grid: number[] = []; let tempMo = 0;
+const grid: number[] = []; let tempMo = 0; const short = { water: 0, sewage: 0, power: 0 }; let kosaiMax = 0;
+// v97：駅（はじめの駅・鉄道会社の新駅・市の新駅）と、市が敷いた線路
+const st0 = new Set(s.buildings.filter(b => b.kind === 'station').map(b => b.id)), cityStn: number[] = [];
 const t0 = Date.now(); const rows: any[] = []; const words: Record<string, number> = {};
 rows.push({ y: 0, pop: Math.round(s.stats.pop), blocks: s.unlocked?.length, ...landStats(s) });
 for (let mo = 0; mo < Y * 12 && !s.over; mo++) {
   const r0 = s.road.slice(); const ts = autoTurn(s); if (ts.some(t => t.startsWith("計画的"))) for (let i = 0; i < W * H; i++) if (s.road[i] && !r0[i]) grid.push(i);
   for (const t of ts) { const k = t.replace(/[0-9,，．.]+/g, '#').slice(0, 14); words[k] = (words[k] ?? 0) + 1; }
-  stepMonth(s); if (tempDebt(s) > 0) tempMo++;
+  stepMonth(s);
+  if (tempDebt(s) > 0) tempMo++;
+  { const q = s.stats; if (q.waterCap < q.waterDemand) short.water++; if (q.sewageCap < q.sewageDemand) short.sewage++; if (q.powerCap < q.powerDemand) short.power++; kosaiMax = Math.max(kosaiMax, s.fiscal?.kosai ?? 0); }
+  for (const t of ts) if (t.startsWith('新駅')) cityStn.push(mo);
+  if (env.LOG) { const re = new RegExp(env.LOG); for (const t of ts) if (re.test(t)) console.log(mo, t.slice(0, 120)); const q = s.stats; if (env.TRACE) console.log(mo, 'cash', Math.round(s.cash), 'temp', Math.round(tempDebt(s)), 'sew', Math.round(q.sewageCap), Math.round(q.sewageDemand), 'wat', Math.round(q.waterCap), Math.round(q.waterDemand), 'pow', Math.round(q.powerCap), Math.round(q.powerDemand), 'op', Math.round(s.ledger.at(-1)?.operating ?? 0), 'appr', s.approval.toFixed(2)); }
   for (const e of [...s.events.active]) dispatch(s, { type: 'event', id: e.id, option: eventDef(e.id).options.length - 1 });
   if (s.goalPick) dispatch(s, { type: 'goals', ids: ['wait', 'pop', 'fiscal'] });
   if (s.pendingElection) { if (!s.pendingElection.win) { s.mode = 'term'; s.termStart = s.month; s.goalPick = true; } s.pendingElection = null; }
   s.notes = [];
   if (mo % (env.EVERY ? +env.EVERY : 24) === (env.EVERY ? +env.EVERY - 1 : 23)) rows.push({ y: (mo + 1) / 12, pop: Math.round(s.stats.pop), cash: Math.round(s.cash), op: Math.round(s.history.at(-1)?.op ?? 0), appr: +s.approval.toFixed(2), blocks: s.unlocked?.length, ...landStats(s), ...landSpare(s), vac: +s.stats.vacancy.toFixed(3), water: [Math.round(s.stats.waterCap), Math.round(s.stats.waterDemand), Math.round(s.stats.sewageCap)], pent: +s.stats.pentUp.toFixed(1), hh: Math.round(s.stats.households), grid: env.DBG ? planGrid(s, { x: 96, y: 84 })?.gain ?? null : undefined, near: landSpare(s, cc(s)).near });
 }
-console.log(JSON.stringify({ terr, seed, ord, el: s.elections.map(e => +e.vote.toFixed(1)), tempMo, gridN: grid.length, gridTimes: words['計画的な宅地開発（'] ?? Object.entries(words).filter(([k]) => k.startsWith('計画的')).reduce((a, [, v]) => a + v, 0), pop: Math.round(s.stats.pop), ...landStats(s), gridLog, debt: Math.round(s.loans.reduce((a, l) => a + l.remaining, 0)), sec: Math.round((Date.now() - t0) / 1000) }));
+const stNow = s.buildings.filter(b => b.kind === 'station');
+console.log(JSON.stringify({ terr, seed, ord, short, kosaiMax, railCity: s.railCity?.length ?? 0, railAll: (s.rail ?? []).filter(v => v > 0).length, stNew: stNow.filter(b => !st0.has(b.id)).length, cityStn: cityStn.length, railDev: ((s as any).railDev?.lines ?? []).length, el: s.elections.map(e => +e.vote.toFixed(1)), tempMo, gridN: grid.length, gridTimes: words['計画的な宅地開発（'] ?? Object.entries(words).filter(([k]) => k.startsWith('計画的')).reduce((a, [, v]) => a + v, 0), pop: Math.round(s.stats.pop), ...landStats(s), gridLog, debt: Math.round(s.loans.reduce((a, l) => a + l.remaining, 0)), sec: Math.round((Date.now() - t0) / 1000) }));
 for (const r of rows) console.log(JSON.stringify(r));
 if (env.WORDS) console.log(Object.entries(words).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, v]) => `${v} ${k}`).join('\n'));
 if (env.SAVE) writeFileSync(env.SAVE, JSON.stringify({ road: Array.from(s.road), occ: Array.from(s.occ, v => v ? 1 : 0), zone: Array.from(s.zone), grid, W, H }));
