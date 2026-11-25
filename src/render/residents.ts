@@ -109,12 +109,12 @@ export function residentPlan(s: GameState, hour: number, holiday: boolean, cx: n
       if (m === 255 && p.mode[i] === 255 && (p.role[i] === 4 || p.role[i] === 5) && hour >= 9 && hour < 17.5) {
         const u = h32(i, day, 11), cl = p.clinic[i] && h32(i, day, 12) < 0.25;
         if (cl || u < 0.3) {
-          const [hx, hy] = ctr(hb); destB = cl ? nearest(F.health, hx, hy) : p.hol[i] === 1 && p.holDest[i] >= 0 ? byId.get(p.holDest[i]) : nearest(F.shops, hx, hy);
+          const [hx, hy] = ctr(hb); destB = cl ? nearest(F.health, hx, hy) : (p.hol[i] === 1 || p.hol[i] === 3) && p.holDest[i] >= 0 ? byId.get(p.holDest[i]) : nearest(F.shops, hx, hy);
           if (destB && destB.acc >= 0) {
             const mm = p.holMode[i] === 255 ? RM_WALK : p.holMode[i], d = Math.max(0.2, (Math.abs(ctr(destB)[0] - hx) + Math.abs(ctr(destB)[1] - hy)) * KM), tt = Math.max(0.1, d / SPD[mm]);
             const d0 = (cl ? 9 : 9.5) + h32(i, day, 13) * (cl ? 2.5 : 5), stay = cl ? 1.2 : 0.8, d1 = d0 + tt + stay;
             const going = hour >= d0 && hour < d0 + tt, coming = hour >= d1 && hour < d1 + tt;
-            if (going || coming) push(i, hb, destB, -1, going, (hour - (going ? d0 : d1)) / tt, mm === RM_RAIL ? RM_WALK : mm, mm, destB.id, going ? (cl ? '通院' : '買い物') : '帰宅');
+            if (going || coming) push(i, hb, destB, -1, going, (hour - (going ? d0 : d1)) / tt, mm === RM_RAIL ? RM_WALK : mm, mm, destB.id, going ? (cl ? '通院' : p.hol[i] === 3 ? '散歩' : '買い物') : '帰宅');
           }
         }
       }
@@ -244,7 +244,7 @@ export function presentAt(s: GameState, hour: number, holiday: boolean, day = 0)
       if (md === 255 && (p.role[i] === 4 || p.role[i] === 5) && hour >= 9 && hour < 18) {
         const u = h32(i, day, 11), cl = p.clinic[i] && h32(i, day, 12) < 0.25; if (!cl && u >= 0.3) continue;
         const hb = F.byId.get(p.home[i]); if (!hb) continue; const [hx, hy] = ctr(hb);
-        const db = cl ? nearest(F.health, hx, hy) : p.hol[i] === 1 && p.holDest[i] >= 0 ? F.byId.get(p.holDest[i]) : nearest(F.shops, hx, hy); if (!db) continue;
+        const db = cl ? nearest(F.health, hx, hy) : (p.hol[i] === 1 || p.hol[i] === 3) && p.holDest[i] >= 0 ? F.byId.get(p.holDest[i]) : nearest(F.shops, hx, hy); if (!db) continue;
         const mm = p.holMode[i] === 255 ? RM_WALK : p.holMode[i], dd = Math.max(0.2, (Math.abs(ctr(db)[0] - hx) + Math.abs(ctr(db)[1] - hy)) * KM), tt = Math.max(0.1, dd / SPD[mm]);
         const d0 = (cl ? 9 : 9.5) + h32(i, day, 13) * (cl ? 2.5 : 5), a = d0 + tt; if (hour >= a && hour < a + (cl ? 1.2 : 0.8)) add(db.id);
       }

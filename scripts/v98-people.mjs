@@ -12,11 +12,12 @@ await page.evaluate(() => { const S = window.__sumu, g = S.game, s = g.state; s.
 // 街を大きくする（MONTHS か月進める）
 const M = Number(process.env.MONTHS ?? 0);
 if (M) await page.evaluate(m => { const S = window.__sumu; for (let k = 0; k < m; k++) S.stepMonth(S.game.state); }, M);
-const info = await page.evaluate(() => { const S = window.__sumu, s = S.game.state, W = S.W; let x = 0, y = 0, n = 0, best = null, bv = -1;
+const info = await page.evaluate(() => { const S = window.__sumu, s = S.game.state, W = S.W; let x = 0, y = 0, n = 0, best = null, bv = -1e9;
   for (const b of s.buildings) if (b.hh) { const h = b.hh.reduce((a, c) => a + c, 0); x += b.x * h; y += b.y * h; n += h; }
   const cx = Math.round(x / n), cy = Math.round(y / n);
-  for (const b of s.buildings) if (b.kind === 'station' && b.status === 'operating') { const d = -Math.abs(b.x - cx) - Math.abs(b.y - cy); if (d > bv) { bv = d; best = b; } }
-  return { pop: Math.round(s.stats.pop), c: cy * W + cx, st: best ? best.y * W + best.x : -1 }; });
+  for (const b of s.buildings) if (b.kind === 'station') { const d = -Math.abs(b.x - cx) - Math.abs(b.y - cy); if (d > bv) { bv = d; best = b; } }
+  const pick = f => { const l = s.buildings.filter(f); return l.length ? l[0].id : -1; };
+  return { pop: Math.round(s.stats.pop), c: cy * W + cx, st: best ? best.y * W + best.x : -1, stStatus: best?.status, school: pick(b => b.kind === 'school' || b.kind === 'elementary'), park: pick(b => /park/i.test(b.kind)), shop: pick(b => b.kind === 'supermarket'), kinds: [...new Set(s.buildings.map(b => b.kind))].join(',') }; });
 console.log(JSON.stringify(info));
 const draw = (n = 1) => page.evaluate(n => { const v = window.__sumu.view; for (let k = 0; k < n; k++) v.__frame.call(v, 0.25); }, n);
 const sim = sec => page.evaluate(sec => { const v = window.__sumu.view, s = window.__sumu.game.state; const t0 = performance.now(); let n = 0; for (let t = 0; t < sec; t += 0.1) { v.lifeT += 0.1; v.moveAgents(s, 0.1); n++; } return +((performance.now() - t0) / n).toFixed(2); }, sec);
@@ -28,11 +29,29 @@ const report = (label) => page.evaluate(label => { const v = window.__sumu.view,
 if (WHAT.includes('people')) {
   for (const [h, hol, name] of [[8, false, 'am'], [12.5, false, 'noon'], [11, true, 'holiday'], [17.8, false, 'pm'], [22.5, false, 'night']]) {
     await at(h, hol, info.c); const ms = await sim(12); const r = await report(name); r.moveMs = ms; console.log(JSON.stringify(r));
-    if (SHOT && (name === 'am' || name === 'holiday')) { await draw(5); await page.screenshot({ path: `${OUT}/${name}.jpg`, type: 'jpeg', quality: 72 }); console.log('shot', name); }
+    if (SHOT && (name === 'am' || name === 'holiday')) { await at(h, hol, info.c, 105); await sim(6); await draw(5); await page.screenshot({ path: `${OUT}/${name}.jpg`, type: 'jpeg', quality: 72 }); console.log('shot', name); }
   }
   // 押したときの紹介（いちばん手前の人の画面の位置を押す）
   await at(8, false, info.c, 120); await sim(4);
   const pt = await page.evaluate(() => { const v = window.__sumu.view; for (const a of v.peds) { if (!a.rt || a.px === undefined) continue; const p = v.project(a.px, v.surfY(a.px, a.pz) + 0.9, a.pz); if (p.visible && p.x > 100 && p.x < 900 && p.y > 100 && p.y < 540) return p; } return null; });
   if (pt) { const r = await page.evaluate(([x, y]) => { const v = window.__sumu.view, c = v.renderer.domElement.getBoundingClientRect(); return v.pickPerson(x + c.left, y + c.top); }, [pt.x, pt.y]); console.log('pick', r); }
+}
+if (WHAT.includes('station') && info.st >= 0) {
+  for (const [h, hol] of [[7.6, false], [8, false], [12, false], [10, true]]) { await at(h, hol, info.st, 140); await sim(3); console.log('station', h, hol, JSON.stringify(await page.evaluate(() => window.__sumu.view.stInfo()))); }
+  if (SHOT) { await at(7.6, false, info.st, 120); await sim(4); await draw(5); await page.screenshot({ path: `${OUT}/station-am.jpg`, type: 'jpeg', quality: 72 }); }
+}
+if (WHAT.includes('occ')) {
+  for (const [h, hol] of [[10, false], [13, true], [21, false]]) { await page.evaluate(([h, hol]) => { const v = window.__sumu.view; v.hour = h; v.holiday = hol; }, [h, hol]);
+    console.log('occ', h, hol, JSON.stringify(await page.evaluate(ids => ids.map(id => window.__sumu.view.occOf(id)), [info.school, info.park, info.shop]))); }
+}
+if (WHAT.includes('inc')) {
+  await at(8, false, info.c, 120); await sim(4);
+  const r = await page.evaluate(() => { const S = window.__sumu, v = S.view, s = S.game.state, W = S.W, t = Math.floor(v.target.z / 30) * W + Math.floor(v.target.x / 30);
+    v.incAuto = false; const seen0 = (s.incid ?? []).reduce((a, x) => a + x.seen, 0);
+    const ok = v.startIncident('ped'), ok2 = v.startIncident('rear');
+    const seen1 = (s.incid ?? []).reduce((a, x) => a + x.seen, 0);
+    return { ok, ok2, hurt: v.incHurt(), seen0, seen1, rate8: v.incidentRate?.(t, 8, 'crash'), rate3: v.incidentRate?.(t, 3, 'crash'), rateP: v.incidentRate?.(t, 8, 'pedestrian') }; });
+  console.log('inc', JSON.stringify(r));
+  if (SHOT) { await sim(1); await draw(5); await page.screenshot({ path: `${OUT}/incident.jpg`, type: 'jpeg', quality: 72 }); }
 }
 console.log('errors', errors.filter(e => !e.includes('TUNNEL')).slice(0, 5)); await browser.close();

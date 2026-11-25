@@ -109,7 +109,7 @@ import { buildRailPaths, drawRailPaths, railAt, SHIN_LINES, shinDeckY, RAIL_LM, 
 import { Landmarks, type LmItem } from './landmarks';
 import { roadKitMat, roadTile, face, RK } from './roadkit';
 import { roadBase, hasXw } from './roadbase';
-import { crowdPlan, occupancyPhase, occDay } from './occupancy';
+import { crowdPlan, occupancyPhase, occDay, occupancyOf } from './occupancy';
 import { drawPowerLines, drawUtilities, kyodokoTiles, infraKey, pipeReach, pipeOverlay } from './infra'; // v87
 import { makeTrains, TRAIN_PART as TK_PART, FAMS, CAR_DIM, famColor, type TrainFam } from './trainkit'; // v88
 /** 列車 1 編成の走り（v88：速さ v・止まる位置 stopAt・ドア・車種 fam） */
@@ -2525,6 +2525,8 @@ export class View {
     if (!t) { const pl = this.resPlan; t = pl?.trips.find(x => x.mode === RM_WALK) ?? null; }
     if (t) { q.hurt = '🚑 けが人｜' + profileOf(s, t, tl => this.incPlace(tl)); q.hurtShort = shortWho(s, t.person, tl => this.incPlace(tl)); }
   }
+  /** 検査用：施設の混み具合（v98：住民から） */
+  occOf(id: number): unknown { const s = this.getState(), b = s.buildings.find(o => o.id === id); if (!b) return null; occDay.holiday = this.isHol(); occDay.day = this.dayNo; return occupancyOf(s, b, this.hour); }
   /** 検査用：いまのできごとのけが人の紹介 */
   incHurt(): string[] { return this.incs.map(q => q.hurt ?? ''); }
   /** できごとを 1 つ起こす（見ている所の近く）。起こせたら true。want で種類を決められる（検査用） */
