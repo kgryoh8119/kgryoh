@@ -1,7 +1,7 @@
 // CPU のオートプレイ：市長の代わりに、毎月の状況を見て手を打つ。
 // 判断は「足りないものを順に埋める」単純な規則。乱数は使わず、同じ状態なら同じ判断をする（シミュレーションの乱数を消費しない）。
 import {
-  W, H, P, DEFS, GOALS, voteText, POLICIES, AIR_ROUTES, VISION_PERKS, VISIONS, airportUpCheck, airRouteCheck, floodRisk, isCanal, isJunction, isRes, isCity, idx, getMap, buildable, roadInfo, checkPlace, dispatch, sumHH, monthlyBudget, staffReq, fam, DISTRICTS, rerunCheck, teamCheck, SPORTS, stationDist, buyoutCost, SV_NAMES, upgradeCost, bondCap, goalProgress, tempDebt, stationUpCheck, shinCheck, REAL, NIMBY,
+  W, H, P, DEFS, GOALS, voteText, POLICIES, AIR_ROUTES, VISION_PERKS, VISIONS, airportUpCheck, airRouteCheck, floodRisk, isCanal, isJunction, isRes, isCity, idx, getMap, buildable, roadInfo, checkPlace, planRail, dispatch, sumHH, monthlyBudget, staffReq, fam, DISTRICTS, rerunCheck, teamCheck, SPORTS, stationDist, buyoutCost, SV_NAMES, upgradeCost, bondCap, goalProgress, tempDebt, stationUpCheck, shinCheck, REAL, NIMBY,
 } from './sim/index';
 import type { GameState, Kind, Action, Zone } from './sim/index';
 import { isCastaway, isleOX, isleOY } from './sim/index';
@@ -9,6 +9,9 @@ import { annexable, blockRect, blockName, SISTERS, SIS, MAX_SISTERS, GRANTS, PLA
 import { findCandidates, hasCandidates } from './ui/candidates';
 import { planRedevelop } from './devplan';
 import { planGrid, landSpare, gridLog } from './autodev';
+import { planBranch, stationFront, replanRest } from './autorail';
+/** 計測用：鉄道の延伸を見送った理由の回数（オートの判断は変えない） */
+export const railLog: Record<string, number> = {};
 import { cityPlan, roleAt, ROLE } from './cityplan';
 
 export interface AutoNote { month: number; text: string }
@@ -228,6 +231,8 @@ export function autoTurn(s: GameState): string[] {
   const shortSince = (f: string) => s.acts['short:' + f] ?? -1;
   const reserve = Math.max(3000, P.bondUnit * 0.6) * [0.5, 1, 2.5][ord], BL = bondCap(s) * [1.25, 1, 0.6][ord]; // BL：オートが使う市債の上限（作戦で広げたり絞ったりする。本当の上限を超える分は発行のときに断られる）
   let builds = 0, acts = 0, needLand = false, saving = false, saveFor = 0, saveKind = ''; // saveFor：ためている金額（これを残せるなら、ほかの安い施設は建ててよい）
+  // v97：鉄道の延伸の工事中は、急がない施設より先に、次の区間（または駅）の工事費をためる（保育・学校・上下水は止めない）
+  { const ar0 = (s as any).autoRail; if (ar0) { saving = true; let n = 0; const g = ar0.grade[ar0.k]; while (ar0.k + n < ar0.tiles.length && ar0.grade[ar0.k + n] === g && n < 8) n++; saveFor = n ? n * P.railCost[1] * P.railGradeMul[g] * 1.3 + reserve * 0.5 : DEFS.station.cost * 1.02 + reserve * 0.5; } }
   const big = !!REAL && W * H > 6000, maxActs = Math.max(1, (big ? 2 : 6) + [big ? 1 : 2, 0, big ? 0 : -2][ord]), maxBuilds = Math.max(1, (big ? 1 : 3) + [1, 0, big ? 0 : -1][ord]); // 大きな地図（実在都市）は 1 手ごとの再計算が重いので、月の手数を絞る（v87：架空の街は広げても建物の数は同じなので絞らない）
   const can = (cost: number) => s.cash - cost >= reserve;
   /** v94：工事中の市の施設が開業すると増える人件費（月）と、市債の元金の返済（月）。v93 までは今月の収支だけを見て、
@@ -697,6 +702,86 @@ export function autoTurn(s: GameState): string[] {
     let best = -1, bv = 0;
     for (const sc of schools) for (let dy = -2; dy <= sc.h + 1; dy++) for (let dx = -2; dx <= sc.w + 1; dx++) { const x = sc.x + dx, y = sc.y + dy; if (x < 0 || y < 0 || x >= W || y >= H) continue; const i = idx(x, y); if (s.road[i] >= 2 && !fb.has(i) && !(s.tunnel ?? []).includes(i) && !(s.bridge ?? []).includes(i) && s.vc[i] + 0.1 > bv) { bv = s.vc[i] + 0.1; best = i; } }
     if (best >= 0 && can(P.footbridgeCost + reserve)) act({ type: 'footbridge', tiles: [best] }, `学校の前の幹線に歩道橋をつくる（${where(s, best % W, (best / W) | 0)}）：通学路の交通安全のため`);
+  }
+  // 10j2. v97：鉄道の延伸と新駅。駅勢圏（800m〜1km）の外に住宅地がまとまってできたら、既存の駅から支線を延ばして新駅を置く。
+  //       数年に 1 回（攻め 3 年・バランス 4 年・財布 6 年）。上下水・電力が足りていて、最近 1 年に一時借入がなく、借りたあとの実質公債費比率と、
+  //       線路の負担金・返済を引いた 12 か月平均の収支の見込みに余裕があるときだけ決める。工事は 1 か月に 8 区画までの区間ずつ、手元の資金か
+  //       返せる範囲の市債で進め（十数億円を一度に借りると市債の枠が埋まり、上下水の市債が組めなくなる）、線路が着いたら駅を建てる。
+  //       決めたときに、線路と駅の用地の用途を外しておく（工事の間に家が建たないように）。駅前は商業に、駅にはバス停と駅までのバス路線を
+  if (s.rail && !REAL) {
+    type AR = { tiles: number[]; grade: number[]; site: [number, number]; from: number; k: number; start: number; units: number; cost: number; upkeep: number; high: number; under: number; cross: number };
+    const why = (t: string, wait = true) => { railLog[t] = (railLog[t] ?? 0) + 1; if (wait) s.acts.railTry = s.month; }; // wait：計画を立てて見送ったら半年は考えない
+    const l12 = s.ledger.slice(-12), k12 = 12 / Math.max(1, l12.length), std = l12.reduce((a, l) => a + l.taxResident + l.taxProperty + l.taxBusiness + l.transfer, 0) * k12;
+    const op12 = l12.reduce((a, l) => a + l.operating, 0) / Math.max(1, l12.length);
+    /** 借りたあとの実質公債費比率と、線路の負担金・返済を引いた収支の見込み */
+    const money = (borrow: number, upkeep: number) => ({ kos: std > 0 ? (l12.reduce((a, l) => a + l.repay + l.interest, 0) * k12 + borrow / P.bondMonths * 12 + borrow * P.bondRate) / std : 1, hr: op12 - committed() - repayM() - upkeep - borrow / P.bondMonths });
+    const kosMax = [0.12, 0.1, 0.08][ord], hrMin = std / 12 * [-0.035, -0.03, -0.01][ord];
+    const infraSave = saving && !!saveKind && ['water', 'sewage', 'power'].includes(fam(saveKind as Kind));
+    /** 工事費 c を用意する：手元の資金か、返せる範囲の市債で */
+    const fundRail = (c: number, upkeep: number, what: string): boolean => {
+      if (s.cash - c >= reserve * 1.5 && !infraSave) return true;
+      const need = Math.ceil((c + reserve * 1.5 - s.cash) / 1000) * 1000, mo = money(need, upkeep);
+      if (bondF() + need > BL * 0.9 || mo.kos > kosMax || mo.hr < hrMin) return false;
+      acts--; return act({ type: 'borrow', amount: need }, `市債を ${need.toLocaleString()} 万円発行：${what}のため`);
+    };
+    const ar = (s as any).autoRail as AR | undefined;
+    if (ar) {
+      const nm2 = `${where(s, ar.site[0], ar.site[1])}`;
+      const quit = (t: string) => { why(t); delete (s as any).autoRail; s.acts.railExt = s.month - [24, 32, 48][ord]; out.push(`支線の工事を打ち切る（${nm2}）：${t}`); };
+      if (s.month - ar.start > 72) quit('工期が 6 年を超えたため');
+      else if (ar.k < ar.tiles.length) {
+        // 1 か月に、同じ高さの 8 区画まで、工事費 1.6 億円まで（市債の枠に収まるように少しずつ）
+        const chunk = () => { const g = ar.grade[ar.k]; let e = ar.k + 1; while (e < ar.tiles.length && ar.grade[e] === g && e - ar.k < 8 && (e + 1 - ar.k) * P.railCost[1] * P.railGradeMul[g] <= 16000) e++; return { g, e, ts: ar.tiles.slice(ar.k, e) }; };
+        let { g, e, ts } = chunk(), pl = planRail(s, ts, 1, g as 0 | 1 | 2);
+        if (pl.bad.length) { // 用地が変わった：残りの高さを選び直すか、道筋を引き直す
+          const r = replanRest(s, ar.tiles, ar.k, ar.site);
+          if (r) { const why0 = pl.bad[0][1]; ar.tiles = r.tiles; ar.grade = [...ar.grade.slice(0, ar.k), ...r.grade]; ar.high = ar.grade.filter(v => v === 1).length; ar.under = ar.grade.filter(v => v === 2).length; out.push(`支線の計画を見直す（${nm2}方面）：残りの区間の用地が変わったため（${why0}）。残り ${ar.tiles.length - ar.k} 区画`); ({ g, e, ts } = chunk()); pl = planRail(s, ts, 1, g as 0 | 1 | 2); }
+        }
+        if (pl.bad.length) quit(`線路の用地が使えなくなったため（${pl.bad[0][1]}）`);
+        else if (fundRail(pl.cost, ar.upkeep * (1 - ar.k / ar.tiles.length), '鉄道の延伸') && dispatch(s, { type: 'rail', tiles: ts, level: 1, grade: g as 0 | 1 | 2 }).ok) {
+          ar.k = e; acts++;
+          out.push(`支線の工事（${nm2}方面）：${['地上', '高架', '地下'][g]}の線路を ${ts.length} 区画敷く（${ar.k} / ${ar.tiles.length} 区画、${Math.round(pl.cost).toLocaleString()} 万円）`);
+        }
+      } else if (fundRail(DEFS.station.cost * 1.02, 0, '新駅の建設')) {
+        const r = dispatch(s, { type: 'build', kind: 'station', x: ar.site[0], y: ar.site[1] });
+        if (!r.ok) quit(`駅を建てられないため（${r.msg}）`);
+        else {
+          delete (s as any).autoRail; s.acts.railExt = s.month; acts++;
+          const from = s.buildings.find(b => b.id === ar.from), nb = s.buildings.find(b => b.kind === 'station' && b.x === ar.site[0] && b.y === ar.site[1]);
+          if (nb && !nb.name) nb.name = `${nm2}駅`;
+          out.push(`新駅（${nm2}）を建設：${from?.name ?? '駅'}から延ばした支線 ${ar.tiles.length} 区画（約 ${(ar.tiles.length * 0.03).toFixed(1)} km${ar.high ? `・高架 ${ar.high}` : ''}${ar.under ? `・地下 ${ar.under}` : ''}${ar.cross ? `・踏切 ${ar.cross}` : ''}）が着いた。駅から 1km より遠かった住宅 ${Math.round(ar.units)} 戸が駅勢圏に。駅で本線に乗り換え`);
+          const front = stationFront(s, ar.site);
+          if (front.length) { acts--; act({ type: 'zone', tiles: front, zone: 4 }, `新駅の駅前 ${front.length} 区画を商業に指定`); }
+          // 駅にバス停を置き、駅から遠い住宅地のバス停と結ぶ（駅までのバス路線）
+          const adj: number[] = []; for (let dx = -1; dx <= 3; dx++) for (const dy of dx < 0 || dx > 2 ? [0] : [-1, 1]) { const x = ar.site[0] + dx, y = ar.site[1] + dy; if (x >= 0 && y >= 0 && x < W && y < H && (s.road[idx(x, y)] === 1 || s.road[idx(x, y)] === 2)) adj.push(idx(x, y)); }
+          const stop = adj.find(i => (s.busStops ?? []).includes(i)) ?? adj[0];
+          if (stop !== undefined && ((s.busStops ?? []).includes(stop) || dispatch(s, { type: 'busStop', tiles: [stop], on: true }).ok)) {
+            const sts = s.buildings.filter(b => b.kind === 'station' && b !== nb);
+            const far = (j: number) => sts.reduce((a, b) => Math.min(a, Math.abs(b.x + 1 - j % W) + Math.abs(b.y - ((j / W) | 0))), 1e9);
+            let best = -1, bv = 0;
+            for (const j of s.busStops ?? []) { if (j === stop) continue; const L2 = roadPath(s, stop, j).length; if (L2 < 8 || L2 > 60) continue; const v = far(j) - L2 * 0.2; if (v > bv) { bv = v; best = j; } }
+            if (best >= 0 && (s.pol?.routes?.length ?? 0) < 6 && dispatch(s, { type: 'pol', op: 'route', id: `${stop}-${best}`, n: 1 }).ok) out.push(`新駅までのバス路線を開く（${where(s, best % W, (best / W) | 0)}から）`);
+          }
+        }
+      }
+    } else if (s.month % 3 === 2 && st.pop >= 9000 && s.month - (s.acts.railExt ?? -999) >= [36, 48, 72][ord] && s.month - (s.acts.railTry ?? -999) >= 6) {
+      const bp = left <= 6 ? why('選挙', false) : infraSave ? why('積立', false) : st.waterCap < st.waterDemand || st.sewageCap < st.sewageDemand || st.powerCap < st.powerDemand ? why('上下水', false) : s.month - (s.acts.tempAt ?? -99) < 12 || (s.fiscal && s.fiscal.status !== 'ok') ? why('一時借入', false) : planBranch(s, [150, 200, 300][ord]);
+      if (bp === undefined) { /* 見送り */ }
+      else if (!bp) why('計画なし');
+      else {
+        const borrow = Math.max(0, bp.cost - Math.max(0, s.cash - reserve * 1.5)), mo = money(borrow, bp.upkeep); // 全部を市債で賄うとしても返せるか
+        if (mo.kos > kosMax) why('公債費比率');
+        else if (mo.hr < hrMin) why('収支');
+        else if (BL * 0.9 - bondF() + Math.max(0, s.cash - reserve * 1.5) < bp.cost * 0.3) why('市債の枠'); // 工事の 3 割を賄える余地がないうちは始めない
+        else {
+          (s as any).autoRail = { tiles: bp.tiles, grade: bp.grade, site: bp.site, from: bp.from, k: 0, start: s.month, units: bp.units, cost: bp.cost, upkeep: bp.upkeep, high: bp.high, under: bp.under, cross: bp.cross } as AR;
+          const keep = [...bp.tiles.filter(i => !s.occ[i] && !s.road[i] && s.zone[i]), ...[0, 1, 2].map(dx => idx(bp.site[0] + dx, bp.site[1])).filter(i => s.zone[i])];
+          if (keep.length) dispatch(s, { type: 'zone', tiles: keep, zone: 0 });
+          const from = s.buildings.find(b => b.id === bp.from);
+          out.push(`鉄道の延伸を決める：${from?.name ?? '駅'}から${where(s, bp.site[0], bp.site[1])}へ支線 ${bp.tiles.length} 区画（約 ${(bp.tiles.length * 0.03).toFixed(1)} km${bp.high ? `・高架 ${bp.high}` : ''}${bp.under ? `・地下 ${bp.under}` : ''}${bp.cross ? `・踏切 ${bp.cross}` : ''}）と新駅。駅から 1km より遠い住宅 ${Math.round(bp.units)} 戸のため（総額 ${Math.round(bp.cost).toLocaleString()} 万円、線路の負担金 月 ${Math.round(bp.upkeep)} 万円）。線路と駅の用地 ${keep.length} 区画の用途を外す`);
+        }
+      }
+    }
   }
   // 10k. 線引きと立地適正化：計画をつくったとき、駅（なければ市役所・街の中心）のまわりの住宅・中心の地区を居住誘導区域に、
   //      自然・観光の地区の、まだ用途を決めていない空き地を市街化調整区域にする
