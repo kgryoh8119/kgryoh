@@ -8,6 +8,7 @@ import { isCastaway, isleOX, isleOY } from './sim/index';
 import { annexable, blockRect, blockName, SISTERS, SIS, MAX_SISTERS, GRANTS, PLANS, voteForecast, campaignOpen, calMonth, POSTS, candidates, execOf, roadPath } from './sim/index';
 import { findCandidates, hasCandidates } from './ui/candidates';
 import { planRedevelop } from './devplan';
+import { planGrid, landSpare } from './autodev';
 import { cityPlan, roleAt, ROLE } from './cityplan';
 
 export interface AutoNote { month: number; text: string }
@@ -327,6 +328,38 @@ export function autoTurn(s: GameState): string[] {
     return true;
   };
 
+  /** v95：計画的な宅地開発。市の区域の中の道路に面していない空き地へ、既存の道路から格子状（はしご型）の生活道路を引き、
+   *  沿道を需要に応じた用途に指定する。道路の工事費・維持費は、開業後の人件費と市債の返済を引いた収支の見込み（headroom）で見る */
+  let gridDone = false;
+  const gridDev = (why: string, borrow = false): boolean => {
+    if (gridDone || acts >= maxActs) return false;
+    // 借りない開発は、手元の資金で払える大きさに（小さなはしご型から少しずつ）。借りてよいとき（用地が足りない）は市債の枠まで
+    const room = borrow ? s.cash + BL * 0.8 - bondF() - reserve : s.cash - reserve - (saving ? saveFor : 0);
+    if (room < P.roadCost[1] * 10) return false;
+    const gp = planGrid(s, cityCenter(s), { maxCost: room });
+    if (!gp) return false;
+    if (saving && s.cash - gp.cost < saveFor + reserve) return false; // 急ぐ施設のためにためている資金は崩さない
+    // 道路の維持費を払っても、開業後の人件費と市債の返済を引いた収支の見込みが大きく崩れないか（家が建てば税で返る投資なので、施設より少し緩く）
+    if (headroom() - gp.upkeep < [-100, 50, 200][ord]) return false;
+    if (!can(gp.cost) && borrow) { const need = Math.ceil((gp.cost + reserve - s.cash) / 1000) * 1000; if (bondF() + need <= BL * 0.8 && affordable(need)) act({ type: 'borrow', amount: need }, `市債を ${need.toLocaleString()} 万円発行：計画的な宅地開発の道路のため`); }
+    if (!can(gp.cost)) return false;
+    const before = gp.road.length, r = dispatch(s, { type: 'road', tiles: gp.road, road: 1 });
+    if (!r.ok) return false;
+    gridDone = true; acts++;
+    const ax = gp.at % W, ay = (gp.at / W) | 0;
+    out.push(`計画的な宅地開発（${where(s, ax, ay)}）：${gp.trunk ? '幹線' : '道路'}から生活道路を格子状に ${before} 区間引く（${gp.loop ? '両端を既存の道路につないで輪に' : '奥でつないで行き止まりなし'}）。道路に面していなかった空き地 ${gp.gain} 区画が使えるように（工事 ${Math.round(gp.cost).toLocaleString()} 万円・維持 月 ${gp.upkeep.toFixed(0)} 万円）：${why}`);
+    // 沿道の用途：駅の近くは中高層、幹線の近くは中層、ほかは低層の住宅。店が足りなければ起点の近くの数区画を商業に
+    const sd = stationDist(s), lots = gp.lots.filter(i => !s.occ[i] && !s.road[i] && !s.zone[i]);
+    const shopNeed = st.shopLevel < 0.75, near = (i: number) => Math.abs(i % W - ax) + Math.abs(((i / W) | 0) - ay);
+    const shops = shopNeed ? lots.slice().sort((a, b) => near(a) - near(b) || a - b).slice(0, Math.max(2, Math.round(lots.length / 8))) : [];
+    const res: Record<number, number[]> = { 1: [], 2: [], 3: [] };
+    const nearSt = sd && sd[gp.at] >= 0 && sd[gp.at] <= P.mansionStationRange;
+    for (const i of lots) if (!shops.includes(i)) res[nearSt ? (sd![gp.at] <= P.mansionStationRange * 0.6 ? 3 : 2) : gp.trunk && near(i) <= 3 ? 2 : 1].push(i);
+    if (shops.length && dispatch(s, { type: 'zone', tiles: shops, zone: 4 }).ok) out.push(`開発した地区の入口 ${shops.length} 区画を商業に指定：市内の買物 ${Math.round(st.shopLevel * 100)}%`);
+    for (const z of [3, 2, 1]) if (res[z].length && dispatch(s, { type: 'zone', tiles: res[z], zone: z as Zone }).ok) out.push(`開発した地区の ${res[z].length} 区画を${['', '低層', '中層', '高層'][z]}住宅に指定`);
+    return true;
+  };
+
   // 1. お金：資金が少なければ市債（上限の 8 割まで）
   if (s.cash < reserve && bondF() + P.bondUnit <= BL * 0.5 && affordable(P.bondUnit)) act({ type: 'borrow', amount: P.bondUnit }, `市債を ${P.bondUnit.toLocaleString()} 万円発行：資金が少ないため`);
 
@@ -482,7 +515,7 @@ export function autoTurn(s: GameState): string[] {
       if ((cand.length < 10 && !late) || needLand) redeveloped = redevelop('沿道の空き地が少なくなったため');
       if (!redeveloped && ((cand.length < 6 && !late) || needLand)) {
         // 新しい住宅地：道路の端から 8 区画まっすぐ延ばし、4 区画ごとに左右へ 3 区画の枝道。資金が足りなければ市債で（住宅が増えれば税で返せる）
-        const plan = newBlock(s, free, conn);
+        const plan = gridDev('沿道の空き地が少なくなったため', true) ? null : newBlock(s, free, conn);
         if (plan && !saving && !can(P.roadCost[1] * plan.length) && bondF() + P.bondUnit <= BL * 0.7 && affordable(P.bondUnit)) act({ type: 'borrow', amount: P.bondUnit }, `市債を ${P.bondUnit.toLocaleString()} 万円発行：新しい住宅地の道路のため`);
         if (plan && !saving && (plan as any).buy && can(P.roadCost[1] * plan.length + 6000)) act({ type: 'buyout', id: (plan as any).buy }, '入口の住宅 1 軒の用地を買収：新しい住宅地へ道を通すため');
         if (plan && !saving && !s.occ[plan[0]] && can(P.roadCost[1] * plan.length)) act({ type: 'road', tiles: plan, road: 1 }, `新しい住宅地の道路を ${plan.length} 区間つくる（${where(s, plan[3] % W, (plan[3] / W) | 0)}）：沿道の空き地が少なくなったため`);
@@ -497,9 +530,16 @@ export function autoTurn(s: GameState): string[] {
   if (needLand && !redeveloped) redeveloped = redevelop('施設を建てる用地がないため');
   if (needLand && !redeveloped && !(st.waterCap > st.waterDemand * 1.03 && st.sewageCap > st.sewageDemand * 1.0)) {
     const m = getMap(s.seed), conn = roadInfo(s).conn, free = (i: number) => !s.occ[i] && !s.road[i] && !s.zone[i] && buildable(m, i) && !(s.rail?.[i] && s.railGrade?.[i] !== 2);
-    const plan = newBlock(s, free, conn);
+    const plan = gridDev('施設を建てる用地がないため', true) ? null : newBlock(s, free, conn);
     if (plan && (plan as any).buy && can(P.roadCost[1] * plan.length + 6000)) act({ type: 'buyout', id: (plan as any).buy }, '入口の住宅 1 軒の用地を買収：道を通すため');
     if (plan && !s.occ[plan[0]] && can(P.roadCost[1] * plan.length)) act({ type: 'road', tiles: plan, road: 1 }, `道路を ${plan.length} 区間延ばす（${where(s, plan[3] % W, (plan[3] / W) | 0)}）：施設を建てる用地がないため`);
+  }
+  // 7c. v95：土地の有効活用。道路に面した空き地（すぐ建てられる土地）が需要に比べて少なく、道路に面していない空き地が残っていれば、
+  //     格子状の生活道路を引いて開発する。作戦で速さを変える（どんどん攻めろ：毎月／バランス：2 か月ごと／財布だいじに：3 か月ごと）
+  if (!gridDone && st.waterCap > st.waterDemand * 1.02 && st.sewageCap >= st.sewageDemand && s.month % [1, 2, 3][ord] === 0) {
+    const sp = landSpare(s, cityCenter(s)), hot = st.vacancy < 0.06 || st.pentUp > 0.5 || st.workers < st.localJobs * 0.9;
+    const target = Math.max(40, Math.round(st.households / 30)) * [1.6, 1, 0.6][ord] * (st.pentUp > 3 ? 1.5 : 1); // 入れない世帯が多いほど、先に土地を用意しておく
+    if (sp.back >= 12 && hot && sp.near < target && (ord !== 2 || L.operating > 250)) gridDev(`街の中心・駅の近くで道路に面した空き地が ${sp.near} 区画と少なく、道路の通っていない空き地が ${sp.back} 区画残っているため`);
   }
   // 7b. 人口を伸ばす政策：余裕があれば子育て世帯の転入支援と空き家対策
   if (!saving && L.operating > 400 && can(reserve * 2) && !s.policies.familyMove?.on) act({ type: 'policy', id: 'familyMove', on: true }, '子育て世帯転入支援を始める：収支に余裕があり、人口を伸ばすため');
