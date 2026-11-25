@@ -173,6 +173,14 @@ export class UI {
   get s(): GameState { return this.game.view; }
 
   /** 短い知らせ。いつも 1 つだけ出す。長い文は最初の文だけにし、（）の補足は省く（全文はベルの「お知らせ」に残る） */
+  /** v98：画面の人・車を押したときの住民の紹介（押した所の近くに小さく。押すか 8 秒で消える） */
+  personCard(text: string, x: number, y: number): void {
+    document.getElementById('personcard')?.remove();
+    const d = document.createElement('div'); d.id = 'personcard';
+    d.style.cssText = `position:fixed;z-index:60;left:${Math.max(8, Math.min(window.innerWidth - 290, x + 14))}px;top:${Math.max(8, Math.min(window.innerHeight - 150, y - 20))}px;width:270px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.96);color:#223;font-size:12px;line-height:1.55;box-shadow:0 2px 10px rgba(0,0,0,.25);cursor:pointer`;
+    text.split('｜').forEach((s, i) => { const l = document.createElement('div'); l.textContent = s; if (i === 0) l.style.fontWeight = 'bold'; d.appendChild(l); });
+    d.onclick = () => d.remove(); document.body.appendChild(d); setTimeout(() => d.remove(), 8000);
+  }
   toast(msg: string, err = false): void {
     let t = msg.replace(/\u0001.*$/, '');
     if (t.length > 34) t = t.replace(/（[^）]*）/g, '');
@@ -261,7 +269,7 @@ export class UI {
       const tile = this.view.pick(e.clientX, e.clientY);
       if (d.mode === 'tool' || d.mode === 'tap') this.commit(d.start, tile, e.pointerType !== 'mouse');
       else if (this.tool.t !== 'select' && e.pointerType === 'mouse') this.preview(tile);
-      else if (d.btn === 0 && !d.moved && this.view.mode === 'orbit' && !this.photo) this.select(tile);
+      else if (d.btn === 0 && !d.moved && this.view.mode === 'orbit' && !this.photo) { const who = this.tool.t === 'select' ? this.view.pickPerson(e.clientX, e.clientY) : null; if (who) this.personCard(who, e.clientX, e.clientY); else this.select(tile); } // v98：人・車を押すと、その住民の紹介
     };
     cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
     cv.addEventListener('pointerleave', () => { if (!this.drag) this.clearPreview(); });

@@ -1,10 +1,15 @@
 // v95：施設の利用者の人だかり。施設の利用（b.used）と実効容量（b.effCap）から混み具合を出し、時間帯ごとに敷地の中と周りに人を置く。
 // 人の「動き」は扱わない（立っている・その場で少し動く程度）。scene の施設の人（life）に混ぜて描く。
-// 住民一人ひとりの sim がつながったら、occupancyOf の中身だけを差し替える（今は used・effCap と市全体の統計から決める）。
+// v98：occupancyOf は、住民一人ひとり（src/sim/people.ts）の通学先・勤務先・用事の行き先から、いまその施設にいる人数を出す（src/render/residents.ts の presentAt）。
+// 住民がいない街（読み込み直後など）だけ、今までの used・effCap と市全体の統計から決める。
 import type { Geo } from './geo';
 import type { PType } from './people';
 import type { GameState, Building } from '../sim/index';
 import { DEFS, fam, hash } from '../sim/index';
+import { presentAt, enrollOf } from './residents';
+import { people } from '../sim/people';
+/** v98：描画の日（休日か・何日目か）。scene が人だかりを置き直す前に渡す */
+export const occDay = { holiday: false, day: 0 };
 
 /** 施設の混み具合。present：いまその場にいる人の数（実人数の目安）、ratio：利用÷定員（1 を超えると定員超過）、wait：入れずに待つ人（待機児童・外来の待ち） */
 export interface Occ { group: OccGroup; present: number; ratio: number; wait: number }
@@ -30,6 +35,19 @@ export function occupancyOf(s: GameState, b: Building, hour: number): Occ {
   const group = groupOf(b), cap = Math.max(1, b.effCap || (DEFS[b.kind].capacity ?? 0)), used = Math.max(0, b.used || 0), h = hour;
   const day = h >= 8 && h < 18 ? 1 : h >= 6.5 && h < 21 ? 0.35 : 0.03, hol = holidayK(s);
   if (b.status !== 'operating') return { group: 'none', present: 0, ratio: 0, wait: 0 };
+  // v98：住民から（在籍・勤務・用事でいまここにいる人）。行楽地・公園は市外からの来訪を今までの目安の半分だけ足す
+  let res: Map<number, number> | null = null; try { if (group !== 'none' && group !== 'waste' && people(s).n > 0) res = presentAt(s, h, occDay.holiday, occDay.day); } catch { res = null; }
+  if (res) {
+    const here = res.get(b.id) ?? 0;
+    switch (group) {
+      case 'school': { const en = enrollOf(s, b.id) || used; return { group, present: here, ratio: en / cap, wait: 0 }; }
+      case 'care': { const all = sumCap(s, 'care'), wait = all > 0 ? (s.stats.waitlist || 0) * cap / all : 0, open = h >= 7 && h < 19 ? 1 : 0, en = enrollOf(s, b.id) || used;
+        return { group, present: here, ratio: (en + wait) / cap, wait: wait * open }; }
+      case 'health': { const all = sumCap(s, 'health'), ratio = all > 0 ? (s.stats.pop || 0) / all : 0; return { group, present: here, ratio, wait: here * Math.max(0, ratio - 1) * 0.5 }; }
+      case 'park': case 'leisure': { const vis = DEFS[b.kind].visitors ?? 0, out = group === 'leisure' ? (10 + vis / 150) * 0.5 * day * (occDay.holiday ? 1.6 : 0.5) : 0; return { group, present: here + out, ratio: used > 0 ? used / cap : (here + out) / Math.max(20, cap), wait: 0 }; }
+      default: return { group, present: here, ratio: used > 0 ? used / cap : 0.6, wait: 0 };
+    }
+  }
   switch (group) {
     case 'school': { const ratio = used / cap, inSchool = h >= 7.4 && h < 16.5 ? 1 : h >= 16.5 && h < 18 ? 0.25 : 0; return { group, present: used * inSchool, ratio, wait: 0 }; }
     case 'care': { // 待機児童は市全体の数を、保育の定員の割合で各園に振り分ける
@@ -123,7 +141,7 @@ export function crowdPlan(s: GameState, b: Building, hour: number, P: { x: numbe
     const n = N(Math.min(occ.group === 'leisure' ? 80 : 40, occ.present / 3));
     scatter(Math.round(n * 0.6), -hx * 0.7, hx * 0.7, hz - 8, hz - 1, () => (occ.group === 'leisure' ? (rnd() < 0.4 ? 'tourist' : rnd() < 0.5 ? 'parent' : 'teen') : rnd() < 0.6 ? 'shopper' : 'elderly'), 1.2, 0.3);
     scatter(n - Math.round(n * 0.6), -hx * 0.9, hx * 0.9, hz + 1.5, hz + 3.5, () => (occ.group === 'leisure' ? 'tourist' : 'shopper'), 1.5, 0.35); // 前の歩道
-    if (occ.group === 'leisure' && occ.present > 60 && holidayK(s) >= 0.6) queue(N(Math.min(30, occ.present / 8)), -hx * 0.3, () => (rnd() < 0.5 ? 'tourist' : 'parent'), 0.8); // 休日の入場待ち
+    if (occ.group === 'leisure' && occ.present > 60 && (occDay.holiday || holidayK(s) >= 0.6)) queue(N(Math.min(30, occ.present / 8)), -hx * 0.3, () => (rnd() < 0.5 ? 'tourist' : 'parent'), 0.8); // 休日の入場待ち
   } else if (occ.group === 'gov') {
     scatter(N(Math.min(30, occ.present / 2)), -hx * 0.4, hx * 0.4, hz - 6, hz - 1, () => (rnd() < 0.4 ? 'elderly' : rnd() < 0.5 ? 'parent' : 'worker'), 0.8, 0.2);
   } else if (occ.group === 'waste') {

@@ -9,6 +9,8 @@ import { loadMap } from './maps/store';
 import { sound } from './audio/sound';
 import { setOnlineHook } from './online';
 import { recordTimeline } from './ui/timelapse';
+import { recordIncident } from './sim/people';
+import { incidentRateK } from './render/residents';
 
 declare global { interface Window { claude?: any; __sumu?: any } }
 
@@ -30,6 +32,10 @@ function start(data: { save?: string; terrain?: string; contest?: number } = {})
   const ui = new UI(game, view);
   setOnlineHook(() => { if (ui.tab === 'mayor') ui.renderSide(); });
   view.onSfx = (k, x, y, z) => sound.onView(k, x, y, z, view.audioInfo());
+  // v98：描画の事故を住民の sim につなぐ。sim は「見えた分」として数えるだけ（件数の本体は sim の確率。二重に数えない）。病院で亡くなった追加の知らせ（fatal）は数えない。
+  // 描画の事故の頻度は、sim の場所・時間帯の起きやすさ（incidentRate）から
+  view.onIncident = e => { if (e.fatal) return; recordIncident(game.state, { kind: e.kind === 'crash' || e.kind === 'violation' ? 'car' : e.kind === 'pedestrian' ? 'ped' : e.kind === 'train' ? 'rail' : 'fire', tile: e.tile }); };
+  view.incidentRate = (tile, hour, kind) => incidentRateK(game.state, tile, hour, kind);
   { const sb = document.querySelector('.sndbtn'); if (sb) sb.textContent = sound.set.on ? '🔊' : '🔇'; }
   if (/perf|debug/.test(location.hash)) document.body.classList.add('debug');
   // 上の帯の高さは画面幅や文字の大きさで変わる（スマホでは 2〜3 行に折り返す）。下に出す案内や資料が帯に隠れないよう、実際の高さを使う
