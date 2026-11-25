@@ -1,6 +1,6 @@
 // 3D 表示。GameState を読むだけで、書き換えない。経営の更新（月次）と描画の更新（毎フレーム）は別。
 import * as THREE from 'three';
-import { Geo } from './geo';
+import { Geo, type V3 } from './geo';
 import { People, makeLook, pickType, strideOf, seeded, calMonth, RAIN_EVENTS, ACC, type Look, type PType , PEOPLE_TIME } from './people';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -123,7 +123,8 @@ import { W, H, TILE, DEFS, isRes, isShop, isCity, fam, floodRisk, getMap, height
 import { realTerrain, realStatic, realRoads, realPaths, drawRealTile, drawRealGround, drawRealStation, drawRealLot, drawRealStore, looksBuiltUp, REAL_CHUNK } from './real';
 import type { GameState, Building, Kind, Layer, MapDef } from '../sim/index';
 import { stationStats } from '../sim/index';
-import { makeShore, drawShoreWater } from './shore';
+import { makeShore, buildShoreWater, seaColors } from './shore';
+import { warpTile, field, clipPoly } from './soft';
 import { FIC_PREV_W } from '../sim/config';
 import { grade, FLY_H, FLY_RAMP, OVP_H, OVP_RAMP } from '../sim/grade'; // v94：立体の道路の形（sim と同じ答え）
 /** v93：架空の街の空き地は（v92 の広い地図では 76×68 の内も）、地形の見た目の印（田んぼ・畑・草地・林・空き地のまとまり）で描く。区画ごとの乱数で田畑・草地を選ぶと、上空から市松模様に見えた。印がなければ -1 */
@@ -310,6 +311,19 @@ ${road ? '' : `${body ? '' : `  { // v78：地図の外は、田畑・草地・�
   };
 }
 /** v88：なめらかな値のむら（g 区画ごとの乱数を補間）。地面の色に使う */
+/** 水面の材質（v93 のさざ波のシェーダー water-wave）。sea：頂点色で水深の色を付け、不透明に（v95） */
+function waterMat(sea: boolean): THREE.MeshStandardMaterial { const m = new THREE.MeshStandardMaterial(sea ? { color: 0xffffff, vertexColors: true, roughness: 0.12, metalness: 0.25 } : { color: 0x3f7fa6, roughness: 0.12, metalness: 0.25, transparent: true, opacity: 0.9 });
+    // さざ波：位置と時刻から波の傾きを作り、法線を揺らす（空や街明かりの映り込みがきらめく）
+    m.onBeforeCompile = sh => { sh.uniforms.uT = NIGHT_UNI.uT;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWq;').replace('#include <project_vertex>', '#include <project_vertex>\nvWq = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWq; uniform float uT;').replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        { vec2 p = vWq.xz; float t = uT, dd = length(vViewPosition); vec2 g = vec2(0.0);
+          float hf = 1.0 - smoothstep(40.0, 220.0, dd); // 遠くは細かい波を消す（ちらつき防止）
+          for (int k = 0; k < 6; k++) { float fk = float(k), a = fk * 2.399 + 0.7, fr = 0.18 * pow(1.55, fk), am = 0.11 / (1.0 + fk * 0.9) * (k > 2 ? hf : 1.0);
+            vec2 dir = vec2(cos(a), sin(a)); g += dir * cos(dot(p, dir) * fr + t * (0.8 + fk * 0.55) + sin(dot(p, dir.yx) * fr * 0.37) * 1.7) * am; }
+          float fd = 1.0 - smoothstep(150.0, 900.0, dd); vec3 nw = normalize(vec3(-g.x * fd, 1.0, -g.y * fd));
+          normal = normalize((viewMatrix * vec4(nw, 0.0)).xyz); }`); };
+    m.customProgramCacheKey = () => sea ? 'water-wave-sea' : 'water-wave'; return m; }
 const vnoise = (x: number, y: number, g: number, k: number) => { const gx = Math.floor(x / g), gy = Math.floor(y / g), fx = x / g - gx, fy = y / g - gy, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy), q = (a: number, b: number) => hash(a, b, k);
   return (q(gx, gy) * (1 - sx) + q(gx + 1, gy) * sx) * (1 - sy) + (q(gx, gy + 1) * (1 - sx) + q(gx + 1, gy + 1) * sx) * sy; };
 /** 最初にカメラを向ける場所（地図ごとの駅） */
@@ -381,18 +395,9 @@ export class View {
   private matCursor = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.6, depthWrite: false, depthTest: false });
   private matHelp = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.3, depthWrite: false, depthTest: false });
   private matGhost = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.6, depthWrite: false });
-  private matWater = (() => { const m = new THREE.MeshStandardMaterial({ color: 0x3f7fa6, roughness: 0.12, metalness: 0.25, transparent: true, opacity: 0.9 });
-    // さざ波：位置と時刻から波の傾きを作り、法線を揺らす（空や街明かりの映り込みがきらめく）
-    m.onBeforeCompile = sh => { sh.uniforms.uT = NIGHT_UNI.uT;
-      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWq;').replace('#include <project_vertex>', '#include <project_vertex>\nvWq = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWq; uniform float uT;').replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-        { vec2 p = vWq.xz; float t = uT, dd = length(vViewPosition); vec2 g = vec2(0.0);
-          float hf = 1.0 - smoothstep(40.0, 220.0, dd); // 遠くは細かい波を消す（ちらつき防止）
-          for (int k = 0; k < 6; k++) { float fk = float(k), a = fk * 2.399 + 0.7, fr = 0.18 * pow(1.55, fk), am = 0.11 / (1.0 + fk * 0.9) * (k > 2 ? hf : 1.0);
-            vec2 dir = vec2(cos(a), sin(a)); g += dir * cos(dot(p, dir) * fr + t * (0.8 + fk * 0.55) + sin(dot(p, dir.yx) * fr * 0.37) * 1.7) * am; }
-          float fd = 1.0 - smoothstep(150.0, 900.0, dd); vec3 nw = normalize(vec3(-g.x * fd, 1.0, -g.y * fd));
-          normal = normalize((viewMatrix * vec4(nw, 0.0)).xyz); }`); };
-    m.customProgramCacheKey = () => 'water-wave'; return m; })();
+  private matWater = waterMat(false);
+  /** v95：地図の中の岸を曲線で描く水面と、地図の外の海の板（頂点色で水深の色。不透明にして、水の下の地面の網の明暗が区画ごとのまだらに透けないように） */
+  private matSea = waterMat(true);
   private matCloud = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, fog: false, transparent: true, opacity: 0.92 });
   /** 自販機の明かり（夜だけ。青白い光の粒） */
   private matVend = new THREE.PointsMaterial({ color: 0xdff0ff, size: 3.2, sizeAttenuation: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }); private vends: THREE.Points | null = null;
@@ -595,30 +600,38 @@ export class View {
     if (T === 'castaway') { // v88：無人島。地図の外はすべて海（遠い北に本土の山なみだけ）
       flat(-far, -far, MAPW + far, MAPH + far, -3.4, 0x4f6658);
       const og = new THREE.PlaneGeometry(MAPW + far * 2, MAPH + far * 2); og.rotateX(-Math.PI / 2);
-      const ocean = new THREE.Mesh(og, this.matWater); ocean.position.set(MAPW / 2, -1.55, MAPH / 2); this.scene.add(ocean);
+      const ocean = new THREE.Mesh(seaColors(og), this.matSea); ocean.position.set(MAPW / 2, -1.55, MAPH / 2); this.scene.add(ocean);
       const om = new THREE.Mesh(outer.build(), this.matTerrain); om.receiveShadow = true; this.scene.add(om);
       { const cx = (70 + isleOX()) * TILE, cz = (80 + isleOY()) * TILE; this.target.set(cx, 0, cz); this.want.x = cx; this.want.z = cz; } this.want.dist = this.dist = 1400; return; // はじめは南の入り江（上陸する所）を見る
     }
     flat(-far, -far, MAPW + far, 0, -0.02, G);
     if (isle) { flat(-far, 0, 0, 24.5 * TILE, -0.02, G); flat(-far, 24.5 * TILE, 0, RY * TILE, -3.2, 0x566b5a); flat(MAPW, 0, MAPW + far, RY * TILE, -3.2, 0x566b5a); }
-    else { flat(-far, 0, 0, RY * TILE, -0.02, G); flat(MAPW, 0, MAPW + far, RY * TILE, -0.02, G); }
-    const sea = !noSea; // v70：海のある地形は、南の水面を水平線まで広げる（前は 60m 先から陸地で、川のように見えていた）
+    const sea = !noSea, v3s = !!this.map.surf && sea && !isle;
+    // v95：v94 の海辺の地形は、地図の東西の縁で海岸が RY の行にないので、地図の外の海岸線を縁の海岸の位置から 600m かけて RY へつなぐ（縁で陸と海が食い違う直線の継ぎ目を消す）
+    const edgeY = (x: number) => { if (!v3s) return RY; let y = H - 1; while (y > 0 && this.map.sea?.[idx(x, y)]) y--; return y >= H - 1 ? RY : y + 1; };
+    const yE = [edgeY(0), edgeY(W - 1)], D = 600;
+    if (!isle) for (const sd of [0, 1]) { const xs = sd === 0 ? [-far, -D, -D * 0.75, -D * 0.5, -D * 0.25, 0] : [MAPW, MAPW + D * 0.25, MAPW + D * 0.5, MAPW + D * 0.75, MAPW + D, MAPW + far];
+      const zc = (xw: number) => { const t = Math.min(1, (sd === 0 ? -xw : xw - MAPW) / D), k = t * t * (3 - 2 * t); return (yE[sd] + (RY - yE[sd]) * k) * TILE; };
+      for (let k = 0; k + 1 < xs.length; k++) { const a = xs[k], b = xs[k + 1], za = zc(a), zb = zc(b), T1 = 1.6 * TILE;
+        outer.quad([a, -0.02, za], [b, -0.02, zb], [b, -0.02, 0], [a, -0.02, 0], G);
+        outer.quad([a, -1.4, za + T1], [b, -1.4, zb + T1], [b, -1.4, zb], [a, -1.4, za], 0xa9a07f);
+        outer.quad([a, -3.2, MAPH + 60], [b, -3.2, MAPH + 60], [b, -3.2, zb + T1], [a, -3.2, za + T1], 0x566b5a); } } // v70：海のある地形は、南の水面を水平線まで広げる（前は 60m 先から陸地で、川のように見えていた）
     if (!sea) flat(-far, MAPH + 60, MAPW + far, MAPH + far, -0.02, 0x6f9652);
     else flat(-far, MAPH + 60, MAPW + far, MAPH + far, -3.4, 0x4f6658);
-    for (const [x0, x1] of [[-far, 0], [MAPW, MAPW + far]]) { flat(x0, RY * TILE, x1, (RY + 1.6) * TILE, -1.4, 0xa9a07f); flat(x0, (RY + 1.6) * TILE, x1, MAPH + 60, -3.2, 0x566b5a); }
+    if (isle) for (const [x0, x1] of [[-far, 0], [MAPW, MAPW + far]]) { flat(x0, RY * TILE, x1, (RY + 1.6) * TILE, -1.4, 0xa9a07f); flat(x0, (RY + 1.6) * TILE, x1, MAPH + 60, -3.2, 0x566b5a); }
     if (isle) { // 島：東と南西の外も海
       const sg = new THREE.PlaneGeometry(far, RY * TILE + 40); sg.rotateX(-Math.PI / 2);
-      const e = new THREE.Mesh(sg, this.matWater); e.position.set(MAPW + far / 2 - 20, -1.62, RY * TILE / 2 - 20); this.scene.add(e);
+      const e = new THREE.Mesh(seaColors(sg), this.matSea); e.position.set(MAPW + far / 2 - 20, -1.62, RY * TILE / 2 - 20); this.scene.add(e);
       const wg2 = new THREE.PlaneGeometry(far, (RY - 24.5) * TILE + 20); wg2.rotateX(-Math.PI / 2);
-      const w2 = new THREE.Mesh(wg2, this.matWater); w2.position.set(-far / 2 + 20, -1.62, (24.5 + RY) / 2 * TILE); this.scene.add(w2);
+      const w2 = new THREE.Mesh(seaColors(wg2), this.matSea); w2.position.set(-far / 2 + 20, -1.62, (24.5 + RY) / 2 * TILE); this.scene.add(w2);
     }
     const om = new THREE.Mesh(outer.build(), this.matTerrain); om.receiveShadow = true; this.scene.add(om);
     // v94 の地形：地図の中の海・川は区画ごとに岸を曲線で描くので、大きな水面は地図の南の縁から外だけ（東西の外の川の帯はそのまま）
     const v3 = !!this.map.surf, z0w = v3 ? MAPH : (RY - 0.2) * TILE;
-    if (v3) for (const [x0, x1] of [[-far, 0], [MAPW, MAPW + far]]) { const sg2 = new THREE.PlaneGeometry(x1 - x0, MAPH - (RY - 0.2) * TILE); sg2.rotateX(-Math.PI / 2); const s2 = new THREE.Mesh(sg2, this.matWater); s2.position.set((x0 + x1) / 2, -1.55, ((RY - 0.2) * TILE + MAPH) / 2); this.scene.add(s2); }
+    if (v3) for (const [sd, x0, x1] of [[0, -far, 0], [1, MAPW, MAPW + far]]) { const zs = (Math.min(RY, yE[sd]) - 0.2) * TILE, sg2 = new THREE.PlaneGeometry(x1 - x0, MAPH - zs); sg2.rotateX(-Math.PI / 2); const s2 = new THREE.Mesh(seaColors(sg2), this.matSea); s2.position.set((x0 + x1) / 2, -1.55, (zs + MAPH) / 2); this.scene.add(s2); }
     if (v3 && !sea) { const lg = new Geo(); lg.quad([0, -0.02, MAPH + 60], [MAPW, -0.02, MAPH + 60], [MAPW, -0.02, MAPH], [0, -0.02, MAPH], G); const lm = new THREE.Mesh(lg.build(), this.matTerrain); lm.receiveShadow = true; this.scene.add(lm); } // 海のない地形：南の川は地図の中で曲がるので、南の縁の外は陸
     const wd = MAPH - z0w + (sea ? far : 60), wg = new THREE.PlaneGeometry(far * 2 + MAPW, wd); wg.rotateX(-Math.PI / 2);
-    const water = new THREE.Mesh(wg, this.matWater); water.position.set(MAPW / 2, v3 ? -1.56 : -1.55, z0w + wd / 2); this.scene.add(water);
+    const water = new THREE.Mesh(seaColors(wg), this.matSea); water.position.set(MAPW / 2, v3 ? -1.56 : -1.55, z0w + wd / 2); this.scene.add(water);
     { const pg = new THREE.CircleGeometry(2.35 * TILE, 40); pg.rotateX(-Math.PI / 2); const pond = new THREE.Mesh(pg, this.matWater); pond.position.set(44.5 * TILE, -0.7, 50.5 * TILE); this.scene.add(pond);
       if (W > 76 && !this.map.surf) { const p2 = new THREE.Mesh(new THREE.CircleGeometry(2.75 * TILE, 40).rotateX(-Math.PI / 2), this.matWater); p2.position.set(112.5 * TILE, -0.7, 72.5 * TILE); this.scene.add(p2); }
       // v92：さらに広げた土地のため池。水面の高さは岸（半径の 0.95 倍）の低い所に合わせる（丘のふもとでも水面が地面に埋もれないよう）
@@ -628,7 +641,7 @@ export class View {
 
   // ---- v70：田んぼ（田園・山あい・盆地の空き地）。季節で水→緑→金→刈り跡と色が変わる ----
   private paddy: THREE.Mesh | null = null; private paddyAze: THREE.Mesh | null = null; private paddyKey = ''; private paddyWait = 0;
-  private matPaddy = new THREE.MeshStandardMaterial({ color: 0x6faa48, roughness: 0.85, metalness: 0 });
+  private matPaddy = new THREE.MeshStandardMaterial({ color: 0x6faa48, vertexColors: true, roughness: 0.85, metalness: 0 }); // v95：頂点色で田ごとの色の違い
   private updatePaddy(s: GameState, dt: number): void {
     if (REAL || !this.map.deco) return;
     const key = `${s.bVersion}:${s.roadVersion}:${this.map.seed}`;
@@ -644,17 +657,34 @@ export class View {
     const m = this.map, deco = m.deco!, occ = new Uint8Array(W * H);
     for (const b of s.buildings) for (let dy = 0; dy < b.h; dy++) for (let dx = 0; dx < b.w; dx++) if (inMap(b.x + dx, b.y + dy)) occ[idx(b.x + dx, b.y + dy)] = 1;
     const sg = new Geo(), ag = new Geo(), h = (x: number, z: number) => heightAt(m, x, z);
+    // v95：まとまりの境は、田を境の曲線（soft.ts の field）で欠く。田の大きさは区画ごとにずらし、田ごとに色を少し変える。
+    // 斜面（区画の中で 1.2m 以上の高低差）は、等高線に沿う細長い 3 枚の田にし、田の面を水平に（下側に土手の面）＝棚田
+    const ind = (i: number) => (deco[i] === 2 && !occ[i] && !s.road[i] && !s.rail?.[i] && !m.water[i] && !m.forest[i] ? 1 : 0);
+    const AZ = 0x7d8a52, BANK = 0x7a7350, r = 0.7, ins = 0.7 / TILE;
+    const aze = (P: [number, number][], ys: number[]) => { // 田の縁のあぜ（外へ r の帯。角は辺の向きに r 延ばして埋める）
+      for (let k = 0; k < P.length; k++) { const a = P[k], b = P[(k + 1) % P.length], ya = ys[k], yb = ys[(k + 1) % P.length];
+        const dx = (b[0] - a[0]) * TILE, dz = (b[1] - a[1]) * TILE, L = Math.hypot(dx, dz); if (L < 0.05) continue; const ux = dx / L, uz = dz / L, ox = -uz * r, oz = ux * r;
+        const A: V3 = [a[0] * TILE, ya, a[1] * TILE], B: V3 = [b[0] * TILE, yb, b[1] * TILE];
+        ag.quad([A[0] - ux * r + ox, ya + 0.18, A[2] - uz * r + oz], [B[0] + ux * r + ox, yb + 0.18, B[2] + uz * r + oz], [B[0], yb + 0.18, B[2]], [A[0], ya + 0.18, A[2]], AZ);
+        const ga = h(A[0] + ox, A[2] + oz), gb = h(B[0] + ox, B[2] + oz); // 棚田の土手（田の面が地面より上の所だけ）
+        if (ya - ga > 0.3 || yb - gb > 0.3) ag.quad([B[0] + ux * r + ox, yb + 0.18, B[2] + uz * r + oz], [A[0] - ux * r + ox, ya + 0.18, A[2] - uz * r + oz], [A[0] - ux * r + ox, ga - 0.3, A[2] - uz * r + oz], [B[0] + ux * r + ox, gb - 0.3, B[2] + uz * r + oz], BANK, 0.85);
+      } };
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const i = idx(x, y); if (deco[i] !== 2 || occ[i] || s.road[i] || s.rail?.[i] || m.water[i] || m.forest[i]) continue;
-      // 1 区画を 2×2 の田に分け、あぜ道で囲む
-      for (let q = 0; q < 4; q++) {
-        const x0 = (x + (q & 1) * 0.5) * TILE + 0.7, z0 = (y + (q >> 1) * 0.5) * TILE + 0.7, x1 = x0 + TILE / 2 - 1.4, z1 = z0 + TILE / 2 - 1.4, e = 0.14;
-        sg.quad([x0, h(x0, z1) + e, z1], [x1, h(x1, z1) + e, z1], [x1, h(x1, z0) + e, z0], [x0, h(x0, z0) + e, z0], 0xffffff);
-        const r = 0.7, ry = 0.32, col = 0x7d8a52;
-        ag.quad([x0 - r, h(x0, z0) + ry, z0], [x1 + r, h(x1, z0) + ry, z0], [x1 + r, h(x1, z0) + ry, z0 - r], [x0 - r, h(x0, z0) + ry, z0 - r], col);
-        ag.quad([x0 - r, h(x0, z1) + ry, z1 + r], [x1 + r, h(x1, z1) + ry, z1 + r], [x1 + r, h(x1, z1) + ry, z1], [x0 - r, h(x0, z1) + ry, z1], col);
-        ag.quad([x0 - r, h(x0, z1) + ry, z1], [x0, h(x0, z1) + ry, z1], [x0, h(x0, z0) + ry, z0], [x0 - r, h(x0, z0) + ry, z0], col);
-        ag.quad([x1, h(x1, z1) + ry, z1], [x1 + r, h(x1, z1) + ry, z1], [x1 + r, h(x1, z0) + ry, z0], [x1, h(x1, z0) + ry, z0], col);
+      const i = idx(x, y); if (!ind(i)) continue;
+      const edge = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].some(([a, b]) => inMap(x + a, y + b) && !ind(idx(x + a, y + b)));
+      const X0 = x * TILE, Z0 = y * TILE, gx = (h(X0 + TILE, Z0) + h(X0 + TILE, Z0 + TILE) - h(X0, Z0) - h(X0, Z0 + TILE)) / 2, gz = (h(X0, Z0 + TILE) + h(X0 + TILE, Z0 + TILE) - h(X0, Z0) - h(X0 + TILE, Z0)) / 2;
+      const terr = Math.max(Math.abs(gx), Math.abs(gz)) > 1.2, rects: [number, number, number, number][] = [];
+      if (terr) { const c1 = 0.3 + 0.08 * (hash(x, y, 91) - 0.5), c2 = 0.66 + 0.08 * (hash(x, y, 92) - 0.5); // 等高線に沿う 3 枚（勾配の向きに並べる）
+        for (const [a, b] of [[0, c1], [c1, c2], [c2, 1]]) rects.push(Math.abs(gx) > Math.abs(gz) ? [x + a, y, x + b, y + 1] : [x, y + a, x + 1, y + b]); }
+      else { const sx = 0.5 + 0.22 * (hash(x, y, 93) - 0.5), sz = 0.5 + 0.22 * (hash(x, y, 94) - 0.5); // 2×2（しきりの位置を区画ごとにずらす）
+        for (const [a0, a1] of [[0, sx], [sx, 1]]) for (const [b0, b1] of [[0, sz], [sz, 1]]) rects.push([x + a0, y + b0, x + a1, y + b1]); }
+      for (const [u0, v0, u1, v1] of rects) {
+        let P: [number, number][] = [[u0 + ins, v1 - ins], [u1 - ins, v1 - ins], [u1 - ins, v0 + ins], [u0 + ins, v0 + ins]];
+        if (edge) { P = clipPoly(P, P.map(([u, v]) => field(ind, u, v))); if (P.length < 3) continue; }
+        const g0 = P.map(([u, v]) => h(u * TILE, v * TILE)), flatY = Math.max(...g0) + 0.14, ys = terr ? P.map(() => flatY) : g0.map(v => v + 0.14);
+        const t = hash(Math.floor(u0 * 7), Math.floor(v0 * 7), 95), gy = Math.round(255 * (0.84 + 0.13 * t)), col = ((gy + 6) << 16) | (gy << 8) | (gy - (t > 0.7 ? 10 : 0)); // 田ごとの明るさ（0〜255 に収める）
+        for (let k = 1; k + 1 < P.length; k++) sg.tri([P[0][0] * TILE, ys[0], P[0][1] * TILE], [P[k][0] * TILE, ys[k], P[k][1] * TILE], [P[k + 1][0] * TILE, ys[k + 1], P[k + 1][1] * TILE], col);
+        aze(P, ys);
       }
     }
     if (!sg.pos.length) return;
@@ -668,6 +698,7 @@ export class View {
     this.landObjs = [];
     const m = this.map, SUB = 3, nx = W * SUB, nz = H * SUB, st0 = this.getState();
     const shore = makeShore(m); // v94：岸をなめらかな曲線に
+    const SOFT = [0, 2, 6, 7, 8, 9], softOn = !!m.deco && !REAL, softT = (i: number) => !m.water[i] && !m.sand?.[i] && !m.wet?.[i] && !m.dug?.[i] && !m.desert?.[i] && !m.snow?.[i] && !(m.steep[i] && m.base) && SOFT.includes(m.deco?.[i] ?? 0);
     const pos = new Float32Array((nx + 1) * (nz + 1) * 3), col = new Float32Array((nx + 1) * (nz + 1) * 3);
     const c = new THREE.Color(), c2 = new THREE.Color();
     // 掘割の線路：区画の地面を掘り下げる（見た目だけ）
@@ -683,7 +714,8 @@ export class View {
       // v93：頂点ごとの乱数（遠景で細かいざらつきに見える）を弱め、大きなむらを足す
       const n = vnoise(i / SUB, j / SUB, 14, 93) * 0.3 + vnoise(i / SUB, j / SUB, 5, 91) * 0.4 + vnoise(i / SUB, j / SUB, 1.4, 17) * 0.24 + hash(i, j, 17) * 0.06;
       c.setHex(0x6c9a52).lerp(c2.setHex(0x86b160), n);
-      const tx = Math.min(W - 1, Math.floor(x / TILE)), tz = Math.min(H - 1, Math.floor(z / TILE)), ti = idx(tx, tz);
+      const tx = Math.min(W - 1, Math.floor(x / TILE)), tz = Math.min(H - 1, Math.floor(z / TILE)); let ti = idx(tx, tz);
+      if (softOn) { const wi = warpTile(x / TILE, z / TILE); if (wi !== ti && softT(ti) && softT(wi)) ti = wi; } // v95：林・田畑・草地の境は、引く区画をノイズでずらして、格子の階段でなく、くねる境に
       if (m.forest[ti]) c.lerp(c2.setHex(0x4f7f45), 0.6);
       if (m.steep[ti] && !m.forest[ti] && m.base) c.lerp(c2.setHex(0x8a7a66), 0.55); // 造作した崖・急斜面は岩肌
       { const dc = m.deco?.[ti]; // v70：地形の見た目の印
@@ -717,9 +749,10 @@ export class View {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = idx(x, y);
       if (!m.forest[i]) continue;
-      const n = y >= H - 6 ? 2 : 5;
+      const n = y >= H - 6 ? 2 : 5, edge = !REAL && [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].some(([a, b]) => inMap(x + a, y + b) && !m.forest[idx(x + a, y + b)]);
       for (let k = 0; k < n; k++) {
         const wx = (x + hash(x * 7 + k, y, 3)) * TILE, wz = (y + hash(x, y * 5 + k, 4)) * TILE;
+        if (edge && field(j => m.forest[j], wx / TILE, wz / TILE) < 0.3 + 0.45 * hash(x + k, y * 3, 7)) continue; // v95：林の縁は木をまばらに（境の曲線の外は描かない）
         tg.at(wx, heightAt(m, wx, wz) - 0.2, wz); tree(cx, 0, 0, 1.2 + hash(x + k, y, 5) * 0.9, hash(x, y + k, 6) < 0.45 ? 1 : 0);
       }
     }
@@ -754,7 +787,7 @@ export class View {
       const a0 = x0 + (dug ? inset(-1, 0) : 3), a1 = x0 + TILE - (dug ? inset(1, 0) : 3), b0 = z0 + (dug ? inset(0, -1) : 3), b1 = z0 + TILE - (dug ? inset(0, 1) : 3);
       (wet ? mg : wg).quad([a0, lv, b1], [a1, lv, b1], [a1, lv, b0], [a0, lv, b0], wet ? 0x5f6e4c : 0x3f7fa6);
     }
-    if (shore) drawShoreWater(shore, wg, 0x3f7fa6);
+    if (shore) { const sg = buildShoreWater(shore); if (sg) { const mesh = new THREE.Mesh(sg, this.matSea); mesh.receiveShadow = true; mesh.frustumCulled = false; this.scene.add(mesh); this.landObjs.push(mesh); } } // v95：水深の色の 1 枚の水面
     if (wg.pos.length) { const mesh = new THREE.Mesh(wg.build(), this.matWater); mesh.receiveShadow = true; mesh.frustumCulled = false; this.scene.add(mesh); this.landObjs.push(mesh); }
     if (mg.pos.length) { this.matMarsh ??= new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.25, metalness: 0.1, transparent: true, opacity: 0.85 }); const mesh = new THREE.Mesh(mg.build(), this.matMarsh); mesh.receiveShadow = true; mesh.frustumCulled = false; this.scene.add(mesh); this.landObjs.push(mesh); }
   }
@@ -1013,7 +1046,7 @@ export class View {
     this.matCloud.color.copy(C(0x2a3350).lerp(C(0xffc9a8), up).lerp(C(0xffffff), high).lerp(C(0x6b7178).multiplyScalar(0.35 + 0.65 * day), Math.min(1, oc * 0.9)));
     if (this.clouds) this.clouds.scale.set(1, 1 + oc * 0.6, 1);
     this.renderer.toneMappingExposure *= 1 - 0.06 * wet;
-    this.matWater.color.copy(C(0x16263c).lerp(C(0x3f7fa6), day));
+    this.matWater.color.copy(C(0x16263c).lerp(C(0x3f7fa6), day)); { const d0 = C(0x3f7fa6); this.matSea.color.setRGB(this.matWater.color.r / d0.r, this.matWater.color.g / d0.g, this.matWater.color.b / d0.b); } // v95：頂点色の水面も同じ明るさで昼夜を変える
     // 空のグラデーションと太陽まわりの明るみ
     const pos = this.sky.geometry.attributes.position, col = this.sky.geometry.attributes.color as THREE.BufferAttribute, v = new THREE.Vector3(), c = new THREE.Color();
     const glow = C(0xffb060).lerp(C(0xfff0d0), high);
@@ -1650,8 +1683,9 @@ export class View {
             for (const [qx, qz] of [[-7.1, 5.9], [7.1, 5.9], [-7.1, -8.3], [7.1, -8.3]]) { const r = RF[(b.id + Math.round(qx + qz)) & 3]; lg.box(qx, 0, qz, 7.6, 5.5, 6.4, col, col); lg.gable(qx, 5.5, qz, 7.6, 6.4, 1.9, r, 'x', col, 0.4); }
           } else lg.box(0, 0, 0, Math.max(4, b.w * TILE - 6), fam(b.kind) === 'park' ? 0.4 : hh, Math.max(4, b.h * TILE - 6), col, isRes(b.kind) ? 0x8a6a5a : undefined); }
         for (let y = Math.max(2, cy0); y < Math.min(H - 4, cy0 + CH); y++) for (let x = cx0; x < Math.min(W, cx0 + CH); x++) { const i = idx(x, y); if (s.road[i] || s.occ[i] || !buildable(m, i)) continue; const r = hash(x, y, 77), cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE, top = heightAt(m, cx, cz);
-          const ek = extLook(m, x, y); if (s.zone[i]) { lg.at(cx, top, cz); lg.box(0, -2, 0, 27, 2.05, 27, 0xa8997c); } else if (ek >= 0) { if (ek === 6 && y < H - 6) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, hash(Math.floor(x / 3), y >> 1, 31) < 0.5 ? 0x7a7a4c : 0x6a8a46); } } else if (r < (y >= 40 ? 0.72 : 0.5) && y < H - 6 && !(m.sand?.[i] || m.desert?.[i] || m.snow?.[i])) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, r < 0.3 ? 0x8cbc5c : 0x5f9445); } }
-        if (lg.pos.length) { const lm = new THREE.Mesh(lg.build(false), LOD_MAT); lm.receiveShadow = true; lm.visible = false; this.scene.add(lm); this.chunkLow.set(k, lm); } }
+          const ek = extLook(m, x, y); if (s.zone[i]) { lg.at(cx, top, cz); lg.box(0, -2, 0, 27, 2.05, 27, 0xa8997c); } else if (ek >= 0) { /* v95：遠くの畑は箱を置かない（地面の色が 3×2 区画の畑ごとの土と作物の色で、境はノイズでくねる。箱の四角い輪郭が上空から格子に見えた） */ } else if (r < (y >= 40 ? 0.72 : 0.5) && y < H - 6 && !(m.sand?.[i] || m.desert?.[i] || m.snow?.[i])) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, r < 0.3 ? 0x8cbc5c : 0x5f9445); } }
+        if (!lg.pos.length) { lg.at((cx0 + CH / 2) * TILE, -60, (cy0 + CH / 2) * TILE); lg.box(0, 0, 0, 0.01, 0.01, 0.01, 0x000000); } // v95：遠くの畑の箱をやめて空になった塊も、簡略版を持たせる（持たないと、遠くの空き地の塊を後で作る工夫が効かず、細かい版をすぐ作って面が増えた）
+        { const lm = new THREE.Mesh(lg.build(false), LOD_MAT); lm.receiveShadow = true; lm.visible = false; this.scene.add(lm); this.chunkLow.set(k, lm); } }
       // v92：空き地だけの塊で、いまカメラから遠いものは、細かい版を後で（近づいたとき）作る
       if (!(blds.get(k)?.length) && arr.every(v => v === 'z0') && this.chunkLow.has(k)) {
         const cam = this.camera.position, ccx = ((k % NCX) + 0.5) * CH * TILE, ccz = (Math.floor(k / NCX) + 0.5) * CH * TILE, lim = (this.quality === 'high' ? 1800 : this.quality === 'mid' ? 1100 : 650) * (this.lite ? 0.6 : 1);
@@ -1763,12 +1797,17 @@ export class View {
       if (ek === 6 && flat && y < H - 6) {
         c.g.at(cx, top, cz); const g2 = c.g, svF = g2.surfv; g2.surfv = -2;
         const crops = [0x4f8a3c, 0x6aa352, 0x8fb04a, 0x5c9a4a], pr = hash(Math.floor(x / 3), y >> 1, 31), crop = crops[Math.floor(pr * 4) % 4], bare = pr < 0.3;
-        g2.box(0, -3, 0, 30, 3.04, 30, 0x8d8468, 0x7a6348);
-        for (let k = 0; k < 11; k++) { const z = -12.5 + k * 2.5; g2.box(0, 0.04, z, 29, 0.22, 1.5, 0x6f593f, 0x7d6649); if (!bare) g2.box(0, 0.26, z, 28, 0.3, 0.8, crop); }
+        const dd = m.deco!, ind6 = (j: number) => (dd[j] === 6 ? 1 : 0), e6 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].some(([a, b]) => inMap(x + a, y + b) && dd[idx(x + a, y + b)] !== 6);
+        if (!e6) { g2.box(0, -3, 0, 30, 3.04, 30, 0x8d8468, 0x7a6348); for (let k = 0; k < 11; k++) { const z = -12.5 + k * 2.5; g2.box(0, 0.04, z, 29, 0.22, 1.5, 0x6f593f, 0x7d6649); if (!bare) g2.box(0, 0.26, z, 28, 0.3, 0.8, crop); } }
+        else for (let k = 0; k < 11; k++) { // v95：畑のまとまりの縁は、土台の箱をやめ、うねを境の曲線までの長さに（区画の四角い輪郭を出さない）
+          const z = -12.5 + k * 2.5; let a0 = 99, a1 = -99; for (let t = 0; t <= 8; t++) { const lx = -14.5 + t * 29 / 8; if (field(ind6, (cx + lx) / TILE, (cz + z) / TILE) >= 0.5) { a0 = Math.min(a0, lx); a1 = Math.max(a1, lx); } }
+          if (a1 - a0 < 3) continue; g2.box((a0 + a1) / 2, 0.04, z, a1 - a0, 0.22, 1.5, 0x6f593f, 0x7d6649); if (!bare) g2.box((a0 + a1) / 2, 0.26, z, a1 - a0 - 1, 0.3, 0.8, crop); }
         g2.surfv = svF;
       } else if (ek === 8 || (ek === 7 && r < 0.18)) {
-        const n = ek === 8 ? 4 : 1;
-        for (let k = 0; k < n; k++) { const wx = cx + (hash(x + k, y, 78) - 0.5) * 24, wz = cz + (hash(x, y + k, 79) - 0.5) * 24; c.g.at(wx, heightAt(m, wx, wz) - 0.15, wz); tree(c, 0, 0, 0.9 + hash(x, y + k, 80) * 0.7, hash(x + k, y, 85) < 0.75 ? 1 : 0); } // 屋敷林は常緑樹が多い（落葉樹ばかりだと、春に林の塊がまとめて桜色になり、上空から白い斑点に見えた）
+        const n = ek === 8 ? 4 : 1, dd = m.deco!, e8 = ek === 8 && [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].some(([a, b]) => inMap(x + a, y + b) && dd[idx(x + a, y + b)] !== 8);
+        for (let k = 0; k < n; k++) { const wx = cx + (hash(x + k, y, 78) - 0.5) * (e8 ? 30 : 24), wz = cz + (hash(x, y + k, 79) - 0.5) * (e8 ? 30 : 24);
+          if (e8 && field(j => (dd[j] === 8 ? 1 : 0), wx / TILE, wz / TILE) < 0.3 + 0.45 * hash(x + k, y, 77)) continue; // v95：林の縁は木をまばらに、境の曲線の外は描かない
+          c.g.at(wx, heightAt(m, wx, wz) - 0.15, wz); tree(c, 0, 0, 0.9 + hash(x, y + k, 80) * 0.7, hash(x + k, y, 85) < 0.75 ? 1 : 0); } // 屋敷林は常緑樹が多い（落葉樹ばかりだと、春に林の塊がまとめて桜色になり、上空から白い斑点に見えた）
       }
     } else if (flat && r < (!REAL && y >= 40 ? 0.72 : 0.5) && y < H - 6) { // 田畑（南原は田んぼが多い）
       c.g.at(cx, top, cz);
@@ -3262,8 +3301,8 @@ export class View {
     for (let i = 0; i < d.length; i += 4) for (let j = 0; j < 3; j++) { const l = d[i + j] / 255; d[i + j] = Math.round(255 * (l <= 0.0031308 ? 12.92 * l : 1.055 * Math.pow(l, 1 / 2.4) - 0.055)); }
     this.envTex.needsUpdate = true;
     try { if (!this.envGen) this.envGen = new THREE.PMREMGenerator(this.renderer); const rt = this.envGen.fromEquirectangular(this.envTex); this.envRT?.dispose(); this.envRT = rt;
-      for (const m of [this.matWinA, this.matWinB, this.matWater, this.matRoad]) { m.envMap = rt.texture; if (!m.userData.env) { m.needsUpdate = true; m.userData.env = 1; } }
-      this.matWinA.envMapIntensity = 0.3 + 0.6 * day; this.matWinB.envMapIntensity = 0.25 + 0.5 * day; this.matWater.envMapIntensity = 0.6 + 0.6 * day; } catch { /* 作れない環境では映り込みなし */ }
+      for (const m of [this.matWinA, this.matWinB, this.matWater, this.matSea, this.matRoad]) { m.envMap = rt.texture; if (!m.userData.env) { m.needsUpdate = true; m.userData.env = 1; } }
+      this.matWinA.envMapIntensity = 0.3 + 0.6 * day; this.matWinB.envMapIntensity = 0.25 + 0.5 * day; this.matWater.envMapIntensity = this.matSea.envMapIntensity = 0.6 + 0.6 * day; } catch { /* 作れない環境では映り込みなし */ }
   }
   /** 夜の明かりの種類を区画ごとに決めて画像にする（シェーダーが読む）。建物の地面の高さも入れて、何階かを数えられるようにする */
   private buildLightProfile(s: GameState): void {

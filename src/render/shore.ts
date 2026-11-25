@@ -6,7 +6,7 @@
 //   水の区画と接する頂点だけは、水面より低ければ水面の高さまで上げる）
 // 水面の高さは、まわりの水の区画の高さをなめらかに補間する（川は上流から下流へなめらかに下がる）
 import { W, H, TILE, extWater, terrainOf, REAL, type MapDef } from '../sim/index';
-import type { Geo } from './geo';
+import * as THREE from 'three';
 
 export interface Shore { wf: Uint8Array; lv: Float32Array; emit: Uint8Array; f: (px: number, pz: number) => number; level: (px: number, pz: number) => number; adjust: (px: number, pz: number, y: number) => number }
 const hsh = (a: number, b: number, k: number) => { let h = (Math.imul(a, 374761393) + Math.imul(b, 668265263) + Math.imul(k, 2147483647)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
@@ -61,13 +61,37 @@ export function makeShore(m: MapDef): Shore | null {
   return { wf, lv, emit: e2, f, level, adjust };
 }
 
-/** 水面を描く（区画を 3×3 に分け、f ≥ 0.5 の所を切り抜く） */
-export function drawShoreWater(sh: Shore, g: Geo, color: number): void {
-  const R = 3, { wf, emit, f, level } = sh;
+/** v95：水深の色（深い所 0x3f7fa6＝地図の外の海と同じ、浅い岸ほど明るい浅葱色）。s は浅さ 0〜1 */
+const DEEP = new THREE.Color(0x3f7fa6), MID = new THREE.Color(0x4688ad), SHALLOW = new THREE.Color(0x66a8ba);
+export function waterTint(s: number, o: THREE.Color): THREE.Color { return s < 0.5 ? o.copy(DEEP).lerp(MID, s * 2) : o.copy(MID).lerp(SHALLOW, (s - 0.5) * 2); }
+/** 地図の外の海の板に、深い所の色の頂点色を付ける（v95：地図の中の海と色をそろえる） */
+export function seaColors(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const n = g.attributes.position.count, c = new Float32Array(n * 3); for (let k = 0; k < n; k++) { c[k * 3] = DEEP.r; c[k * 3 + 1] = DEEP.g; c[k * 3 + 2] = DEEP.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(c, 3)); return g;
+}
+
+/** 水面を描く（区画を 3×3 に分け、f ≥ 0.5 の所を切り抜く）。v95：1 枚の結合メッシュに、上向きの法線と水深の頂点色（区画の境で色・高さ・法線がつながる） */
+export function buildShoreWater(sh: Shore): THREE.BufferGeometry | null {
+  const R = 3, { wf, emit, f, level } = sh, N = W * H;
+  // 岸からの距離（区画）：陸 0、陸のとなりの水 1、…（8 近傍）
+  const dist = new Float32Array(N).fill(99), q: number[] = [];
+  for (let i = 0; i < N; i++) if (!wf[i]) { dist[i] = 0; q.push(i); }
+  for (let h = 0; h < q.length; h++) { const i = q[h], x = i % W, y = (i / W) | 0; for (let b = -1; b <= 1; b++) for (let a = -1; a <= 1; a++) { const xx = x + a, yy = y + b; if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue; const j = yy * W + xx; if (dist[j] > dist[i] + 1) { dist[j] = dist[i] + 1; q.push(j); } } }
+  const dAt = (x: number, y: number) => { const v = dist[Math.max(0, Math.min(H - 1, y)) * W + Math.max(0, Math.min(W - 1, x))]; return Math.min(v, 6); };
+  const shallow = (u: number, v: number) => { const p = u - 0.5, r = v - 0.5, x0 = Math.floor(p), y0 = Math.floor(r), tx = p - x0, ty = r - y0;
+    const d = (dAt(x0, y0) * (1 - tx) + dAt(x0 + 1, y0) * tx) * (1 - ty) + (dAt(x0, y0 + 1) * (1 - tx) + dAt(x0 + 1, y0 + 1) * tx) * ty;
+    const a = 1 - Math.min(1, Math.max(0, (d - 0.5) / 3.2)), fv = f(u, v), b = 1 - Math.min(1, Math.max(0, (fv - 0.5) * 2.2));
+    const s = Math.max(a * a * (3 - 2 * a) * 0.7, b); return Math.min(1, s); };
+  const pos: number[] = [], col: number[] = [], c = new THREE.Color(), memo = new Map<number, number>();
+  const vert = (u: number, v: number) => { const key = Math.round(u * 3) * 4099 + Math.round(v * 3); // 3×3 の格子の点は 1 度だけ計算（同じ点で色・高さがそろう）
+    const onGrid = Math.abs(u * 3 - Math.round(u * 3)) < 1e-6 && Math.abs(v * 3 - Math.round(v * 3)) < 1e-6;
+    let l = onGrid ? memo.get(key) : undefined; if (l === undefined) { l = level(u, v); if (!Number.isFinite(l)) l = -1.44; if (onGrid) memo.set(key, l); }
+    pos.push(u * TILE, l, v * TILE); waterTint(shallow(u, v), c); col.push(c.r, c.g, c.b); };
+  const tri = (a: [number, number], b: [number, number], d: [number, number]) => { vert(a[0], a[1]); vert(b[0], b[1]); vert(d[0], d[1]); };
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x; if (!emit[i]) continue;
     let inner = !!wf[i]; if (inner) for (let b = -1; b <= 1 && inner; b++) for (let a = -1; a <= 1; a++) { const xx = Math.max(0, Math.min(W - 1, x + a)), yy = Math.max(0, Math.min(H - 1, y + b)); if (!wf[yy * W + xx]) { inner = false; break; } }
-    if (inner) { const L = (u: number, v: number) => level(u, v); g.quad([x * TILE, L(x, y + 1), (y + 1) * TILE], [(x + 1) * TILE, L(x + 1, y + 1), (y + 1) * TILE], [(x + 1) * TILE, L(x + 1, y), y * TILE], [x * TILE, L(x, y), y * TILE], color); continue; }
+    if (inner) { tri([x, y + 1], [x + 1, y + 1], [x + 1, y]); tri([x, y + 1], [x + 1, y], [x, y]); continue; } // 岸に接しない区画は 1 区画 1 枚（v94 と同じ面数。色は角の頂点でなめらかにつながる）
     for (let sj = 0; sj < R; sj++) for (let si = 0; si < R; si++) {
       const u0 = x + si / R, u1 = x + (si + 1) / R, v0 = y + sj / R, v1 = y + (sj + 1) / R;
       const P: [number, number][] = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]], F = P.map(([u, v]) => f(u, v));
@@ -77,8 +101,11 @@ export function drawShoreWater(sh: Shore, g: Geo, color: number): void {
         if (fa >= 0.5) out.push(a);
         if ((fa >= 0.5) !== (fb >= 0.5)) { const t = (0.5 - fa) / (fb - fa); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); } }
       if (out.length < 3) continue;
-      const V = out.map(([u, v]) => { const l = level(u, v); return [u * TILE, Number.isFinite(l) ? l : -1.44, v * TILE] as [number, number, number]; });
-      for (let k = 1; k + 1 < V.length; k++) g.tri(V[0], V[k], V[k + 1], color);
+      for (let k = 1; k + 1 < out.length; k++) tri(out[0], out[k], out[k + 1]);
     }
   }
+  if (!pos.length) return null;
+  const g = new THREE.BufferGeometry(), nor = new Float32Array(pos.length); for (let k = 1; k < nor.length; k += 3) nor[k] = 1;
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return g;
 }
