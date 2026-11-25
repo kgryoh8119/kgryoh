@@ -88,14 +88,14 @@ export function planLine(s: GameState, salt = 0): { tiles: number[]; grade: numb
   return null;
 }
 /** 区画の高さ：建物・公園・林・急斜面・国道の下は地下、川の上は高架、それ以外は地上 */
-function tileGrade(s: GameState, i: number): number {
+export function tileGrade(s: GameState, i: number): number {
   const m = getMap(s.seed);
   if (m.water[i]) return 1;
   if (s.occ[i] || s.road[i] === 3 || m.forest[i] || (m.park && m.park[i]) || (m.blocked && m.blocked[i]) || m.steep[i]) return 2;
   return 0;
 }
 /** 駅の場所（3×1 の空き地。道路に面していると良い） */
-function findSite(s: GameState, cx: number, cy: number, r: number, avoid?: Set<number>): [number, number] | null {
+export function findSite(s: GameState, cx: number, cy: number, r: number, avoid?: Set<number>): [number, number] | null {
   const m = getMap(s.seed); let best: [number, number] | null = null, bd = 1e9;
   for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
     let ok = true;
@@ -112,12 +112,12 @@ function findSite(s: GameState, cx: number, cy: number, r: number, avoid?: Set<n
   return best;
 }
 /** 線路の道筋（向きつきの A*）：1 歩で 45 度までしか曲がらない。駅の敷地の真下の行（駅の長辺に沿う）に着く */
-function route(s: GameState, start: number, v: [number, number], site: [number, number], own: Set<number>): number[] | null {
+export function route(s: GameState, start: number, v: [number, number], site: [number, number], own: Set<number>, costOf?: (i: number) => number): number[] | null { // v97：costOf は区画の重み（オートの延伸が使う。省けば鉄道会社の新線と同じ）
   const rail = s.rail!;
   const goal = new Set<number>(); for (let dx = 0; dx < 3; dx++) for (const dy of [-1, 1]) if (inMap(site[0] + dx, site[1] + dy)) goal.add(idx(site[0] + dx, site[1] + dy));
   const blocked = (i: number) => { const x = i % W, y = (i / W) | 0; if (y === site[1] && x >= site[0] && x < site[0] + 3) return true; return false; };
   const nearRail = (x: number, y: number) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const xx = x + dx, yy = y + dy; if (inMap(xx, yy) && rail[idx(xx, yy)]) return true; } return false; };
-  const cost = (i: number) => { const g = tileGrade(s, i); return g === 2 ? 2.2 : g === 1 ? 2.0 : s.road[i] ? 1.3 : 1; };
+  const cost = costOf ?? ((i: number) => { const g = tileGrade(s, i); return g === 2 ? 2.2 : g === 1 ? 2.0 : s.road[i] ? 1.3 : 1; });
   const N = W * H * 16, gS = new Float32Array(N).fill(1e9), from = new Int32Array(N).fill(-1), open: [number, number][] = [];
   const hz = (i: number) => { const x = i % W, y = (i / W) | 0; return Math.hypot(x - site[0] - 1, y - site[1]); };
   const push = (k: number, f: number) => { open.push([f, k]); let c = open.length - 1; while (c > 0) { const p = (c - 1) >> 1; if (open[p][0] <= open[c][0]) break; [open[p], open[c]] = [open[c], open[p]]; c = p; } };
