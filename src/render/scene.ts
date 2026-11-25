@@ -109,7 +109,7 @@ import { buildRailPaths, drawRailPaths, railAt, SHIN_LINES, shinDeckY, RAIL_LM, 
 import { Landmarks, type LmItem } from './landmarks';
 import { roadKitMat, roadTile, face, RK } from './roadkit';
 import { roadBase, hasXw } from './roadbase';
-import { crowdPlan, occupancyPhase } from './occupancy';
+import { crowdPlan, occupancyPhase, occDay } from './occupancy';
 import { drawPowerLines, drawUtilities, kyodokoTiles, infraKey, pipeReach, pipeOverlay } from './infra'; // v87
 import { makeTrains, TRAIN_PART as TK_PART, FAMS, CAR_DIM, famColor, type TrainFam } from './trainkit'; // v88
 /** 列車 1 編成の走り（v88：速さ v・止まる位置 stopAt・ドア・車種 fam） */
@@ -2792,7 +2792,7 @@ export class View {
     if (!this.lifeP) return;
     this.lifeT += dt;
     if (this.celebT > 0) this.celebT -= dt;
-    const key = `${this.festOn(s) ? 'F' : ''}${s.bVersion}:${Math.round(this.target.x / 200)}:${Math.round(this.target.z / 200)}:${Math.floor(this.hour)}:${(s.teams ?? []).length}:${s.month}:${this.rainNow(s)}:${occupancyPhase(this.hour)}`;
+    const key = `${this.festOn(s) ? 'F' : ''}${s.bVersion}:${Math.round(this.target.x / 200)}:${Math.round(this.target.z / 200)}:${Math.floor(this.hour)}:${(s.teams ?? []).length}:${s.month}:${this.rainNow(s)}:${occupancyPhase(this.hour)}`+ `:${this.isHol() ? 'H' : ''}${this.dayNo}`; occDay.holiday = this.isHol(); occDay.day = this.dayNo; // v98：施設の人だかりは住民の居場所から（休日・日で変わる）
     if (key !== this.lifeKey) { this.lifeKey = key; this.rebuildLife(s); }
     const up = new THREE.Vector3(0, 1, 0), t = this.lifeT;
     // 施設の人：その場で少しずつ歩き回る

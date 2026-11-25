@@ -224,3 +224,39 @@ export function stationFlow(s: GameState, hour: number, holiday: boolean): { now
   }
   return { now, am };
 }
+
+// ---------------------------------------------------------------- 施設にいまいる住民（施設の人だかり）
+const presCache = new WeakMap<GameState, { key: string; m: Map<number, number> }>();
+/**
+ * 時刻 hour に、建物ごとにその中（敷地）にいる住民の数。平日：通学・通勤の人は着いてから帰りの出発まで行き先に、
+ * 昼の買い物・通院の人は用事の間（residentPlan と同じ決まり）。休日：休日の行き先に滞在の間と、店・行楽地・病院で働く人
+ */
+export function presentAt(s: GameState, hour: number, holiday: boolean, day = 0): Map<number, number> {
+  const p = people(s), key = `${p.key}:${Math.floor(hour * 4)}:${holiday ? 1 : 0}:${day}`, c = presCache.get(s); if (c && c.key === key) return c.m;
+  const m = new Map<number, number>(), F = facs(s), add = (id: number) => m.set(id, (m.get(id) ?? 0) + 1);
+  const svc = (id: number) => { const b = F.byId.get(id); if (!b) return false; const f = fam(b.kind); return f === 'shop' || f === 'leisure' || f === 'health' || b.kind === 'hospital'; };
+  for (let i = 0; i < p.n; i++) {
+    const md = p.mode[i], d = p.dest[i];
+    if (md !== 255 && d >= 0 && (!holiday || (p.role[i] === 3 && svc(d) && h32(i, day, 41) < 0.6))) {
+      const tt = Math.max(0.1, p.dist[i] / SPD[md]); if (hour >= p.depart[i] + tt && hour < p.back[i]) { add(d); continue; }
+    }
+    if (!holiday) {
+      if (md === 255 && (p.role[i] === 4 || p.role[i] === 5) && hour >= 9 && hour < 18) {
+        const u = h32(i, day, 11), cl = p.clinic[i] && h32(i, day, 12) < 0.25; if (!cl && u >= 0.3) continue;
+        const hb = F.byId.get(p.home[i]); if (!hb) continue; const [hx, hy] = ctr(hb);
+        const db = cl ? nearest(F.health, hx, hy) : p.hol[i] === 1 && p.holDest[i] >= 0 ? F.byId.get(p.holDest[i]) : nearest(F.shops, hx, hy); if (!db) continue;
+        const mm = p.holMode[i] === 255 ? RM_WALK : p.holMode[i], dd = Math.max(0.2, (Math.abs(ctr(db)[0] - hx) + Math.abs(ctr(db)[1] - hy)) * KM), tt = Math.max(0.1, dd / SPD[mm]);
+        const d0 = (cl ? 9 : 9.5) + h32(i, day, 13) * (cl ? 2.5 : 5), a = d0 + tt; if (hour >= a && hour < a + (cl ? 1.2 : 0.8)) add(db.id);
+      }
+    } else {
+      const hol = p.hol[i], dId = p.holDest[i]; if (hol === 0 || dId < 0) continue;
+      const hb = F.byId.get(p.home[i]), db = F.byId.get(dId); if (!hb || !db) continue;
+      const mm = p.holMode[i] === 255 ? RM_WALK : p.holMode[i], [hx, hy] = ctr(hb), dd = Math.max(0.2, (Math.abs(ctr(db)[0] - hx) + Math.abs(ctr(db)[1] - hy)) * KM), tt = Math.max(0.1, dd / SPD[mm]);
+      const d0 = (hol === 2 ? 8.5 : 9.5) + h32(i, day, 21) * (hol === 2 ? 3 : 6), stay = hol === 2 ? 3 + h32(i, day, 22) * 4 : hol === 3 ? 1 + h32(i, day, 23) * 2 : 1;
+      if (hour >= d0 + tt && hour < d0 + tt + stay) add(dId);
+    }
+  }
+  presCache.set(s, { key, m }); return m;
+}
+/** 学校・保育の在籍（v95 の peopleStats.enroll） */
+export function enrollOf(s: GameState, id: number): number { return peopleStats(s).enroll.get(id) ?? 0; }
