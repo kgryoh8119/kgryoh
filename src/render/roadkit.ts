@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import type { Geo, V3 } from './geo';
 import { W, H, idx, hash } from '../sim/index';
 import type { GameState } from '../sim/index';
+import { hasXw, xwRange, cornerSpot, CORNER_R, SIDEWALK_W } from './roadbase';
 
 /** コマの番号。路面（白で描き、頂点色で色をつける）と、標識の面（色つき） */
 export const RK = { stop: 0, n30: 1, n40: 2, n50: 3, n60: 4, arS: 5, arLS: 6, arRS: 7, arR: 8, arL: 9, dia: 10, school: 11,
@@ -137,27 +138,20 @@ export function roadTile(o: RoadTileArgs): void {
   };
   const inM = (xx: number, yy: number) => xx >= 0 && yy >= 0 && xx < W && yy < H;
   const bigNb = arms.some(([dx, dz]) => inM(x + dx, y + dz) && s.road[idx(x + dx, y + dz)] >= 2);
-  const xw = junction && !o.stone && (t >= 2 || hash(x, y, 43) < 0.35), cwL = big4 ? 4 : 3, stopD = hw + 0.6 + cwL + 1.0, minorEW = hash(x, y, 41) < 0.5;
+  const xw = hasXw(t, o.stone, x, y, nConn), minorEW = hash(x, y, 41) < 0.5;
   const sh = (k: number) => hash(x, y, k);
   for (const [dx, dz, ah] of arms) {
     const ew = dx !== 0, ap = dx ? dx : -dz, apO = -ap, ax = hash(ew ? y : x, ew ? 7 : 13, t * 5 + (o.wide ? 1 : 0));
     const nx = x + dx, ny = y + dz, nIn = inM(nx, ny), nT = nIn ? s.road[idx(nx, ny)] : 3;
     const minor = t === 1 && junction && (bigNb ? nT === 1 : ew === minorEW);
-    const stopAt = xw ? stopD : minor ? hw + 1.0 : 0, from = junction ? (stopAt ? stopAt + 0.6 : hw + 0.5) : 0;
+    const perp = ew ? Math.max(o.aN, o.aS) : Math.max(o.aE, o.aW), [xw0, xw1] = xwRange(ah, perp); // v95：横断歩道は隅切りの切り下げから
+    const stopAt = xw ? xw1 + 1.2 : minor ? perp + CORNER_R + 0.5 : 0, from = junction ? (stopAt ? stopAt + 0.6 : perp + CORNER_R) : 0;
     const approach = !junction && nConn === 2 && nIn && o.conn(nx, ny) >= 3 && !o.stone; // この先（腕の向き）が交差点
     const d0 = junction ? hw : 0;
-    // --- 側溝と縁石（段差のある歩道の道）、路側帯の側溝（生活道路）
-    if (fine) {
-      if (!o.kerbless) {
-        for (const sg of [-1, 1]) { AL(dx, dz, d0, 15, sg * (ah - 0.5), sg * ah, 0x99958c, 0.122); // L 字の側溝（コンクリート）
-          for (let d = d0 + 4; d < 15; d += 10) AL(dx, dz, d, d + 0.9, sg * (ah - 0.42), sg * (ah - 0.05), 0x3b3c3d, 0.13); // グレーチング
-          const [ax0, az0] = WP(dx, dz, d0, sg * ah), [bx0, bz0] = WP(dx, dz, 15, sg * ah); curb(ax0, az0, bx0, bz0, ew ? 0 : -sg, ew ? -sg : 0);
-          if (junction && ah < hw - 0.2) { const [p0x, p0z] = WP(dx, dz, hw, sg * ah), [p1x, p1z] = WP(dx, dz, hw, sg * hw); curb(p0x, p0z, p1x, p1z, ew ? -dx : 0, ew ? 0 : -dz); } }
-      } else for (const sg of [-1, 1]) { AL(dx, dz, junction ? Wd : 0, 15, sg * (ah + 2.05), sg * (ah + 2.5), 0x9a968c, 0.112); for (let d = (junction ? Wd : 0) + 3; d < 15; d += 6) AL(dx, dz, d, d + 0.08, sg * (ah + 2.05), sg * (ah + 2.5), 0x6f6c66, 0.114); } // 側溝のふた（コンクリート）と継ぎ目
-    }
+    // v95：縁石・側溝・歩道は roadbase.ts（隅切り・切り下げつき）
     // --- 外側線・路側帯の線
     const eo = o.kerbless ? ah - 0.15 : t >= 2 ? ah - 0.8 : ah - 0.3;
-    for (const sg of [-1, 1]) AL(dx, dz, d0, 15, sg * eo - 0.075, sg * eo + 0.075, E1);
+    for (const sg of [-1, 1]) AL(dx, dz, junction ? from : d0, 15, sg * eo - 0.075, sg * eo + 0.075, E1); // 交差点の中・横断歩道の上には引かない
     // --- わだち（古い道：車輪の通る所が黒ずむ）
     if (fine && o.ak > 0.45) { const rc = mixHex(0x56524c, 0x34353a, Math.min(1, (o.ak - 0.45) / 0.4) * 0.7);
       for (const ln of ah >= 7 ? [1.9, 5.6] : ah >= 4.5 ? [2.5] : [1.25]) for (const sg of [-1, 1]) for (const wq of [-0.8, 0.8]) AL(dx, dz, d0, 15, sg * ln + wq - 0.28, sg * ln + wq + 0.28, rc, 0.108); }
@@ -181,7 +175,7 @@ export function roadTile(o: RoadTileArgs): void {
     }
     // --- 横断歩道と停止線、止まれ
     if (junction) {
-      if (xw) for (let k = -ah + 0.5; k < ah - 0.3; k += 0.9) AL(dx, dz, hw + 0.6, hw + 0.6 + cwL, k, k + 0.45, W1);
+      if (xw) for (let k = -ah + 0.5; k < ah - 0.3; k += 0.9) AL(dx, dz, xw0, xw1, k, k + 0.45, W1);
       if (stopAt) AL(dx, dz, stopAt, stopAt + 0.45, ap > 0 ? 0 : -(ah - 0.8), ap > 0 ? ah - 0.8 : 0, W1);
       if (minor && !xw) { const [px, pz] = WP(dx, dz, stopAt + 2.3, ap * Math.min(1.25, ah * 0.5)); decal(kit, RK.stop, px, pz, -dx, -dz, 3.4, 2.3, hA, 0xffffff, pw); }
     }
@@ -196,12 +190,6 @@ export function roadTile(o: RoadTileArgs): void {
         const [sx, sz] = WP(dx, dz, 2.15, apO * 3.6); g.box(sx, hy + 5.4, sz, ew ? 0.12 : 5, 2.5, ew ? 5 : 0.12, 0x6f757c); // 板の裏
         const [fx, fz] = WP(dx, dz, 2.0, apO * 3.6); face(kit, sh(84) < 0.5 ? RK.guide : RK.guide2, fx - dx * 0.03, hy + 6.65, fz - dz * 0.03, -dx, -dz, 4.8, 2.4, 2); }
     }
-  }
-  // --- つながらない側（T 字の突き当たり・行き止まり）の縁石と側溝
-  if (fine && !o.kerbless && (junction || nConn === 1)) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-    if (arms.some(a => a[0] === dx && a[1] === dz)) continue;
-    const [ax0, az0] = WP(dx, dz, hw, -hw), [bx0, bz0] = WP(dx, dz, hw, hw); curb(ax0, az0, bx0, bz0, -dx, -dz);
-    AL(dx, dz, hw - 0.5, hw, -hw, hw, 0x99958c, 0.122);
   }
   // --- 生活道路どうしの交差点：優先の側の外側線を点線で交差点の中へ通す
   if (t === 1 && junction && !bigNb && !o.stone) { const ewMaj = !minorEW; for (const sg of [-1, 1]) for (let d = -hw + 0.3; d < hw - 0.2; d += 1.1) { if (ewMaj) mark(d, sg * (hw - 0.15) - 0.075, d + 0.5, sg * (hw - 0.15) + 0.075, E1); else mark(sg * (hw - 0.15) - 0.075, d, sg * (hw - 0.15) + 0.075, d + 0.5, E1); } }
@@ -231,9 +219,10 @@ export function roadTile(o: RoadTileArgs): void {
   // --- 信号機：近づく車線から見て交差点の向こう側の左の角に柱、道路の上へ腕を出して横長の灯器。柱には歩行者用の灯器も
   if (o.sig && junction && o.fine) for (const [dx, dz, ah] of arms) {
     const ew = dx !== 0, Lx = -dz, Lz = dx; // 近づく車（-dx, -dz へ進む）の左
-    const px = cx - dx * (hw + 1.3) + Lx * (hw + 1.3), pz = cz - dz * (hw + 1.3) + Lz * (hw + 1.3), hy = hA(px, pz);
+    const su = Math.sign(-dx + Lx), sv = Math.sign(-dz + Lz), [cu, cv] = cornerSpot(su > 0 ? o.aE : o.aW, sv > 0 ? o.aS : o.aN, hw); // v95：向こう側の角の歩道（隅切りの円弧の内）
+    const px = cx + su * cu, pz = cz + sv * cv, hy = hA(px, pz), poleL = Lx ? cu : cv;
     g.at(px, hy, pz); g.cyl(0, 0, 0, 0.13, 6.0, 0x8b9094, 6); g.at(0, 0, 0);
-    const reach = hw + 1.3 - ah * 0.45, hx = px - Lx * reach, hz = pz - Lz * reach;
+    const reach = poleL - ah * 0.45, hx = px - Lx * reach, hz = pz - Lz * reach;
     g.box(px - Lx * reach / 2, hy + 5.6, pz - Lz * reach / 2, ew ? 0.12 : reach, 0.12, ew ? reach : 0.12, 0x8b9094);
     // 灯器（横長の薄い LED 型）：左（柱の側）から青・黄・赤。表は近づく車の向き（+dx, +dz）
     g.box(hx, hy + 5.15, hz, ew ? 0.28 : 1.25, 0.42, ew ? 1.25 : 0.28, 0x5d636a);
@@ -243,10 +232,11 @@ export function roadTile(o: RoadTileArgs): void {
       o.sigs?.push(bx + nx * 0.16, hy + 2.75, bz + nz * 0.16, nx, nz, 3, nx ? 0 : 1, bx + nx * 0.16, hy + 2.38, bz + nz * 0.16, nx, nz, 4, nx ? 0 : 1); } // 横断歩道を渡る人の進む向き＝表の向きの軸
   }
   // --- 標識：生活道路の止まれ（止まれの側の角）、信号のない横断歩道の標識
-  if (fine && junction) for (const [dx, dz] of arms) {
+  if (fine && junction) for (const [dx, dz, ah] of arms) {
     const ew = dx !== 0, ap = dx ? dx : -dz, nT = inM(x + dx, y + dz) ? s.road[idx(x + dx, y + dz)] : 3, minor = t === 1 && (bigNb ? nT === 1 : ew === minorEW);
     if (!(minor || (xw && !o.sig))) continue;
-    const [px, pz] = WP(dx, dz, hw + 2.2, ap * (Wd - 0.5)), hy = hA(px, pz), k = minor ? RK.sStop : RK.sWalk;
+    const perp = ew ? Math.max(o.aN, o.aS) : Math.max(o.aE, o.aW), d = minor && !xw ? perp + CORNER_R + 0.8 : xwRange(ah, perp)[1] + 0.6;
+    const [px, pz] = WP(dx, dz, d, ap * (ah + SIDEWALK_W - 0.5)), hy = hA(px, pz), k = minor ? RK.sStop : RK.sWalk;
     g.at(px, hy, pz); g.cyl(0, 0, 0, 0.05, 2.7, 0x9aa0a6, 5); g.at(0, 0, 0);
     g.box(px - dx * 0.04, hy + 1.9, pz - dz * 0.04, ew ? 0.03 : 0.85, 0.8, ew ? 0.85 : 0.03, 0x9aa0a6);
     face(kit, k, px + dx * 0.02, hy + 2.3, pz + dz * 0.02, dx, dz, 0.9, 0.9);
