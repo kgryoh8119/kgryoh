@@ -23,10 +23,12 @@ export function landStats(s: GameState) {
 const cc = (s: GameState) => { let n = 0, x = 0, y = 0; for (const b of s.buildings) if (b.units) { const h = b.units; n += h; x += b.x * h; y += b.y * h; } return n ? { x: Math.round(x / n), y: Math.round(y / n) } : { x: W >> 1, y: H >> 1 }; };
 (globalThis as any).DBG = !!env.DBG;
 const s = newGame({ seed: seedForTerrain(terr, seed) }); s.difficulty = 'normal'; s.tutorial.done = true; s.autoOrder = ord as 0;
+const grid: number[] = [];
 const t0 = Date.now(); const rows: any[] = []; const words: Record<string, number> = {};
 rows.push({ y: 0, pop: Math.round(s.stats.pop), blocks: s.unlocked?.length, ...landStats(s) });
 for (let mo = 0; mo < Y * 12 && !s.over; mo++) {
-  for (const t of autoTurn(s)) { const k = t.replace(/[0-9,，．.]+/g, '#').slice(0, 14); words[k] = (words[k] ?? 0) + 1; }
+  const r0 = s.road.slice(); const ts = autoTurn(s); if (ts.some(t => t.startsWith("計画的"))) for (let i = 0; i < W * H; i++) if (s.road[i] && !r0[i]) grid.push(i);
+  for (const t of ts) { const k = t.replace(/[0-9,，．.]+/g, '#').slice(0, 14); words[k] = (words[k] ?? 0) + 1; }
   stepMonth(s);
   for (const e of [...s.events.active]) dispatch(s, { type: 'event', id: e.id, option: eventDef(e.id).options.length - 1 });
   if (s.goalPick) dispatch(s, { type: 'goals', ids: ['wait', 'pop', 'fiscal'] });
@@ -37,4 +39,4 @@ for (let mo = 0; mo < Y * 12 && !s.over; mo++) {
 console.log(JSON.stringify({ terr, seed, ord, el: s.elections.map(e => +e.vote.toFixed(1)), debt: Math.round(s.loans.reduce((a, l) => a + l.remaining, 0)), sec: Math.round((Date.now() - t0) / 1000) }));
 for (const r of rows) console.log(JSON.stringify(r));
 if (env.WORDS) console.log(Object.entries(words).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, v]) => `${v} ${k}`).join('\n'));
-if (env.SAVE) writeFileSync(env.SAVE, JSON.stringify({ road: Array.from(s.road), occ: Array.from(s.occ, v => v ? 1 : 0), zone: Array.from(s.zone), W, H }));
+if (env.SAVE) writeFileSync(env.SAVE, JSON.stringify({ road: Array.from(s.road), occ: Array.from(s.occ, v => v ? 1 : 0), zone: Array.from(s.zone), grid, W, H }));

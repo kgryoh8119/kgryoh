@@ -331,14 +331,17 @@ export function autoTurn(s: GameState): string[] {
   /** v95：計画的な宅地開発。市の区域の中の道路に面していない空き地へ、既存の道路から格子状（はしご型）の生活道路を引き、
    *  沿道を需要に応じた用途に指定する。道路の工事費・維持費は、開業後の人件費と市債の返済を引いた収支の見込み（headroom）で見る */
   let gridDone = false;
-  const gridDev = (why: string): boolean => {
+  const gridDev = (why: string, borrow = false): boolean => {
     if (gridDone || acts >= maxActs) return false;
-    const gp = planGrid(s, cityCenter(s), { maxCost: Math.max(P.roadCost[1] * 12, s.cash + BL * 0.8 - bondF() - reserve) });
+    // 借りない開発は、手元の資金で払える大きさに（小さなはしご型から少しずつ）。借りてよいとき（用地が足りない）は市債の枠まで
+    const room = borrow ? s.cash + BL * 0.8 - bondF() - reserve : s.cash - reserve - (saving ? saveFor : 0);
+    if (room < P.roadCost[1] * 10) return false;
+    const gp = planGrid(s, cityCenter(s), { maxCost: room });
     if (!gp) return false;
     if (saving && s.cash - gp.cost < saveFor + reserve) return false; // 急ぐ施設のためにためている資金は崩さない
     // 道路の維持費を払っても、開業後の人件費と市債の返済を引いた収支の見込みが大きく崩れないか（家が建てば税で返る投資なので、施設より少し緩く）
-    if (headroom() - gp.upkeep < [-200, -50, 150][ord]) return false;
-    if (!can(gp.cost)) { const need = Math.ceil((gp.cost + reserve - s.cash) / 1000) * 1000; if (bondF() + need <= BL * 0.8 && affordable(need)) act({ type: 'borrow', amount: need }, `市債を ${need.toLocaleString()} 万円発行：計画的な宅地開発の道路のため`); }
+    if (headroom() - gp.upkeep < [-100, 50, 200][ord]) return false;
+    if (!can(gp.cost) && borrow) { const need = Math.ceil((gp.cost + reserve - s.cash) / 1000) * 1000; if (bondF() + need <= BL * 0.8 && affordable(need)) act({ type: 'borrow', amount: need }, `市債を ${need.toLocaleString()} 万円発行：計画的な宅地開発の道路のため`); }
     if (!can(gp.cost)) return false;
     const before = gp.road.length, r = dispatch(s, { type: 'road', tiles: gp.road, road: 1 });
     if (!r.ok) return false;
@@ -512,7 +515,7 @@ export function autoTurn(s: GameState): string[] {
       if ((cand.length < 10 && !late) || needLand) redeveloped = redevelop('沿道の空き地が少なくなったため');
       if (!redeveloped && ((cand.length < 6 && !late) || needLand)) {
         // 新しい住宅地：道路の端から 8 区画まっすぐ延ばし、4 区画ごとに左右へ 3 区画の枝道。資金が足りなければ市債で（住宅が増えれば税で返せる）
-        const plan = gridDev('沿道の空き地が少なくなったため') ? null : newBlock(s, free, conn);
+        const plan = gridDev('沿道の空き地が少なくなったため', true) ? null : newBlock(s, free, conn);
         if (plan && !saving && !can(P.roadCost[1] * plan.length) && bondF() + P.bondUnit <= BL * 0.7 && affordable(P.bondUnit)) act({ type: 'borrow', amount: P.bondUnit }, `市債を ${P.bondUnit.toLocaleString()} 万円発行：新しい住宅地の道路のため`);
         if (plan && !saving && (plan as any).buy && can(P.roadCost[1] * plan.length + 6000)) act({ type: 'buyout', id: (plan as any).buy }, '入口の住宅 1 軒の用地を買収：新しい住宅地へ道を通すため');
         if (plan && !saving && !s.occ[plan[0]] && can(P.roadCost[1] * plan.length)) act({ type: 'road', tiles: plan, road: 1 }, `新しい住宅地の道路を ${plan.length} 区間つくる（${where(s, plan[3] % W, (plan[3] / W) | 0)}）：沿道の空き地が少なくなったため`);
@@ -527,7 +530,7 @@ export function autoTurn(s: GameState): string[] {
   if (needLand && !redeveloped) redeveloped = redevelop('施設を建てる用地がないため');
   if (needLand && !redeveloped && !(st.waterCap > st.waterDemand * 1.03 && st.sewageCap > st.sewageDemand * 1.0)) {
     const m = getMap(s.seed), conn = roadInfo(s).conn, free = (i: number) => !s.occ[i] && !s.road[i] && !s.zone[i] && buildable(m, i) && !(s.rail?.[i] && s.railGrade?.[i] !== 2);
-    const plan = gridDev('施設を建てる用地がないため') ? null : newBlock(s, free, conn);
+    const plan = gridDev('施設を建てる用地がないため', true) ? null : newBlock(s, free, conn);
     if (plan && (plan as any).buy && can(P.roadCost[1] * plan.length + 6000)) act({ type: 'buyout', id: (plan as any).buy }, '入口の住宅 1 軒の用地を買収：道を通すため');
     if (plan && !s.occ[plan[0]] && can(P.roadCost[1] * plan.length)) act({ type: 'road', tiles: plan, road: 1 }, `道路を ${plan.length} 区間延ばす（${where(s, plan[3] % W, (plan[3] / W) | 0)}）：施設を建てる用地がないため`);
   }
