@@ -203,3 +203,24 @@ export function incidentRateK(s: GameState, tile: number, hour: number, kind: st
   for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = x0 + dx, y = y0 + dy; if (x < 0 || y < 0 || x >= W || y >= H) continue; const i = y * W + x; if (!s.road[i]) continue; sum += incidentRate(s, i, hour, k) + (k === 'ped' ? incidentRate(s, i, hour, 'bike') : 0); n++; }
   return n ? Math.max(0.1, Math.min(5, sum / n / ref)) : 0.3;
 }
+
+// ---------------------------------------------------------------- 駅の人だかり（住民の乗車）
+/**
+ * 駅ごとの、いまの時刻の 1 時間あたりの乗車（住民。電車で通う人が駅に着く時刻 = 出発 + 駅までの時間 が前後 15 分に入る人を 2 倍）と、
+ * 朝の乗車の合計（v95 の peopleStats.boardings と同じ数え方）。休日は電車で出かける人（休日の手段が電車で、通勤の駅がある人）を 9〜11 時・16〜18 時に
+ */
+export function stationFlow(s: GameState, hour: number, holiday: boolean): { now: Map<number, number>; am: Map<number, number> } {
+  const p = people(s), now = new Map<number, number>(), am = peopleStats(s).boardings;
+  for (let i = 0; i < p.n; i++) {
+    const st = p.station[i]; if (st < 0) continue;
+    if (!holiday) {
+      if (p.mode[i] !== RM_RAIL) continue;
+      const acc = p.access[i] === RM_BIKE ? 0.1 : 0.17, a = p.depart[i] + acc;
+      if (Math.abs(hour - a) < 0.25) now.set(st, (now.get(st) ?? 0) + 2);
+    } else if (p.holMode[i] === RM_RAIL && p.hol[i] !== 0) {
+      const a = 9 + h32(i, 7, 31) * 2 + (h32(i, 7, 32) < 0.5 ? 0 : 7);
+      if (Math.abs(hour - a) < 0.25) now.set(st, (now.get(st) ?? 0) + 2);
+    }
+  }
+  return { now, am };
+}

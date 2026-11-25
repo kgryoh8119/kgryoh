@@ -132,7 +132,7 @@ import { grade, flyPiers, FLY_H, FLY_RAMP, OVP_H, OVP_RAMP } from '../sim/grade'
 /** v93：架空の街の空き地は（v92 の広い地図では 76×68 の内も）、地形の見た目の印（田んぼ・畑・草地・林・空き地のまとまり）で描く。区画ごとの乱数で田畑・草地を選ぶと、上空から市松模様に見えた。印がなければ -1 */
 const extLook = (m: MapDef, x: number, y: number): number => (!REAL && m.deco && W > FIC_PREV_W && terrainOf(m.seed).id !== 'castaway' ? m.deco[idx(x, y)] : -1);
 import { DISTRICTS } from '../sim/types';
-import { residentPlan, profileOf, shortWho, isHoliday, RM_WALK, RM_BIKE, RM_BUS, RM_CAR, type Plan, type RTrip } from './residents'; // v98
+import { residentPlan, profileOf, shortWho, stationFlow, isHoliday, RM_WALK, RM_BIKE, RM_BUS, RM_CAR, type Plan, type RTrip } from './residents'; // v98
 import { incInterval, hourRate, pickInc, incSeverity, incUnits, incText, incFollowText, IncidentFeed, FATAL_P, POLICE_BASE, KOBAN, FIRE_BASE, FUNERAL, type IncidentEvent, type IncKind, type IncSub, type Unit } from './incidents';
 import { emPlan, roadRoute, roadNear, emSite, nearestBase, jamLook, stationLook, isRightTurn, EM_VM, EM_BASE, HOSPITALS, type EmKind } from './traffic';
 
@@ -2221,7 +2221,7 @@ export class View {
       for (let i = 0; i < CROWD_N; i++) { let t = pickType(h, rr); if (t === 'dog' || t === 'jogger' || t === 'parent') t = 'worker'; const L = makeLook(t, rr, calMonth(s.month), false); this.crowdLooks[i] = L; this.crowdP.setLook(i, L); this.crowdP.setPose(i, 0, 0); }
       this.crowdP.commitLooks();
     }
-    const byId = new Map(s.buildings.map(b => [b.id, b] as const)), crowd = new Map(this.stStats(s).map(x => [x.b.id, x.crowd] as const));
+    const byId = new Map(s.buildings.map(b => [b.id, b] as const)), rc = this.stCrowdRes(s), crowd = rc ?? new Map(this.stStats(s).map(x => [x.b.id, x.crowd] as const));
     const cap = Math.round(CROWD_N * (this.quality === 'low' || this.lite ? 0.4 : this.quality === 'mid' ? 0.7 : 1)), rk = night ? 0.08 : 0.3 + 0.7 * r;
     let n = 0;
     const put = (x: number, y: number, z: number, yaw: number, ph: number, amp: number) => {
@@ -2233,7 +2233,7 @@ export class View {
       const lk = stationLook(crowd.get(sp.id) ?? 100); this.stLeft.set(sp.id, lk.left);
       const f = Math.min(1, (this.stFill.get(sp.id) ?? 1) + dt / 40); this.stFill.set(sp.id, f);
       // v88：ホームは混雑率で端まで埋まり、1.0 を超えるとすき間に人が詰まる（同じ立ち位置の隣に、ずらしてもう 1 人）。朝夕に多く、昼は半分ほど
-      const P = this.plazaPts(s, sp, b), pz = P.pz, np = sp.pts.length / 3 | 0, rkc = night ? 0.08 : 0.45 + 0.55 * r;
+      const P = this.plazaPts(s, sp, b), pz = P.pz, np = sp.pts.length / 3 | 0, rkc = rc ? (night ? 0.08 : 1) : night ? 0.08 : 0.45 + 0.55 * r; // v98：住民から出した混雑率は時刻込み
       // 人数を先に決め、品質の上限（cap）に収まらなければ全部を同じ割合で減らす（ホームだけ・広場だけにならないように）
       const W0 = [np * lk.plat * rkc * f, 0, pz.length / 4 * lk.spill * 0.6 * rkc * (0.5 + 0.5 * f), P.q.length / 4 * lk.queue * rkc, Math.min(P.st.length / 4, 320) * lk.street * rkc]; W0[1] = W0[0] * lk.dense * 1.4;
       const tot = W0.reduce((a, v) => a + v, 0), sc = tot > 0 ? Math.min(1, (cap - n) / tot) : 1, [want, dup, spill, nq, ns] = W0.map(v => Math.round(v * sc));
@@ -2256,12 +2256,31 @@ export class View {
     if (n !== this.crowdP.mesh.count || n) { this.crowdP.mesh.count = n; this.crowdP.commitPose(); }
     this.stats.peds = this.peds.length + n;
   }
+  /** v98：駅ごとの、いまの混雑率を住民の乗車から出す（1 時間あたりの乗車 ÷ 輸送力。輸送力は sim の stationStats の混雑率と 1 日の乗降から逆算した、
+   *  増発・複線・車両基地を込みの値。朝のピーク 1 時間に 1 日の乗車の 3 割として、1 日 9000 人 = 100% の sim の目安に合わせる）。住民がいなければ null（今までの値） */
+  private stCrowdRes(s: GameState): Map<number, number> | null {
+    const key = `${s.month}:${s.bVersion}:${Math.floor(this.hour * 4)}:${this.isHol() ? 1 : 0}`;
+    if (this.stRK === key) return this.stRC;
+    this.stRK = key; this.stRC = null;
+    const ss = this.stStats(s); if (!ss.length || !(s.stats.pop > 0)) return null;
+    try {
+      const f = stationFlow(s, this.hour, this.isHol()), out = new Map<number, number>(); let any = false;
+      for (const x of ss) { const capK = x.crowd > 41 && x.crowd < 339 ? x.riders / (9000 * (x.crowd - 40) / 100) : 1, v = f.now.get(x.b.id) ?? 0; if (f.am.get(x.b.id)) any = true;
+        out.set(x.b.id, Math.round(40 + 100 * v / (9000 * 0.5 * 0.3 * Math.max(0.3, capK)))); }
+      this.stRC = any ? out : null; this.stRAm = f.am;
+    } catch { this.stRC = null; }
+    return this.stRC;
+  }
+  private stRK = ''; private stRC: Map<number, number> | null = null;
+  /** 検査用：駅ごとの住民の朝の乗車（v95）と、いまの混雑率（住民から） */
+  stRAm: Map<number, number> = new Map();
+  stInfo(): { id: number; am: number; crowd: number; agg: number }[] { const s = this.getState(), rc = this.stCrowdRes(s); return this.stStats(s).map(x => ({ id: x.b.id, am: this.stRAm.get(x.b.id) ?? 0, crowd: rc?.get(x.b.id) ?? -1, agg: x.crowd })); }
   /** v87：駅ごとの混雑率（sim の stationStats を読むだけ。政策の記録がまだ無い街では空） */
-  private stStats(s: GameState): { b: Building; crowd: number }[] {
+  private stStats(s: GameState): { b: Building; crowd: number; riders: number }[] {
     if (s.pol) { try { return stationStats(s); } catch { return []; } }
     // 政策の記録がまだ無い街：同じ計算を、空の政策で（月と建物が変わったときだけ）
     const k = `${s.month}:${s.bVersion}`; if (this.stSK !== k) { this.stSK = k; try { this.stSC = stationStats({ ...s, pol: {} } as GameState); } catch { this.stSC = []; } } return this.stSC; }
-  private stSK = ''; private stSC: { b: Building; crowd: number }[] = [];
+  private stSK = ''; private stSC: { b: Building; crowd: number; riders: number }[] = [];
   /** v87：駅前広場の立ち位置（x, y, z, 向き）。改札（駅舎の正面）に近い順で、線路と直角の向きに伸びる行列から広場いっぱいへ */
   private plaza = new Map<number, { pz: number[]; q: number[]; st: number[] }>(); private stLeft = new Map<number, number>(); private stArr = new Map<number, number>();
   /** 駅前の立ち位置（それぞれ x, y, z, 向き の並び）。pz：改札（駅舎の正面）に近い順の広場（v88 で 1.6 倍の広さ）、q：入場規制の折り返しの列、st：駅のまわりの歩道 */
