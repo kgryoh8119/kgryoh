@@ -1,6 +1,6 @@
 // v95：オートの土地の使い方の計測。市の区域の中の建てられる区画のうち、使われている割合と、道路に面していない空き地の数
 // 実行：npx esbuild scripts/v95-land.ts --bundle --platform=node --format=esm --outfile=/tmp/l.mjs && TERR=coast YEARS=10 node /tmp/l.mjs
-import { newGame, stepMonth, dispatch, eventDef, seedForTerrain, W, H, idx, getMap, buildable, roadInfo, tempDebt } from '../src/sim/index';
+import { newGame, stepMonth, dispatch, eventDef, seedForTerrain, W, H, idx, getMap, buildable, roadInfo, tempDebt, serialize } from '../src/sim/index';
 import { isLocked } from '../src/sim/mayor';
 import { autoTurn } from '../src/autoplay';
 import { landSpare, planGrid, gridLog } from '../src/autodev';
@@ -43,3 +43,4 @@ console.log(JSON.stringify({ terr, seed, ord, el: s.elections.map(e => +e.vote.t
 for (const r of rows) console.log(JSON.stringify(r));
 if (env.WORDS) console.log(Object.entries(words).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, v]) => `${v} ${k}`).join('\n'));
 if (env.SAVE) writeFileSync(env.SAVE, JSON.stringify({ road: Array.from(s.road), occ: Array.from(s.occ, v => v ? 1 : 0), zone: Array.from(s.zone), grid, W, H }));
+if (env.SAVEFULL) writeFileSync(env.SAVEFULL, serialize(s));

@@ -2,6 +2,7 @@
 // 形は「はしご型」：既存の道路から垂直に 2 本の通り（間隔 4〜6 区画）を延ばし、3 区画ごとに横の通りでつなぐ。
 // どの区画も道路に面し、2 本の通りは奥の横の通りでつながるので行き止まりができない（両方の通りが既存の道路に届けば、輪になる）。
 // 道路は planRoad（v94 の接続の規則を含む）で置けるものだけを使い、既存の道路網につながる部分だけを引く。sim の計算は変えない。
+// v96：保育・学校が届く所・街の中に取り残された空き地を優先し、浸水しやすい所を避ける。見送った理由は gridLog に数える（計測用）。
 import { W, H, P, idx, getMap, buildable, roadInfo, planRoad, stationDist, floodRisk, fam } from './sim/index';
 import { isLocked } from './sim/mayor';
 import type { GameState } from './sim/index';

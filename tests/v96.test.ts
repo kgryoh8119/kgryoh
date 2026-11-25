@@ -1,6 +1,6 @@
 // v96：オートの計画的な宅地開発（道路に面していない空き地へ、既存の道路から格子状の生活道路を引く）
 import { describe, it, expect } from 'vitest';
-import { newGame, dispatch, seedForTerrain, W, H, idx, roadInfo } from '../src/sim/index';
+import { newGame, dispatch, seedForTerrain, W, H, roadInfo } from '../src/sim/index';
 import { planGrid, frontage, devFree, landSpare } from '../src/autodev';
 import '../src/sim/wire';
 
@@ -26,6 +26,5 @@ describe('v96 オートの宅地開発', () => {
     const s = newGame({ seed: seedForTerrain('coast', 261011) });
     const gp = planGrid(s, { x: W >> 1, y: H >> 1 }, { maxCost: 1 });
     expect(gp).toBeNull();
-    void idx;
   });
 });
