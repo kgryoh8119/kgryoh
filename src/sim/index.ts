@@ -34,6 +34,8 @@ export type { RiskRow, RiskLevel } from './risk';
 export { monthlyIssues, allIssues, careCause, ISSUE_W, loopTopics, loopEntryIssue } from './issues';
 export type { Issue, IssueOption } from './issues';
 export * from './isle';
+export { taxBase, taxStory, WAGE_GROUPS, WAGE_IDS, wageGroupOf, wageTaxMonth, pensionTaxMonth } from './taxbase';
+export type { TaxBase, WageGroup } from './taxbase';
 export { registerIndicators, registerTrialOptions, registerIssueIndicators, onIndicatorValues, indicators, indicatorOf, indicatorValues, issueIndicators, BASE_INDICATORS, projectBands, recordDecision, fillForecast, updateDecisions, gapsOf, verdictOf, annualReport, actionLabel, trialOptions, compareTrial, findSite, policyTarget, RECORD_KIND, CHECK_AT, MAX_DECISIONS } from './report';
 export type { IndicatorDef, Decision, DecisionResult, Gap, AnnualReport, ReportRow, TrialOption, TrialResult, Expect, Band } from './report';
 export { LOOPS, INDICATORS, loopIndicators, loopOptions, expectOf, districtIndicators, rentBurden, disasterLoss, siteNear, loopOfIssue } from './loops';

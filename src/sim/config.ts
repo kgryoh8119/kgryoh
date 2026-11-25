@@ -131,6 +131,7 @@ export const P = {
   towerPop: 20000,              // 高層は駅からこの距離以内でのみ分譲マンションになる
 
   // --- 財政（万円/月）---
+  resTaxK: 1,                // v99：住民一人ひとりの所得から積み上げた住民税（taxbase.ts）に掛ける合わせの係数
   residentTaxRate: 0.055,     // 住民税相当：世帯収入に対する率
   propertyTaxPerUnit: 1.05,   // 固定資産税相当：住戸あたり
   businessTaxRate: 0.03,      // 事業課税相当：店舗売上に対する率
