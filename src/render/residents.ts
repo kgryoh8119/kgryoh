@@ -6,7 +6,8 @@
 import type { GameState, Building } from '../sim/index';
 import { W, H, DEFS, fam, GATEWAYS } from '../sim/index';
 import { HH_NAMES } from '../sim/types';
-import { people, sampleTrips, ROLE_NAMES, MODE_NAMES } from '../sim/people';
+import { hourRate } from './incidents';
+import { people, peopleStats, sampleTrips, incidentRate, ROLE_NAMES, MODE_NAMES } from '../sim/people';
 
 /** 手段（sim と同じ番号）：0 徒歩・1 自転車・2 バス・3 電車・4 車。255 は移動なし */
 export const RM_WALK = 0, RM_BIKE = 1, RM_BUS = 2, RM_RAIL = 3, RM_CAR = 4;
@@ -176,4 +177,29 @@ export function profileOf(s: GameState, t: Pick<RTrip, 'person' | 'mode' | 'via'
   const dest = t.dest === -2 ? '市外' : db ? `${DEFS[db.kind].name}（${place(db.acc)}）` : '—';
   const via = t.via === RM_RAIL ? `電車（駅まで${MODE_NAMES[t.mode]}）` : MODE_NAMES[t.via] ?? MODE_NAMES[t.mode] ?? '徒歩';
   return `${n.name}さん（${n.age}歳・${ROLE_NAMES[p.role[i]]}）｜住まい：${home}・${HH_NAMES[p.hhType[i]] ?? ''}世帯｜いま：${t.why}${t.why === '帰宅' ? '' : `→${dest}`}｜手段：${via}`;
+}
+
+/** 短い紹介（事故の知らせ用）：名前・年齢・住まいの地区 */
+export function shortWho(s: GameState, i: number, place: (tile: number) => string): string {
+  const p = people(s); if (i < 0 || i >= p.n) return '';
+  const n = nameOf(s, i), hb = facs(s).byId.get(p.home[i]);
+  return `${n.name}さん・${n.age}歳・${hb ? place(hb.acc) : '市内'}在住`;
+}
+
+// ---------------------------------------------------------------- 事故の起きやすさ（描画の事故の頻度）
+const refCache = new WeakMap<GameState, { key: string; ref: Record<string, number> }>();
+/**
+ * 描画の事故の起きやすさの倍率（1 が街の道路の平均・1 日の平均の時間帯）。sim の incidentRate（区画・時間帯の 1 時間あたりの期待件数）を、
+ * 注視点のまわり 7×7 区画の道路で平均し、街全体の道路の区画の 1 時間あたりの平均で割る。描画の kind → sim の種類：衝突・違反は車、歩行者は歩行者。
+ * 火災・鉄道は区画の値が小さすぎて比べにくいので、時間帯の目安（hourRate）だけ
+ */
+export function incidentRateK(s: GameState, tile: number, hour: number, kind: string): number {
+  const k: 'car' | 'ped' | null = kind === 'crash' || kind === 'violation' ? 'car' : kind === 'pedestrian' ? 'ped' : null;
+  if (!k) return hourRate(hour);
+  const key = `${s.month}:${s.roadVersion}:${s.bVersion}`; let c = refCache.get(s);
+  if (!c || c.key !== key) { const st = peopleStats(s); let nr = 0, car = 0, ped = 0; for (let i = 0; i < W * H; i++) if (s.road[i]) { nr++; car += st.risk.car[i]; ped += st.risk.ped[i] + st.risk.bike[i]; } c = { key, ref: { car: car / Math.max(1, nr) / 24, ped: ped / Math.max(1, nr) / 24 } }; refCache.set(s, c); }
+  const ref = c.ref[k]; if (!(ref > 0)) return 1;
+  const x0 = tile % W, y0 = (tile / W) | 0; let sum = 0, n = 0;
+  for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = x0 + dx, y = y0 + dy; if (x < 0 || y < 0 || x >= W || y >= H) continue; const i = y * W + x; if (!s.road[i]) continue; sum += incidentRate(s, i, hour, k) + (k === 'ped' ? incidentRate(s, i, hour, 'bike') : 0); n++; }
+  return n ? Math.max(0.1, Math.min(5, sum / n / ref)) : 0.3;
 }

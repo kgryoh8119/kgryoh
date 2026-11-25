@@ -132,7 +132,7 @@ import { grade, flyPiers, FLY_H, FLY_RAMP, OVP_H, OVP_RAMP } from '../sim/grade'
 /** v93：架空の街の空き地は（v92 の広い地図では 76×68 の内も）、地形の見た目の印（田んぼ・畑・草地・林・空き地のまとまり）で描く。区画ごとの乱数で田畑・草地を選ぶと、上空から市松模様に見えた。印がなければ -1 */
 const extLook = (m: MapDef, x: number, y: number): number => (!REAL && m.deco && W > FIC_PREV_W && terrainOf(m.seed).id !== 'castaway' ? m.deco[idx(x, y)] : -1);
 import { DISTRICTS } from '../sim/types';
-import { residentPlan, profileOf, isHoliday, RM_WALK, RM_BIKE, RM_BUS, RM_CAR, type Plan, type RTrip } from './residents'; // v98
+import { residentPlan, profileOf, shortWho, isHoliday, RM_WALK, RM_BIKE, RM_BUS, RM_CAR, type Plan, type RTrip } from './residents'; // v98
 import { incInterval, hourRate, pickInc, incSeverity, incUnits, incText, incFollowText, IncidentFeed, FATAL_P, POLICE_BASE, KOBAN, FIRE_BASE, FUNERAL, type IncidentEvent, type IncKind, type IncSub, type Unit } from './incidents';
 import { emPlan, roadRoute, roadNear, emSite, nearestBase, jamLook, stationLook, isRightTurn, EM_VM, EM_BASE, HOSPITALS, type EmKind } from './traffic';
 
@@ -159,7 +159,7 @@ const tint0 = (m: THREE.MeshStandardMaterial) => { m.onBeforeCompile = sh => { s
 /** 実在都市版の車・人：実際の道路の折れ線の上を行き来する */
 /** v87：出動中の緊急車両。r は道路の区画の経路（i 番目にいる）、legs はこの後の行き先（現場→病院・拠点）。lit は赤色灯とサイレン */
 /** v95：描画の中のできごと（事故・火災・違反） */
-interface Inc { id: number; sub: IncSub; kind: IncKind; sev: number; tile: number; x: number; z: number; age: number; cars: Agent[]; victim: number[] | null; cones: boolean; officers: number[]; fire: number; fy: number; fatal: boolean; place: string; open: number; tag: boolean; end: number }
+interface Inc { id: number; sub: IncSub; kind: IncKind; sev: number; tile: number; x: number; z: number; age: number; cars: Agent[]; victim: number[] | null; cones: boolean; officers: number[]; fire: number; fy: number; fatal: boolean; place: string; open: number; tag: boolean; end: number; /** v98：けが人（住民）の紹介。搬送の知らせと、倒れた人を押したときに出す */ hurt?: string; hurtShort?: string }
 interface Em { k: EmKind; r: number[]; i: number; lit: boolean; stay: number; at: boolean; legs: number[]; wait: number; sx: number; sz: number; sir: number; h: boolean; /** v95：着いた・次へ向かう・帰り着いたときに呼ぶ（事故の連鎖） */ cb?: (ev: 'at' | 'leg' | 'done', a: Agent) => void; /** v95：true の間は現場にとどまる */ hold?: () => boolean }
 /** v87：駅の人だかり（ホーム・改札前の行列・駅前広場にあふれる人・降りて改札へ向かう人）の上限 */
 const CROWD_N = 1100;
@@ -2497,6 +2497,17 @@ export class View {
       if (Math.hypot(A.px - this.target.x, A.pz - this.target.z) > R || this.roadDeg(s, a.cur) >= 3 || this.roadDeg(s, a.next) >= 3 || a.t < 0.32 || a.t > 0.85 || this.flyOf.has(a.cur) || this.flyOf.has(a.next)) continue; c.push(a); }
     return c.length ? c[(Math.random() * c.length) | 0] : null;
   }
+  /** v98：歩行者の事故のけが人を住民から選ぶ。近く（40m 以内）を歩く住民がいればその人（画面から消えて倒れた人になる）、いなければこの辺りを歩いて移動中の住民 */
+  private incVictim(s: GameState, q: Inc): void {
+    let best: Agent | null = null, bd = 40;
+    for (const a of this.peds) { const A = a as any; if (!A.rt || A.px === undefined || A.dead) continue; const d = Math.hypot(A.px - q.x, A.pz - q.z); if (d < bd) { bd = d; best = a; } }
+    let t: RTrip | null = best ? (best as any).rt : this.resTake(RM_WALK) ?? this.resPool[0] ?? null;
+    if (best) { (best as any).dead = 1; this.resDirty = true; }
+    if (!t) { const pl = this.resPlan; t = pl?.trips.find(x => x.mode === RM_WALK) ?? null; }
+    if (t) { q.hurt = '🚑 けが人｜' + profileOf(s, t, tl => this.incPlace(tl)); q.hurtShort = shortWho(s, t.person, tl => this.incPlace(tl)); }
+  }
+  /** 検査用：いまのできごとのけが人の紹介 */
+  incHurt(): string[] { return this.incs.map(q => q.hurt ?? ''); }
   /** できごとを 1 つ起こす（見ている所の近く）。起こせたら true。want で種類を決められる（検査用） */
   startIncident(want?: IncSub): boolean {
     const s = this.getState(); if (REAL && !REAL.deformed) return false;
@@ -2515,7 +2526,9 @@ export class View {
         if (b) { b.cur = a.cur; b.next = a.next; b.nn = a.nn; b.prev = a.prev; b.lane = side ? 1 - a.lane : a.lane; b.t = side ? a.t + 0.04 : a.t - (VT_HL[a.vm ?? 0] + VT_HL[b.vm ?? 0] + 0.15) / TILE; (b as any).dk = -1; if (b.t > 0.02) wreck(b, side ? (b.lane ? 0.22 : -0.22) : 0.14); }
         if (sub === 'cross' && !side) q.sub = 'rear';
       }
-      if (sub === 'ped') { const fx = Math.sin(a.yaw), fz = Math.cos(a.yaw), hl = VT_HL[a.vm ?? 0]; q.victim = [q.x + fx * (hl + 1.6) + fz * 1.2, q.z + fz * (hl + 1.6) - fx * 1.2, a.yaw + Math.PI / 2]; }
+      if (sub === 'ped') { const fx = Math.sin(a.yaw), fz = Math.cos(a.yaw), hl = VT_HL[a.vm ?? 0]; q.victim = [q.x + fx * (hl + 1.6) + fz * 1.2, q.z + fz * (hl + 1.6) - fx * 1.2, a.yaw + Math.PI / 2];
+        this.incVictim(s, q); } // v98：はねられた人は、近くを歩いていた住民（いなければ、この辺りを歩いて移動中の住民）
+      else if ((a as any).rt) { const t = (a as any).rt as RTrip; q.hurt = '🚑 ' + this.whoIs(a, false); q.hurtShort = shortWho(s, t.person, tl => this.incPlace(tl)); } // v98：事故車の運転手（住民）
       if (sub === 'carFire') { q.fire = 70; q.fy = this.surfY(q.x, q.z) + 1.4; }
     } else if (sub === 'bldFire') {
       const cx = this.target.x / TILE, cz = this.target.z / TILE, near = s.buildings.filter(b => b.status === 'operating' && Math.abs(b.x - cx) < 12 && Math.abs(b.y - cz) < 12 && (b.hh || isShop(b.kind) || b.kind === 'house'));
@@ -2557,7 +2570,7 @@ export class View {
       if (u === 'amb') {
         const hb = nearestBase(s, HOSPITALS, tx, ty), ht = hb ? roadNear(s.road, W, H, hb.x, hb.y, hb.w, hb.h) : GATEWAYS.find(g => s.road[g]) ?? -1;
         this.incGo(s, 'amb', b0.t, dest, q.x, q.z, { stay: 14, legs: [ht >= 0 ? ht : b0.t], wait, cb: (ev, a) => { const E = (a as any).em as Em;
-          if (ev === 'leg') { q.victim = null; E.lit = true; E.stay = 4; if (q.sev >= 2) this.incNote('h' + id, incFollowText('hosp', q.place), q.tile); }
+          if (ev === 'leg') { q.victim = null; E.lit = true; E.stay = 4; if (q.sev >= 2) this.incNote('h' + id, incFollowText('hosp', q.place) + (q.hurtShort ? `（${q.hurtShort}）` : ''), q.tile); }
           if (ev === 'done' && q.fatal) { q.fatal = false; this.incEmit(q, true); // 病院で亡くなった：しばらくして霊柩車が病院から葬儀場・斎場へ（無ければ市外へ）
             const fb = nearestBase(s, FUNERAL, a.cur % W, (a.cur / W) | 0), ft = fb ? roadNear(s.road, W, H, fb.x, fb.y, fb.w, fb.h) : GATEWAYS.find(g => s.road[g]) ?? -1, from = a.cur;
             if (ft >= 0) { this.incGo(s, 'hearse', from, ft, 0, 0, { stay: 6, legs: [], lit: false, wait: 8 }); this.incNote('f' + id, incFollowText('funeral', q.place), ft); } } } });
@@ -2587,7 +2600,7 @@ export class View {
     const pop = s.stats.pop || 0;
     if (this.incAuto && pop > 300 && this.dist < 1100) { this.incT -= dt;
       if (this.incT <= 0) { const t = idx(Math.max(0, Math.min(W - 1, Math.floor(this.target.x / TILE))), Math.max(0, Math.min(H - 1, Math.floor(this.target.z / TILE))));
-        const pk = pickInc(Math.random(), !!s.rail && this.trains.length > 0), rate = (this.incidentRate ? this.incidentRate(t, this.hour, pk.kind) : 1) * hourRate(this.hour);
+        const pk = pickInc(Math.random(), !!s.rail && this.trains.length > 0), rate = this.incidentRate ? this.incidentRate(t, this.hour, pk.kind) : hourRate(this.hour); // v98：sim の起きやすさ（場所・時間帯込み）があればそれだけで決める
         if (this.incs.length < 2 && this.ems.length < 6) this.startIncident(pk.sub);
         this.incT = incInterval(rate, pop, Math.random()); } }
     for (let k = this.incs.length - 1; k >= 0; k--) {
@@ -3220,6 +3233,7 @@ export class View {
     const r = this.renderer.domElement.getBoundingClientRect(), mx = clientX - r.left, my = clientY - r.top; let best: Agent | null = null, bd = 16 * 16, isPed = false;
     const test = (a: Agent, ped: boolean) => { const A = a as any; if (A.px === undefined) return; const p = this.project(A.px, (A.py ?? this.surfY(A.px, A.pz)) + (ped ? 0.9 : 0.8), A.pz); if (!p.visible) return; const d = (p.x - mx) ** 2 + (p.y - my) ** 2; if (d < bd) { bd = d; best = a; isPed = ped; } };
     for (const a of this.peds) test(a, true); for (const a of this.cars) test(a, false);
+    for (const q of this.incs) if (q.victim && q.hurt) { const p = this.project(q.victim[0], this.surfY(q.victim[0], q.victim[1]) + 0.3, q.victim[1]); if (p.visible && (p.x - mx) ** 2 + (p.y - my) ** 2 < bd) return q.hurt; }
     if (!best) return null; return this.whoIs(best, isPed);
   }
   /** 人・車の紹介の文（事故の知らせにも使う） */
