@@ -131,6 +131,48 @@ export interface Gate { x: number; y: number; z: number; dx: number; dz: number;
 /** 新幹線の線（駅のホームの中心・向き・高さ）。走る列車の描画に使う */
 export type ShinLine = { cx: number; cz: number; tx: number; tz: number; hy: number; open: boolean; half: number };
 export const SHIN_LINES: ShinLine[] = [];
+/** v100：高架の橋脚の置き場所（点の番号→門形か・門形の柱の横の位置）。描画と点検（scripts/v100-structure.ts）が同じ答えを使う。
+ *  橋脚は約 24m（ラーメン高架は 12m、モノレール 22m）おき。v100：下の道路を横切る所（車線・歩道の帯）には立てず、手前の道路の外に立てるか
+ *  渡り終えてから立てる。道路に沿って重なる所は、道路の歩道の外に柱を立てる門形にする（前は道路の真ん中に橋脚や門形の柱が立っていた） */
+export interface RailPier { portal: boolean; lat: number }
+const RHW = [0, 2.5, 5, 7.5], RSW = 2.5;
+export function railPiers(s: GameState, m: MapDef, P: RailPath): Map<number, RailPier> {
+  const out = new Map<number, RailPier>(), n = P.p.length / 3;
+  const ground = (x: number, z: number) => heightAt(m, Math.max(0, Math.min(W * TILE - 0.01, x)), Math.max(0, Math.min(H * TILE - 0.01, z)));
+  const vis = (j: number) => P.off[j] > -1.2 || (P.cut[j] === 1 && P.off[j] > -7.5);
+  const tan = (j: number): [number, number] => { const a = Math.max(0, j - 1), b = Math.min(n - 1, j + 1), dx = P.p[b * 3] - P.p[a * 3], dz = P.p[b * 3 + 2] - P.p[a * 3 + 2], L = Math.hypot(dx, dz) || 1; return [dx / L, dz / L]; };
+  const wide = new Set(s.wide ?? []);
+  /** その点の下の道路：無い・横切る（車線と歩道の帯の中）・沿う（同じ向き）と、道路の半幅（歩道を含む） */
+  const band = (j: number): [0 | 1 | 2, number] => {
+    const x = P.p[j * 3], z = P.p[j * 3 + 2], tx = Math.floor(x / TILE), ty = Math.floor(z / TILE); if (tx < 0 || ty < 0 || tx >= W || ty >= H) return [0, 0];
+    const t = idx(tx, ty), r = s.road[t]; if (!r || m.water[t]) return [0, 0];
+    const rd = (a: number, b: number) => a >= 0 && b >= 0 && a < W && b < H && !!s.road[idx(a, b)];
+    let ew = rd(tx - 1, ty) || rd(tx + 1, ty), ns = rd(tx, ty - 1) || rd(tx, ty + 1); if (!ew && !ns) ew = ns = true;
+    const rh = (wide.has(t) && r === 2 ? 7.5 : RHW[r] ?? 7.5) + RSW, cx = (tx + 0.5) * TILE, cz = (ty + 0.5) * TILE, [ax, az] = tan(j);
+    const inE = ew && Math.abs(z - cz) < rh + 1.2, inN = ns && Math.abs(x - cx) < rh + 1.2;
+    if (inE && inN) return [1, rh];
+    if (inE) return [Math.abs(ax) > 0.7 ? 2 : 1, rh];
+    if (inN) return [Math.abs(az) > 0.7 ? 2 : 1, rh];
+    return [0, rh];
+  };
+  const phs = hash(P.a, P.b, 5), vType = phs < 0.5 ? 1 : 0;
+  let acc = 12;
+  for (let j = 0; j < n - 1; j++) {
+    if (!vis(j) || !vis(j + 1)) continue;
+    const x0 = P.p[j * 3], y0 = P.p[j * 3 + 1], z0 = P.p[j * 3 + 2], seg = Math.hypot(P.p[j * 3 + 3] - x0, P.p[j * 3 + 5] - z0), lift = y0 - ground(x0, z0);
+    let gap: number;
+    if (P.kind === 1) gap = 22; else if (P.kind === 2) gap = 24;
+    else { if (lift <= 2.2) continue; const steel = P.off[j] < 3 && [-5, 0, 5].some(q => !!m.water[P.tile[Math.max(0, Math.min(n - 1, j + q))]]); gap = vType === 1 && !steel && lift < 14 ? 12 : 24; }
+    acc += seg;
+    const [b, rh] = band(j);
+    let put = false;
+    if (acc >= gap) put = b !== 1;
+    else if (acc >= gap * 0.5 && b === 0) { let d = 0; for (let k = j + 1; k < n - 1 && d <= gap - acc + 0.5; k++) { d += Math.hypot(P.p[k * 3] - P.p[k * 3 - 3], P.p[k * 3 + 2] - P.p[k * 3 - 1]); if (band(k)[0] === 1) { put = true; break; } } }
+    if (put) { acc = 0; out.set(j, { portal: b === 2, lat: rh + 1.2 }); }
+  }
+  return out;
+}
+
 /** 新幹線の高架の高さ。実物と同じく、線は水平のまま（ホームの高さ）で、地面が低い所は高い橋脚、
  *  地面が高い所は山に入る（トンネル）。前は「地面から 8m 上」を 20m ごとに取っていて、坂では桁が階段になっていた。
  *  桁・橋脚・トンネルの口・走る列車がすべてこの値を使う */
@@ -199,9 +241,16 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
     const n = P.p.length / 3, X = (j: number) => P.p[j * 3], Y = (j: number) => P.p[j * 3 + 1], Z = (j: number) => P.p[j * 3 + 2];
     const tan = (j: number): [number, number] => { const a = Math.max(0, j - 1), b = Math.min(n - 1, j + 1), dx = X(b) - X(a), dz = Z(b) - Z(a), L = Math.hypot(dx, dz) || 1; return [dx / L, dz / L]; };
     const vis = (j: number) => P.off[j] > -1.2 || (P.cut[j] === 1 && P.off[j] > -7.5);
-    let poleAcc = 0, pierAcc = 12, poleN = 0, sigAcc = 160, kmAcc = 0, kmN = 0;
+    let poleAcc = 0, poleN = 0, sigAcc = 160, kmAcc = 0, kmN = 0;
     // v86：線ごとの決まり（作り直しても同じ）：まくらぎ（PC か木）・高架の型（ラーメンか壁の橋脚）・鉄橋のトラス・柵・架線柱の型
     const phs = hash(P.a, P.b, 5), pcS = P.lv[0] >= 2 || phs < 0.55, vType = phs < 0.5 ? 1 : 0, truss = hash(P.a, P.b, 9) < 0.5, fence = detail >= 2 && hash(P.a, P.b, 13) < 0.75, catT = (hash(P.a, P.b, 17) * 3) | 0;
+    const pl = railPiers(s, m, P);
+    /** 門形の橋脚：桁の下 yb まで、道の横 ±lat に柱 2 本と、上の梁 */
+    const portal = (x: number, yb: number, z: number, ax: number, az: number, lat: number, col: number) => {
+      const rot = Math.atan2(-az, ax);
+      for (const o of [-lat, lat]) { const cx = x - az * o, cz = z + ax * o, gy = ground(cx, cz); g.at(cx, gy, cz, rot); g.box(0, 0, 0, 1.6, Math.max(0.5, yb - gy), 1.6, col); }
+      g.at(x, yb - 1.3, z, rot); g.box(0, 0, 0, 1.8, 1.4, lat * 2 + 1.6, col); g.at(0, 0, 0);
+    };
     for (let j = 0; j < n - 1; j++) {
       const v0 = vis(j), v1 = vis(j + 1);
       // トンネルの坑口：見える区間から地下へ入る所
@@ -232,16 +281,18 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
       const half = quad4 ? 9.6 : dbl ? 5.2 : 3.0, offs = quad4 ? [-6.6, -2.2, 2.2, 6.6] : dbl ? [-2.2, 2.2] : [0];
       if (P.kind === 1) { // モノレール：1 本の太いコンクリートの桁（複線は 2 本）と、T 字の柱
         for (const o of dbl ? [-2.4, 2.4] : [0]) { band(o, 0.9, 0.02, 0xc9c6bf); side(o - 0.45, -1.8, 0.02, 0xbdbab3); side(o + 0.45, -1.8, 0.02, 0xbdbab3); band(o, 0.9, -1.8, 0x8f8c86); }
-        pierAcc += seg;
-        if (pierAcc >= 22) { pierAcc = 0; const gy = ground(x0, z0); g.at(x0, gy, z0, Math.atan2(-az, ax)); g.cyl(0, 0, 0, 0.75, Math.max(0.5, y0 - 1.8 - 1.2 - gy), 0xb9b6af, 10); g.box(0, y0 - 1.8 - 1.2 - gy, 0, 1.4, 1.2, dbl ? 6.6 : 1.6, 0xb9b6af); g.at(0, 0, 0); }
+        const pq = pl.get(j);
+        if (pq && !pq.portal) { const gy = ground(x0, z0); g.at(x0, gy, z0, Math.atan2(-az, ax)); g.cyl(0, 0, 0, 0.75, Math.max(0.5, y0 - 1.8 - 1.2 - gy), 0xb9b6af, 10); g.box(0, y0 - 1.8 - 1.2 - gy, 0, 1.4, 1.2, dbl ? 6.6 : 1.6, 0xb9b6af); g.at(0, 0, 0); }
+        else if (pq) portal(x0, y0 - 1.8, z0, ax, az, pq.lat, 0xb9b6af);
         continue;
       }
       if (P.kind === 2) { // 新交通：コンクリートの床と低い壁の溝、中央の案内レール、細い柱
         const w2 = dbl ? 8.4 : 4.6;
         band(0, w2, 0.05, 0xbab7b0); band(0, w2, -1.4, 0x8f8c86); side(-w2 / 2, -1.4, 1.0, 0xcac7c0); side(w2 / 2, -1.4, 1.0, 0xcac7c0);
         for (const o of dbl ? [-2.1, 2.1] : [0]) { band(o, 0.22, 0.25, 0x6f767d); band(o - 0.85, 0.5, 0.1, 0x9b968c); band(o + 0.85, 0.5, 0.1, 0x9b968c); }
-        pierAcc += seg;
-        if (pierAcc >= 24) { pierAcc = 0; const gy = ground(x0, z0); g.at(x0, gy, z0, Math.atan2(-az, ax)); g.box(0, 0, 0, 1.3, Math.max(0.5, y0 - 1.4 - gy), 1.3, 0xb3b0a9); g.box(0, y0 - 2.4 - gy, 0, 1.6, 1.0, w2 - 0.6, 0xb3b0a9); g.at(0, 0, 0); }
+        const pq = pl.get(j);
+        if (pq && !pq.portal) { const gy = ground(x0, z0); g.at(x0, gy, z0, Math.atan2(-az, ax)); g.box(0, 0, 0, 1.3, Math.max(0.5, y0 - 1.4 - gy), 1.3, 0xb3b0a9); g.box(0, y0 - 2.4 - gy, 0, 1.6, 1.0, w2 - 0.6, 0xb3b0a9); g.at(0, 0, 0); }
+        else if (pq) portal(x0, y0 - 1.4, z0, ax, az, Math.max(pq.lat, w2 / 2 + 1), 0xb3b0a9);
         continue;
       }
       // 2 本の線の間の帯（内側 oA・外側 oB、それぞれ高さ dy。前後の点で違ってよい）。法面・バラストの肩に使う
@@ -267,15 +318,12 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
             both([A[0], A[1] - 0.18, A[2]], [B[0], B[1] - 0.18, B[2]], [B[0], B[1] + 0.18, B[2]], [A[0], A[1] + 0.18, A[2]], 0x5f6c78);
             if (up2) { g.at(x0 + n0x * o, y0, z0 + n0z * o, rot); g.box(0, 0, 0, 0.3, TH, 0.3, 0x5f6c78); g.at(0, 0, 0); } }
           if (j % 2 === 0) { g.at(x0, y0 + TH - 0.3, z0, rot); g.box(0, 0, 0, 0.25, 0.25, tw * 2, 0x5f6c78); g.at(0, 0, 0); } } // 上の横つなぎ
-        pierAcc += seg;
-        const frame = vType === 1 && !steel && lift < 14, gap = frame ? 12 : 24;
-        if (pierAcc >= gap) {
-          pierAcc = 0;
-          const gy = ground(x0, z0), tl = P.tile[j];
-          if (s.road[tl] && !(m.water[tl])) {
-            // 道路の上は門の形の橋脚（道路をまたぐ）
-            for (const o of [-(half + 5), half + 5]) { g.at(x0 - az * o, gy, z0 + ax * o, rot); g.box(0, 0, 0, 1.6, y0 - 1.9 - gy, 1.6, 0xa9a69f); }
-            g.at(x0, y0 - 3.2, z0, rot); g.box(0, 0, 0, 1.8, 1.4, half * 2 + 12, 0xa9a69f);
+        const frame = vType === 1 && !steel && lift < 14, pq = pl.get(j);
+        if (pq) {
+          const gy = ground(x0, z0);
+          if (pq.portal) {
+            // 道路に沿って重なる所は門の形の橋脚（柱は道路の歩道の外）
+            portal(x0, y0 - 1.9, z0, ax, az, Math.max(half + 5, pq.lat), 0xa9a69f);
           } else if (frame) { // ラーメン高架橋：2 本の柱と、上の梁・下の地中梁（柱の間から向こうが見える）
             g.at(x0, Math.min(gy, y0 - 2), z0, rot); const hh = Math.max(0.5, y0 - 1.9 - Math.min(gy, y0 - 2));
             for (const sg of [-1, 1]) g.box(0, 0, sg * (half - 0.9), 1.0, hh, 1.0, 0xaeaba3);

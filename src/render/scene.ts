@@ -704,7 +704,7 @@ export class View {
     for (const o of this.landObjs) { this.scene.remove(o); if ((o as THREE.Mesh).geometry) (o as THREE.Mesh).geometry.dispose(); }
     this.landObjs = [];
     const m = this.map, SUB = 3, nx = W * SUB, nz = H * SUB, st0 = this.getState();
-    const shore = makeShore(m); // v94：岸をなめらかな曲線に
+    const shore = makeShore(m); this.shore = shore; // v94：岸をなめらかな曲線に
     const SOFT = [0, 2, 6, 7, 8, 9], softOn = !!m.deco && !REAL, softT = (i: number) => !m.water[i] && !m.sand?.[i] && !m.wet?.[i] && !m.dug?.[i] && !m.desert?.[i] && !m.snow?.[i] && !(m.steep[i] && m.base) && SOFT.includes(m.deco?.[i] ?? 0);
     const pos = new Float32Array((nx + 1) * (nz + 1) * 3), col = new Float32Array((nx + 1) * (nz + 1) * 3);
     const c = new THREE.Color(), c2 = new THREE.Color();
@@ -1302,6 +1302,7 @@ export class View {
   /** トンネルの区画（路面を描かず、車と人は山の中を通る＝見えない） */
   tunnelSet = new Set<number>();
   /** 橋・陸橋の路面の高さ（区画ごと）。陸橋は両側の区画に坂（rampOf：坂の区画→陸橋の区画） */
+  private shore: ReturnType<typeof makeShore> = null;
   deckH = new Map<number, number>(); private rampOf = new Map<number, number>();
   /** 橋と陸橋の高さを決める：橋はつながった橋の区画のまわりの岸の高さ、陸橋は線路の上 7.5m */
   private computeDecks(s: GameState): void {
@@ -1352,12 +1353,14 @@ export class View {
     if (along !== 'both') for (const sg of [-1, 1]) { const o = sg * (wd / 2 - 0.15); if (along === 'x') g.box(cx, yD, cz + o, TILE, 1.1, 0.3, rail); else g.box(cx + o, yD, cz, 0.3, 1.1, TILE, rail); } // 欄干
     if (along !== 'both') { const lw = 0.1; for (let d = -14; d < 15; d += 5) { if (along === 'x') g.box(cx + d + 1.3, yD + 0.01, cz, 2.6, 0.03, lw * 2, 0xeeeeea); else g.box(cx, yD + 0.01, cz + d + 1.3, lw * 2, 0.03, 2.6, 0xeeeeea); } }
     // 橋げた：路面の下に鋼の主桁 2 本と横桁（陸橋はコンクリートの箱桁のまま）
-    if (!over && along !== 'both') { const steel = 0x6f7880;
+    // v100：桁の下が水面に近い低い橋は、鋼の主桁を下げず、路面の床版（1.4m）だけの床版橋にする（前は主桁が水に浸かっていた）
+    const wl = this.shore ? this.shore.level(x + 0.5, y + 0.5) : NaN, lowDeck = Number.isFinite(wl) && yD - 3.4 < wl + 0.6;
+    if (!over && along !== 'both' && !lowDeck) { const steel = 0x6f7880;
       for (const sg of [-1, 1]) { const o = sg * (wd / 2 - 2.2); if (along === 'x') g.box(cx, yD - 3.4, cz + o, TILE + 0.2, 2.0, 0.7, steel); else g.box(cx + o, yD - 3.4, cz, 0.7, 2.0, TILE + 0.2, steel); }
       for (const d of [-10, 0, 10]) { if (along === 'x') g.box(cx + d, yD - 3.0, cz, 0.4, 1.4, wd - 4.2, steel); else g.box(cx, yD - 3.0, cz + d, wd - 4.2, 1.4, 0.4, steel); } }
     // 橋脚：川底（水面）・谷底から桁まで。谷を渡る高い橋は太い角柱と、梁（はり）で支える
-    const ground0 = heightAt(m, cx, cz), gy = ground0 - (over ? 0 : m.water[i] || m.dug?.[i] ? 3 : 0.5), tall = !over && yD - gy > 14;
-    if (tall && along !== 'both' && (x + y) % 2 === 0) {
+    const canalT = (s.canal ?? []).includes(i), ground0 = heightAt(m, cx, cz), gy = ground0 - (over ? 0 : m.water[i] || m.dug?.[i] ? 3 : 0.5), tall = !over && yD - gy > 14;
+    if (tall && along !== 'both') { // v100：区画ごと（30m おき）。前は 1 区画おきで、高い橋は 60m の径間になっていた
       for (const sg of [-1, 1]) { const o = sg * (wd / 2 - 2.2); g.box(cx + (along === 'z' ? o : 0), gy, cz + (along === 'x' ? o : 0), 2.4, yD - 3.4 - gy, 2.4, 0xb3b0a8); }
       if (along === 'x') g.box(cx, yD - 4.6, cz, 2.6, 1.2, wd - 1, 0xa9a69e); else g.box(cx, yD - 4.6, cz, wd - 1, 1.2, 2.6, 0xa9a69e);
       for (let hy = gy + 12; hy < yD - 8; hy += 12) { if (along === 'x') g.box(cx, hy, cz, 1.2, 0.9, wd - 4.4, 0xb3b0a8); else g.box(cx, hy, cz, wd - 4.4, 0.9, 1.2, 0xb3b0a8); } // つなぎ梁
@@ -1365,6 +1368,7 @@ export class View {
     if (!tall) {
     // v95：陸橋の橋脚は線路（区画の中心を横切る）の上に立てず、区画の両端（線路から 12m 離れた所）の、桁の両縁の下に立てる
     if (over && along !== 'both') { for (const ea of [-12.5, 12.5]) for (const sg of [-1, 1]) { const o = sg * (wd / 2 - 1.6); g.cyl(cx + (along === 'x' ? ea : o), gy, cz + (along === 'x' ? o : ea), 0.8, yD - 1.4 - gy, con, 10); } }
+    else if (!over && along !== 'both' && canalT) { for (const ea of [-13, 13]) for (const sg of [-1, 1]) { const o = sg * (wd / 2 - 2); g.cyl(cx + (along === 'x' ? ea : o), ground0 - 0.3, cz + (along === 'x' ? o : ea), 0.9, yD - 1.4 - ground0 + 0.3, con, 10); } } // v100：水路の上は、水路の外（両岸）に橋脚を立てる
     else for (const sg of [-1, 1]) { const ox = along === 'z' ? sg * (wd / 2 - 2) : 0, oz = along === 'z' ? 0 : sg * (wd / 2 - 2); if (along === 'both' && sg > 0) continue; g.cyl(cx + (over ? ox : ox * 0.2), gy, cz + (over ? oz : oz * 0.2), over ? 0.9 : 1.4, yD - 1.4 - gy, con, 10); }
     }
     // 陸橋の坂：道路の向きの前後 2 区画（60m）の上に、陸橋から地面へ下りる路面と壁（v94：前は 30m で 7.5m＝25% の坂を、隣の区画すべてに）
