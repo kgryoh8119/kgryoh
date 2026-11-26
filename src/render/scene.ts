@@ -128,7 +128,7 @@ import { stationStats } from '../sim/index';
 import { makeShore, buildShoreWater, seaColors } from './shore';
 import { warpTile, field, clipPoly } from './soft';
 import { FIC_PREV_W } from '../sim/config';
-import { grade, flyPiers, FLY_H, FLY_RAMP, OVP_H, OVP_RAMP } from '../sim/grade'; // v94：立体の道路の形（sim と同じ答え）
+import { grade, flyPiers, flySupports, FLY_FILL_CLR, FLY_H, FLY_RAMP, OVP_H, OVP_RAMP } from '../sim/grade'; // v94：立体の道路の形（sim と同じ答え）
 /** v93：架空の街の空き地は（v92 の広い地図では 76×68 の内も）、地形の見た目の印（田んぼ・畑・草地・林・空き地のまとまり）で描く。区画ごとの乱数で田畑・草地を選ぶと、上空から市松模様に見えた。印がなければ -1 */
 const extLook = (m: MapDef, x: number, y: number): number => (!REAL && m.deco && W > FIC_PREV_W && terrainOf(m.seed).id !== 'castaway' ? m.deco[idx(x, y)] : -1);
 import { DISTRICTS } from '../sim/types';
@@ -704,7 +704,7 @@ export class View {
     for (const o of this.landObjs) { this.scene.remove(o); if ((o as THREE.Mesh).geometry) (o as THREE.Mesh).geometry.dispose(); }
     this.landObjs = [];
     const m = this.map, SUB = 3, nx = W * SUB, nz = H * SUB, st0 = this.getState();
-    const shore = makeShore(m); // v94：岸をなめらかな曲線に
+    const shore = makeShore(m); this.shore = shore; // v94：岸をなめらかな曲線に
     const SOFT = [0, 2, 6, 7, 8, 9], softOn = !!m.deco && !REAL, softT = (i: number) => !m.water[i] && !m.sand?.[i] && !m.wet?.[i] && !m.dug?.[i] && !m.desert?.[i] && !m.snow?.[i] && !(m.steep[i] && m.base) && SOFT.includes(m.deco?.[i] ?? 0);
     const pos = new Float32Array((nx + 1) * (nz + 1) * 3), col = new Float32Array((nx + 1) * (nz + 1) * 3);
     const c = new THREE.Color(), c2 = new THREE.Color();
@@ -1302,6 +1302,7 @@ export class View {
   /** トンネルの区画（路面を描かず、車と人は山の中を通る＝見えない） */
   tunnelSet = new Set<number>();
   /** 橋・陸橋の路面の高さ（区画ごと）。陸橋は両側の区画に坂（rampOf：坂の区画→陸橋の区画） */
+  private shore: ReturnType<typeof makeShore> = null;
   deckH = new Map<number, number>(); private rampOf = new Map<number, number>();
   /** 橋と陸橋の高さを決める：橋はつながった橋の区画のまわりの岸の高さ、陸橋は線路の上 7.5m */
   private computeDecks(s: GameState): void {
@@ -1352,12 +1353,14 @@ export class View {
     if (along !== 'both') for (const sg of [-1, 1]) { const o = sg * (wd / 2 - 0.15); if (along === 'x') g.box(cx, yD, cz + o, TILE, 1.1, 0.3, rail); else g.box(cx + o, yD, cz, 0.3, 1.1, TILE, rail); } // 欄干
     if (along !== 'both') { const lw = 0.1; for (let d = -14; d < 15; d += 5) { if (along === 'x') g.box(cx + d + 1.3, yD + 0.01, cz, 2.6, 0.03, lw * 2, 0xeeeeea); else g.box(cx, yD + 0.01, cz + d + 1.3, lw * 2, 0.03, 2.6, 0xeeeeea); } }
     // 橋げた：路面の下に鋼の主桁 2 本と横桁（陸橋はコンクリートの箱桁のまま）
-    if (!over && along !== 'both') { const steel = 0x6f7880;
+    // v100：桁の下が水面に近い低い橋は、鋼の主桁を下げず、路面の床版（1.4m）だけの床版橋にする（前は主桁が水に浸かっていた）
+    const wl = this.shore ? this.shore.level(x + 0.5, y + 0.5) : NaN, lowDeck = Number.isFinite(wl) && yD - 3.4 < wl + 0.6;
+    if (!over && along !== 'both' && !lowDeck) { const steel = 0x6f7880;
       for (const sg of [-1, 1]) { const o = sg * (wd / 2 - 2.2); if (along === 'x') g.box(cx, yD - 3.4, cz + o, TILE + 0.2, 2.0, 0.7, steel); else g.box(cx + o, yD - 3.4, cz, 0.7, 2.0, TILE + 0.2, steel); }
       for (const d of [-10, 0, 10]) { if (along === 'x') g.box(cx + d, yD - 3.0, cz, 0.4, 1.4, wd - 4.2, steel); else g.box(cx, yD - 3.0, cz + d, wd - 4.2, 1.4, 0.4, steel); } }
     // 橋脚：川底（水面）・谷底から桁まで。谷を渡る高い橋は太い角柱と、梁（はり）で支える
-    const ground0 = heightAt(m, cx, cz), gy = ground0 - (over ? 0 : m.water[i] || m.dug?.[i] ? 3 : 0.5), tall = !over && yD - gy > 14;
-    if (tall && along !== 'both' && (x + y) % 2 === 0) {
+    const canalT = (s.canal ?? []).includes(i), ground0 = heightAt(m, cx, cz), gy = ground0 - (over ? 0 : m.water[i] || m.dug?.[i] ? 3 : 0.5), tall = !over && yD - gy > 14;
+    if (tall && along !== 'both') { // v100：区画ごと（30m おき）。前は 1 区画おきで、高い橋は 60m の径間になっていた
       for (const sg of [-1, 1]) { const o = sg * (wd / 2 - 2.2); g.box(cx + (along === 'z' ? o : 0), gy, cz + (along === 'x' ? o : 0), 2.4, yD - 3.4 - gy, 2.4, 0xb3b0a8); }
       if (along === 'x') g.box(cx, yD - 4.6, cz, 2.6, 1.2, wd - 1, 0xa9a69e); else g.box(cx, yD - 4.6, cz, wd - 1, 1.2, 2.6, 0xa9a69e);
       for (let hy = gy + 12; hy < yD - 8; hy += 12) { if (along === 'x') g.box(cx, hy, cz, 1.2, 0.9, wd - 4.4, 0xb3b0a8); else g.box(cx, hy, cz, wd - 4.4, 0.9, 1.2, 0xb3b0a8); } // つなぎ梁
@@ -1365,6 +1368,7 @@ export class View {
     if (!tall) {
     // v95：陸橋の橋脚は線路（区画の中心を横切る）の上に立てず、区画の両端（線路から 12m 離れた所）の、桁の両縁の下に立てる
     if (over && along !== 'both') { for (const ea of [-12.5, 12.5]) for (const sg of [-1, 1]) { const o = sg * (wd / 2 - 1.6); g.cyl(cx + (along === 'x' ? ea : o), gy, cz + (along === 'x' ? o : ea), 0.8, yD - 1.4 - gy, con, 10); } }
+    else if (!over && along !== 'both' && canalT) { for (const ea of [-13, 13]) for (const sg of [-1, 1]) { const o = sg * (wd / 2 - 2); g.cyl(cx + (along === 'x' ? ea : o), ground0 - 0.3, cz + (along === 'x' ? o : ea), 0.9, yD - 1.4 - ground0 + 0.3, con, 10); } } // v100：水路の上は、水路の外（両岸）に橋脚を立てる
     else for (const sg of [-1, 1]) { const ox = along === 'z' ? sg * (wd / 2 - 2) : 0, oz = along === 'z' ? 0 : sg * (wd / 2 - 2); if (along === 'both' && sg > 0) continue; g.cyl(cx + (over ? ox : ox * 0.2), gy, cz + (over ? oz : oz * 0.2), over ? 0.9 : 1.4, yD - 1.4 - gy, con, 10); }
     }
     // 陸橋の坂：道路の向きの前後 2 区画（60m）の上に、陸橋から地面へ下りる路面と壁（v94：前は 30m で 7.5m＝25% の坂を、隣の区画すべてに）
@@ -1501,6 +1505,7 @@ export class View {
       const P = (a: number, o: number): [number, number] => (f.ew ? [a, f.line + o] : [f.line + o, a]);
       const yAt = (a: number) => View.flyH(a, f.a0, f.a1, H0), base = (a: number) => { const [px, pz] = P(a, 0); return hA(px, pz) + 0.18; };
       const A0 = f.a0 - 15 - RL, A1 = f.a1 + 15 + RL, n = Math.max(1, Math.round((A1 - A0) / 2.5)), st = (A1 - A0) / n;
+      const spk = L.spans[this.flySpans.indexOf(f)], sup = flySupports(s, spk), ab = sup.filter(o => o.kind === 'abut').map(o => o.a), aLo = Math.min(...ab), aHi = Math.max(...ab);
       for (let k = 0; k < n; k++) {
         const a = A0 + k * st, b = a + st, ya = base(a) + yAt(a), yb = base(b) + yAt(b);
         const [x0, z0] = P(a, -dw), [x1, z1] = P(b, -dw), [x2, z2] = P(b, dw), [x3, z3] = P(a, dw);
@@ -1509,15 +1514,18 @@ export class View {
         const tha = Math.min(TH, yAt(a)), thb = Math.min(TH, yAt(b));
         if (tha > 0.25 || thb > 0.25) dq([x0, ya - tha, z0], [x1, yb - thb, z1], [x2, yb - thb, z2], [x3, ya - tha, z3], 0x9a978f);
         // 桁の側面（高欄の上端まで。厚さは一定で、坂の下では地面に沿って薄くなる）
+        // v100：坂の低い所（桁下 2m 未満）は擁壁の盛土：側面を地面まで下ろす（前は薄い桁が地面すれすれに浮いていた）
+        const fill = b <= aLo + 0.01 || a >= aHi - 0.01;
         for (const sg of [-1, 1]) {
           const [ax, az] = P(a, sg * dw), [bx, bz] = P(b, sg * dw);
-          dq([ax, ya + 0.9, az], [bx, yb + 0.9, bz], [bx, yb - Math.max(0.2, thb), bz], [ax, ya - Math.max(0.2, tha), az], 0xc9c6bf);
+          dq([ax, ya + 0.9, az], [bx, yb + 0.9, bz], [bx, fill ? base(b) - 0.4 : yb - Math.max(0.2, thb), bz], [ax, fill ? base(a) - 0.4 : ya - Math.max(0.2, tha), az], fill ? 0xbdb9b0 : 0xc9c6bf);
         }
+        if (fill && (Math.abs(b - aLo) < st * 0.5 || Math.abs(a - aHi) < st * 0.5)) { const e = Math.abs(b - aLo) < st * 0.5 ? b : a, ye = base(e) + yAt(e) - TH, [p0x, p0z] = P(e, -dw), [p1x, p1z] = P(e, dw); dq([p0x, base(e) - 0.4, p0z], [p1x, base(e) - 0.4, p1z], [p1x, ye, p1z], [p0x, ye, p0z], 0xb0ada5); } // 盛土の端の壁（橋台）
         // 中央線（破線）
         if (Math.floor((a - A0) / 5) % 2 === 0) { const [mx0, mz0] = P(a, -0.1), [mx1, mz1] = P(b, 0.1); dq([mx0, ya + 0.04, mz0], [mx1, yb + 0.04, mz0], [mx1, yb + 0.04, mz1], [mx0, ya + 0.04, mz1], 0xeeeeea); }
       }
       // v95：橋脚は高架の真下の中央分離帯（側道と側道の間の、車の通らない帯）にだけ、交差点・横断歩道・脇道の区画の外に立てる。
-      // 交差点は前後の区画の中心どうし（60m 以上）の桁でまたぐ。分離帯は縁石と植栽で、桁下が足りる所だけ
+      // 分離帯は縁石と植栽で、桁下が足りる所だけ（交差点をまたぐ所は v100 の門形の橋脚で支える）
       const sp = L.spans[this.flySpans.indexOf(f)], mw = 3.2;
       for (const t of flyPiers(s, sp)) {
         const ac = (t + 0.5) * TILE;
@@ -1529,9 +1537,21 @@ export class View {
           g.box(mx, my + 0.22, mz, f.ew ? len - 0.6 : mw * 2 - 0.5, 0.08, f.ew ? mw * 2 - 0.5 : len - 0.6, 0x4d6a34); // 植栽の土と下草
           if (this.fine()) for (let u = u0 + 3; u < u1 - 2; u += 4) { if (Math.abs(u - ac) < 2) continue; const [bx, bz] = P(u, 0); g.blob(bx, my + 0.3, bz, 0.9, 0.6, 0.9, 0x5f7f3a, 5); } // 低木（桁の下なので低く）
         }
-        const h = yAt(ac) - TH; if (h < 1.2) continue;
-        const [px, pz] = P(ac, 0), by = hA(px, pz); g.at(px, by, pz); g.box(0, 0, 0, f.ew ? 1.4 : 5.2, h, f.ew ? 5.2 : 1.4, 0xb9b6ae); g.at(0, 0, 0);
-        g.at(px, by + h - 0.9, pz); g.box(0, 0, 0, f.ew ? 2.0 : 7.6, 0.9, f.ew ? 7.6 : 2.0, 0xb0ada5); g.at(0, 0, 0); // 柱頭（はり）：桁の幅まで
+      }
+      // v100：支え（sim/grade.ts の flySupports）。中央分離帯の橋脚と、交差点の角に立てる門形の橋脚（1 径間 40m 以下）。
+      // 前は交差点・脇道の区画に橋脚を立てないだけで、交差点が続く幹線では桁が 100m 以上も支えなしで渡っていた
+      for (const o of sup) {
+        if (o.kind === 'abut') continue;
+        const [px, pz] = P(o.a, 0), by = hA(px, pz), top = by + 0.18 + yAt(o.a) - TH, h = top - by; if (h < 1.2) continue;
+        if (o.kind === 'median') {
+          g.at(px, by, pz); g.box(0, 0, 0, f.ew ? 1.4 : 5.2, h, f.ew ? 5.2 : 1.4, 0xb9b6ae); g.at(0, 0, 0);
+          g.at(px, by + h - 0.9, pz); g.box(0, 0, 0, f.ew ? 2.0 : 7.6, 0.9, f.ew ? 7.6 : 2.0, 0xb0ada5); g.at(0, 0, 0); // 柱頭（はり）：桁の幅まで
+        } else {
+          const lat = o.lat!, bw = lat * 2 + 1.4;
+          for (const sg of [-1, 1]) { const [cx2, cz2] = P(o.a, sg * lat), cy = hA(cx2, cz2); g.at(cx2, cy, cz2); g.box(0, 0, 0, 1.2, top + TH - 0.1 - cy, 1.2, 0xb9b6ae); g.at(0, 0, 0); }
+          // 梁：桁と同じ高さに組み込む（梁の下も側道の桁下 4.5m を残す）
+          g.at(px, top - 0.2, pz); g.box(0, 0, 0, f.ew ? 1.6 : bw, TH + 0.1, f.ew ? bw : 1.6, 0xb0ada5); g.at(0, 0, 0);
+        }
       }
     }
   }
@@ -1552,6 +1572,10 @@ export class View {
   }
 
   // ------------------------------------------------------------ 建物
+  /** v100：敷地の縁のいちばん低い地面の高さ（擁壁の下端） */
+  lotLow(b: { x: number; y: number; w: number; h: number }): number {
+    let y = 1e9; for (const u of [0.02, 0.5, 0.98]) for (const v of [0.02, 0.5, 0.98]) y = Math.min(y, heightAt(this.map, (b.x + b.w * u) * TILE, (b.y + b.h * v) * TILE)); return y;
+  }
   /** 建物の原点（区画中心・土台の高さ）と向き */
   place(s: GameState, b: { x: number; y: number; w: number; h: number; acc: number }): { x: number; y: number; z: number; rot: number } {
     const m = this.map, x = (b.x + b.w / 2) * TILE, z = (b.y + b.h / 2) * TILE;
@@ -1570,6 +1594,9 @@ export class View {
   }
   private drawBuilding0(c: Ctx, s: GameState, b: Building): void {
     const p = this.place(s, b);
+    // v100：斜面の敷地は、土台の高さ（敷地のいちばん高い所）から低い所まで、擁壁（造成した敷地の石積み）で地面までつなぐ（前は低い側で建物が浮いていた）
+    const drop = p.y - this.lotLow(b);
+    if (drop > 0.35) { c.g.at(p.x, p.y, p.z, 0); c.g.box(0, -drop - 0.3, 0, b.w * TILE - 1.0, drop + 0.27, b.h * TILE - 1.0, 0xa39e92, 0xb5b0a4); c.g.at(0, 0, 0); }
     c.g.at(p.x, p.y, p.z, p.rot);
     c.rnd = rng(b.v * 0.9 + 0.05);
     const ol = oldLevel(s, b), v0 = c.g.col.length;

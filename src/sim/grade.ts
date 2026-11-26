@@ -171,6 +171,57 @@ export function flyPiers(s: GameState, sp: FlySpan): number[] {
 /** v95：高架の下で中央分離帯を描く区画（交差点・脇道の区画を除く） */
 export function flyMedianTiles(s: GameState, sp: FlySpan): number[] { return flyPiers(s, sp); }
 
+/** v100：高架の路面の高さ（地面から、m）。a・a0・a1 は道の向きの座標（m）。平らな所（a0−15〜a1+15）は FLY_H、その外 60m で地面へ（なめらかに） */
+export function flyDeckH(a: number, a0: number, a1: number, Hh = FLY_H): number {
+  const L = FLY_RAMP * 30, d = a < a0 - 15 ? a0 - 15 - a : a > a1 + 15 ? a - a1 - 15 : 0, t = Math.max(0, 1 - d / L); return t * t * (3 - 2 * t) * Hh;
+}
+/** v100：高架の桁の厚さ・1 径間の上限（m）・下の道路の半幅（m）。立体交差の前後の幹線は 6 車線（車道の半幅 7.5m）＋歩道 2.5m */
+export const FLY_TH = 1.3, FLY_MAXSPAN = 40, FLY_ROAD_HALF = 7.5, FLY_WALK = 2.5, FLY_MEDIAN = 3.2;
+/** 坂の低い所（桁下がこれより低い所）は、桁の下を擁壁で囲んだ盛土にする（地面まで中身の詰まった坂） */
+export const FLY_FILL_CLR = 2.0;
+/** v100：高架の支え。a＝道の向きの座標（m）。median＝中央分離帯の橋脚（柱 1 本）、portal＝門形の橋脚（下の道路の歩道の外側に 2 本の柱と梁）、
+ *  abut＝坂の盛土（擁壁）の端（そこから先は地面まで詰まっている）。portal の lat＝柱の中心の横の位置（道の中心から、m） */
+export interface FlySupport { a: number; kind: 'median' | 'portal' | 'abut'; lat?: number }
+const HWs = [0, 2.5, 5, 7.5];
+/** v100：高架の支えの位置を決める（描画とテストが同じ答えを使う）。
+ *  ・中央分離帯の橋脚は、交差点（横断歩道を含む）・脇道の区画の外の、区画の中心にだけ立てる（v95）。
+ *  ・その間が FLY_MAXSPAN（40m）を超える所（交差点をまたぐ所・交差点が続く所）は、交差点の区画の角（交わる道路の歩道の外、
+ *    下の幹線の歩道の外）に門形の橋脚を足して、1 径間を 40m 以下にする。下の道路の車線・横断歩道・歩道には柱を立てない */
+export function flySupports(s: GameState, sp: FlySpan): FlySupport[] {
+  const a0 = (sp.j0 + 0.5) * 30, a1 = (sp.j1 + 0.5) * 30, clr = (a: number) => flyDeckH(a, a0, a1) - FLY_TH;
+  // 坂の盛土の端：坂の下から上へ、桁下が FLY_FILL_CLR になる所
+  let lo = a0 - 15 - FLY_RAMP * 30; while (clr(lo) < FLY_FILL_CLR && lo < a0) lo += 0.5;
+  let hi = a1 + 15 + FLY_RAMP * 30; while (clr(hi) < FLY_FILL_CLR && hi > a1) hi -= 0.5;
+  const out: FlySupport[] = [{ a: lo, kind: 'abut' }, { a: hi, kind: 'abut' }];
+  for (const t of flyPiers(s, sp)) { const a = (t + 0.5) * 30; if (a > lo + 3 && a < hi - 3) out.push({ a, kind: 'median' }); }
+  // 門形の橋脚を立てられる位置：交差点の区画の中心から、交わる道路の半幅＋歩道＋柱の半分＋余裕だけ前後へ
+  const cand: number[] = [];
+  for (let t = sp.j0 - FLY_RAMP; t <= sp.j1 + FLY_RAMP; t++) {
+    const ti = T(sp.ew, sp.line, t); if (ti < 0 || !s.road[ti] || !(isJunction(s, ti) || sideRoad(s, ti, sp.ew))) continue;
+    const x = ti % W, y = (ti / W) | 0; let ch = 0;
+    for (const [dx, dy] of sp.ew ? [[0, 1], [0, -1]] : [[1, 0], [-1, 0]]) { const xx = x + dx, yy = y + dy; if (!inM(xx, yy)) continue; const k = ix(xx, yy), r = s.road[k]; if (!r) continue; ch = Math.max(ch, has(s.wide, k) && r === 2 ? 7.5 : HWs[r] ?? 7.5); }
+    const d = ch + FLY_WALK + 1.4, c = (t + 0.5) * 30;
+    for (const q of [c - d, c + d]) if (q > lo + 3 && q < hi - 3) cand.push(q);
+  }
+  cand.sort((p, q) => p - q);
+  const sorted = () => out.sort((p, q) => p.a - q.a);
+  sorted();
+  for (let k = 0; k < out.length - 1; k++) {
+    let cur = out[k].a; const nx = out[k + 1].a; if (nx - cur <= FLY_MAXSPAN) continue;
+    const add: number[] = [];
+    while (nx - cur > FLY_MAXSPAN) {
+      const inGap = cand.filter(c => c > cur + 0.5 && c < nx - 0.5); if (!inGap.length) break;
+      const ok = inGap.filter(c => c - cur <= FLY_MAXSPAN); const c = ok.length ? ok[ok.length - 1] : inGap[0];
+      add.push(c); cur = c;
+    }
+    for (const c of add) out.push({ a: c, kind: 'portal', lat: FLY_ROAD_HALF + FLY_WALK + 1.0 });
+    if (add.length) { sorted(); k += add.length; }
+  }
+  return out;
+}
+/** v100：支えの間隔の最大値（m） */
+export function maxGap(pos: number[]): number { const p = [...pos].sort((a, b) => a - b); let g = 0; for (let k = 1; k < p.length; k++) g = Math.max(g, p[k] - p[k - 1]); return g; }
+
 type Key = [number, unknown, unknown, unknown, unknown, unknown, number, number, number];
 const cache = new WeakMap<GameState, { k: Key; v: GradeLayout }>();
 /** いまの状態の形。道路・線路・橋などが変わると roadVersion が上がり、立体の並びは変えるたびに新しい配列になるので、
