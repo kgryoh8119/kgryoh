@@ -107,11 +107,9 @@ export interface TaxBase {
   /** 住民税の合計（税率の政策と景気の前、万円/月） */
   tax: number;
 }
-const cache = new WeakMap<GameState, { key: string; t: TaxBase }>();
-const keyOf = (s: GameState) => `${s.month}:${s.bVersion}:${Math.round((s.stats?.pop ?? 0) * 100)}:${s.buildings.length}`;
 /** 住民税の積み上げ（人数は世帯の構成から、職場は雇用の 65% を市民が埋める規則から） */
 export function taxBase(s: GameState): TaxBase {
-  const key = keyOf(s), c = cache.get(s); if (c && c.key === key) return c.t;
+  // 作り置きはしない（同じ月の中でも職員数・接続・建物の状態が変わり、作り置きの鍵では拾いきれず結果がずれたため。建物を 2 回なめるだけで軽い）
   const hh = [0, 0, 0, 0, 0];
   for (const b of s.buildings) if (isRes(b.kind) && b.status === 'operating') for (let t = 0; t < NHH; t++) hh[t] += b.hh?.[t] ?? 0;
   let nWork = 0, nSenior = 0, nAll = 0;
@@ -138,7 +136,6 @@ export function taxBase(s: GameState): TaxBase {
   const K = P.resTaxK ?? 1; for (const x of [senior, regular, nonRegular, ...WAGE_IDS.map(g => work[g])]) x.tax *= K; // 合わせの係数（内訳の合計が総額と一致するよう内訳にも掛ける）
   let tax = senior.tax; for (const g of WAGE_IDS) tax += work[g].tax;
   const t: TaxBase = { work, senior, other: { n: Math.max(0, nAll - nWork - nSenior) }, regular, nonRegular, tax };
-  cache.set(s, { key, t });
   return t;
 }
 
