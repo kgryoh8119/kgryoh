@@ -1572,6 +1572,10 @@ export class View {
   }
 
   // ------------------------------------------------------------ 建物
+  /** v100：敷地の縁のいちばん低い地面の高さ（擁壁の下端） */
+  lotLow(b: { x: number; y: number; w: number; h: number }): number {
+    let y = 1e9; for (const u of [0.02, 0.5, 0.98]) for (const v of [0.02, 0.5, 0.98]) y = Math.min(y, heightAt(this.map, (b.x + b.w * u) * TILE, (b.y + b.h * v) * TILE)); return y;
+  }
   /** 建物の原点（区画中心・土台の高さ）と向き */
   place(s: GameState, b: { x: number; y: number; w: number; h: number; acc: number }): { x: number; y: number; z: number; rot: number } {
     const m = this.map, x = (b.x + b.w / 2) * TILE, z = (b.y + b.h / 2) * TILE;
@@ -1590,6 +1594,9 @@ export class View {
   }
   private drawBuilding0(c: Ctx, s: GameState, b: Building): void {
     const p = this.place(s, b);
+    // v100：斜面の敷地は、土台の高さ（敷地のいちばん高い所）から低い所まで、擁壁（造成した敷地の石積み）で地面までつなぐ（前は低い側で建物が浮いていた）
+    const drop = p.y - this.lotLow(b);
+    if (drop > 0.35) { c.g.at(p.x, p.y, p.z, 0); c.g.box(0, -drop - 0.3, 0, b.w * TILE - 1.0, drop + 0.27, b.h * TILE - 1.0, 0xa39e92, 0xb5b0a4); c.g.at(0, 0, 0); }
     c.g.at(p.x, p.y, p.z, p.rot);
     c.rnd = rng(b.v * 0.9 + 0.05);
     const ol = oldLevel(s, b), v0 = c.g.col.length;
