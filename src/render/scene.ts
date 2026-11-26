@@ -128,7 +128,7 @@ import { stationStats } from '../sim/index';
 import { makeShore, buildShoreWater, seaColors } from './shore';
 import { warpTile, field, clipPoly } from './soft';
 import { FIC_PREV_W } from '../sim/config';
-import { grade, flyPiers, FLY_H, FLY_RAMP, OVP_H, OVP_RAMP } from '../sim/grade'; // v94：立体の道路の形（sim と同じ答え）
+import { grade, flyPiers, flySupports, FLY_FILL_CLR, FLY_H, FLY_RAMP, OVP_H, OVP_RAMP } from '../sim/grade'; // v94：立体の道路の形（sim と同じ答え）
 /** v93：架空の街の空き地は（v92 の広い地図では 76×68 の内も）、地形の見た目の印（田んぼ・畑・草地・林・空き地のまとまり）で描く。区画ごとの乱数で田畑・草地を選ぶと、上空から市松模様に見えた。印がなければ -1 */
 const extLook = (m: MapDef, x: number, y: number): number => (!REAL && m.deco && W > FIC_PREV_W && terrainOf(m.seed).id !== 'castaway' ? m.deco[idx(x, y)] : -1);
 import { DISTRICTS } from '../sim/types';
@@ -1501,6 +1501,7 @@ export class View {
       const P = (a: number, o: number): [number, number] => (f.ew ? [a, f.line + o] : [f.line + o, a]);
       const yAt = (a: number) => View.flyH(a, f.a0, f.a1, H0), base = (a: number) => { const [px, pz] = P(a, 0); return hA(px, pz) + 0.18; };
       const A0 = f.a0 - 15 - RL, A1 = f.a1 + 15 + RL, n = Math.max(1, Math.round((A1 - A0) / 2.5)), st = (A1 - A0) / n;
+      const spk = L.spans[this.flySpans.indexOf(f)], sup = flySupports(s, spk), ab = sup.filter(o => o.kind === 'abut').map(o => o.a), aLo = Math.min(...ab), aHi = Math.max(...ab);
       for (let k = 0; k < n; k++) {
         const a = A0 + k * st, b = a + st, ya = base(a) + yAt(a), yb = base(b) + yAt(b);
         const [x0, z0] = P(a, -dw), [x1, z1] = P(b, -dw), [x2, z2] = P(b, dw), [x3, z3] = P(a, dw);
@@ -1509,15 +1510,18 @@ export class View {
         const tha = Math.min(TH, yAt(a)), thb = Math.min(TH, yAt(b));
         if (tha > 0.25 || thb > 0.25) dq([x0, ya - tha, z0], [x1, yb - thb, z1], [x2, yb - thb, z2], [x3, ya - tha, z3], 0x9a978f);
         // 桁の側面（高欄の上端まで。厚さは一定で、坂の下では地面に沿って薄くなる）
+        // v100：坂の低い所（桁下 2m 未満）は擁壁の盛土：側面を地面まで下ろす（前は薄い桁が地面すれすれに浮いていた）
+        const fill = b <= aLo + 0.01 || a >= aHi - 0.01;
         for (const sg of [-1, 1]) {
           const [ax, az] = P(a, sg * dw), [bx, bz] = P(b, sg * dw);
-          dq([ax, ya + 0.9, az], [bx, yb + 0.9, bz], [bx, yb - Math.max(0.2, thb), bz], [ax, ya - Math.max(0.2, tha), az], 0xc9c6bf);
+          dq([ax, ya + 0.9, az], [bx, yb + 0.9, bz], [bx, fill ? base(b) - 0.4 : yb - Math.max(0.2, thb), bz], [ax, fill ? base(a) - 0.4 : ya - Math.max(0.2, tha), az], fill ? 0xbdb9b0 : 0xc9c6bf);
         }
+        if (fill && (Math.abs(b - aLo) < st * 0.5 || Math.abs(a - aHi) < st * 0.5)) { const e = Math.abs(b - aLo) < st * 0.5 ? b : a, ye = base(e) + yAt(e) - TH, [p0x, p0z] = P(e, -dw), [p1x, p1z] = P(e, dw); dq([p0x, base(e) - 0.4, p0z], [p1x, base(e) - 0.4, p1z], [p1x, ye, p1z], [p0x, ye, p0z], 0xb0ada5); } // 盛土の端の壁（橋台）
         // 中央線（破線）
         if (Math.floor((a - A0) / 5) % 2 === 0) { const [mx0, mz0] = P(a, -0.1), [mx1, mz1] = P(b, 0.1); dq([mx0, ya + 0.04, mz0], [mx1, yb + 0.04, mz0], [mx1, yb + 0.04, mz1], [mx0, ya + 0.04, mz1], 0xeeeeea); }
       }
       // v95：橋脚は高架の真下の中央分離帯（側道と側道の間の、車の通らない帯）にだけ、交差点・横断歩道・脇道の区画の外に立てる。
-      // 交差点は前後の区画の中心どうし（60m 以上）の桁でまたぐ。分離帯は縁石と植栽で、桁下が足りる所だけ
+      // 分離帯は縁石と植栽で、桁下が足りる所だけ（交差点をまたぐ所は v100 の門形の橋脚で支える）
       const sp = L.spans[this.flySpans.indexOf(f)], mw = 3.2;
       for (const t of flyPiers(s, sp)) {
         const ac = (t + 0.5) * TILE;
@@ -1529,9 +1533,21 @@ export class View {
           g.box(mx, my + 0.22, mz, f.ew ? len - 0.6 : mw * 2 - 0.5, 0.08, f.ew ? mw * 2 - 0.5 : len - 0.6, 0x4d6a34); // 植栽の土と下草
           if (this.fine()) for (let u = u0 + 3; u < u1 - 2; u += 4) { if (Math.abs(u - ac) < 2) continue; const [bx, bz] = P(u, 0); g.blob(bx, my + 0.3, bz, 0.9, 0.6, 0.9, 0x5f7f3a, 5); } // 低木（桁の下なので低く）
         }
-        const h = yAt(ac) - TH; if (h < 1.2) continue;
-        const [px, pz] = P(ac, 0), by = hA(px, pz); g.at(px, by, pz); g.box(0, 0, 0, f.ew ? 1.4 : 5.2, h, f.ew ? 5.2 : 1.4, 0xb9b6ae); g.at(0, 0, 0);
-        g.at(px, by + h - 0.9, pz); g.box(0, 0, 0, f.ew ? 2.0 : 7.6, 0.9, f.ew ? 7.6 : 2.0, 0xb0ada5); g.at(0, 0, 0); // 柱頭（はり）：桁の幅まで
+      }
+      // v100：支え（sim/grade.ts の flySupports）。中央分離帯の橋脚と、交差点の角に立てる門形の橋脚（1 径間 40m 以下）。
+      // 前は交差点・脇道の区画に橋脚を立てないだけで、交差点が続く幹線では桁が 100m 以上も支えなしで渡っていた
+      for (const o of sup) {
+        if (o.kind === 'abut') continue;
+        const [px, pz] = P(o.a, 0), by = hA(px, pz), top = by + 0.18 + yAt(o.a) - TH, h = top - by; if (h < 1.2) continue;
+        if (o.kind === 'median') {
+          g.at(px, by, pz); g.box(0, 0, 0, f.ew ? 1.4 : 5.2, h, f.ew ? 5.2 : 1.4, 0xb9b6ae); g.at(0, 0, 0);
+          g.at(px, by + h - 0.9, pz); g.box(0, 0, 0, f.ew ? 2.0 : 7.6, 0.9, f.ew ? 7.6 : 2.0, 0xb0ada5); g.at(0, 0, 0); // 柱頭（はり）：桁の幅まで
+        } else {
+          const lat = o.lat!, bw = lat * 2 + 1.4;
+          for (const sg of [-1, 1]) { const [cx2, cz2] = P(o.a, sg * lat), cy = hA(cx2, cz2); g.at(cx2, cy, cz2); g.box(0, 0, 0, 1.2, top + TH - 0.1 - cy, 1.2, 0xb9b6ae); g.at(0, 0, 0); }
+          // 梁：桁と同じ高さに組み込む（梁の下も側道の桁下 4.5m を残す）
+          g.at(px, top - 0.2, pz); g.box(0, 0, 0, f.ew ? 1.6 : bw, TH + 0.1, f.ew ? bw : 1.6, 0xb0ada5); g.at(0, 0, 0);
+        }
       }
     }
   }
