@@ -22,6 +22,7 @@ import {
   authorityLabel, currentOffice, prefOf, localize,
   dataSource, DATA_REAL, DATA_EST,
   riskOutlook, renewCostOf,
+  taxBase, taxStory, WAGE_GROUPS, WAGE_IDS,
 } from '../sim/index';
 import type { GameState, Building, Kind, Zone, Layer, ForecastSet, Action, TilePlan, Cat, TerraOp, MissionDef } from '../sim/index';
 import { sound } from '../audio/sound';
@@ -1113,7 +1114,8 @@ export class UI {
     try {
       if (t === 'money') {
         const L = monthlyBudget(s), bond = s.loans.filter(l => l.kind === 'bond').reduce((a, l) => a + l.remaining, 0), td = tempDebt(s);
-        return tabTalk('plan', `今月の収支は${yen(L.operating, true)}、資金は${yen(s.cash)}、市債の残高は${yen(bond)}です。${td > 0 ? `一時借入が${yen(td)}残っています。まずこれを返す手を考えましょう。` : L.operating < 0 ? '赤字です。歳出の見直しか、財源の確保を検討しましょう。' : '黒字を保っています。大きな工事は、開業後の人件費と返済も見込んで決めましょう。'}`);
+        const story = taxStory(s);
+        return tabTalk('plan', `今月の収支は${yen(L.operating, true)}、資金は${yen(s.cash)}、市債の残高は${yen(bond)}です。${story}${td > 0 ? `一時借入が${yen(td)}残っています。まずこれを返す手を考えましょう。` : L.operating < 0 ? '赤字です。歳出の見直しか、財源の確保を検討しましょう。' : '黒字を保っています。大きな工事は、開業後の人件費と返済も見込んで決めましょう。'}`);
       }
       if (t === 'voice') {
         const bad = s.voices.filter(v => v.tone === 'bad'), top = bad[0] ?? s.voices[0];
@@ -1566,6 +1568,7 @@ export class UI {
         <span class="sum">経常歳出 計</span><b class="sum">${yen(L.admin + L.upkeep + L.wages + L.subsidy + L.roads + L.policy + L.interest)}</b>
         <span class="sum">毎月の収支</span><b class="sum" style="color:var(--${L.operating >= 0 ? 'good' : 'bad'})">${yen(L.operating, true)}</b>
         ${row('借入の元金返済', repay)}${cap ? row('今月すでに支出した建設費など', cap) : ''}</div></section>
+      ${this.resTaxBox(L.taxResident)}
       ${this.taxBox()}
       ${s.ledger.length ? (() => { const L = s.ledger.at(-1)!, gap = ledgerGap(L); const r = (n: string, v: number) => `<span>${n}</span><b>${v >= 0 ? '+' : '−'}${yen(Math.abs(v))}</b>`; return `<section><h2>先月の現金の動き <small>${dateStr(L.month)}</small></h2><div class="rows"><span>月初の資金</span><b>${yen(L.cashStart ?? NaN)}</b>${r('毎月の収支（歳入 − 経常歳出）', L.operating)}${r('借入（市債・一時借入）', L.borrowed)}${r('借入の元金返済', -L.repay)}${r('建設・更新・撤去（返金は差し引き）', -L.capital)}${r('イベントなどの支出', -L.other)}<span class="sum">月末の資金</span><b class="sum">${yen(L.cashEnd)}</b></div>${Number.isFinite(gap) && Math.abs(gap) > 0.5 ? '<p class="note" style="color:var(--bad)">台帳の計算が合いません。</p>' : ''}</section>`; })() : ''}
       <section><h2>残高</h2><div class="rows"><span>市の資金（貯金。建設費はここから払う）</span><b>${yen(s.cash)}</b><span>市債の残高（上限 ${yenT(bondCap(s))}）</span><b>${yen(bond)}</b>${temp ? `<span style="color:var(--bad)">一時借入（年利 ${P.tempRate * 100}%）</span><b style="color:var(--bad)">${yen(temp)}</b>` : ''}<span>今後 60 か月の更新負担</span><b>${yen(st.renewal60)}</b></div>
@@ -1577,6 +1580,19 @@ export class UI {
       <p class="note">税や移転収入は実際の制度ではなく、人口・所得・事業活動に連動させたゲーム独自の近似です。金額・税率は全てゲーム用の仮定です。</p>`;
   }
   /** 税率の調整 */
+  /** v99：住民税の内訳（住民一人ひとりの所得の積み上げ。税率の政策・景気の係数・ふるさと納税の流出を按分して、歳入の住民税と合計を合わせる） */
+  private resTaxBox(total: number): string {
+    const t = taxBase(this.s); if (t.tax <= 0) return '';
+    const k = total / t.tax, r = (n: string, v: number, p?: number) => `<span>${n}${p != null ? ` <small>${n0(Math.round(p))} 人</small>` : ''}</span><b>${yen(v * k)}</b>`;
+    const g = WAGE_IDS.filter(id => t.work[id].n >= 0.5).sort((a, b) => t.work[b].tax - t.work[a].tax);
+    const perW = (id: typeof g[number]) => t.work[id].n > 0 ? t.work[id].income / t.work[id].n : 0;
+    return `<section><details><summary><h2 style="display:inline">住民税の内訳 <small>住民一人ひとりの所得から積み上げ・万円/月</small></h2></summary><div class="rows">
+      ${g.map(id => r(`${id === 'out' ? '市外の会社で働く人' : `市内の${WAGE_GROUPS[id].name}`}（平均の所得 ${n0(perW(id))} 万円/月）`, t.work[id].tax, t.work[id].n)).join('')}
+      ${r('年金の高齢者', t.senior.tax, t.senior.n)}
+      <span>子ども・家の大人 <small>${n0(Math.round(t.other.n))} 人</small></span><b>${yen(0)}</b>
+      <span class="sum">働く人のうち 正規 ／ 非正規</span><b class="sum">${yen(t.regular.tax * k)} ／ ${yen(t.nonRegular.tax * k)}</b></div>
+      <p class="note">所得は職場の業種と雇用形態（正規・非正規。正規の割合も業種ごと）、高齢者は年金で決めます（住民の国籍などの属性では決めません）。税額は所得割 10%（市町村 6%・県 4%。この街は県の分も市の歳入に入れます）と均等割で、給与所得控除・公的年金等控除・社会保険料・基礎控除を引き、合計所得 45 万円以下は非課税。税率の政策・景気・ふるさと納税の流出は割合で按分しています。</p></details></section>`;
+  }
   private taxBox(): string {
     const s = this.s, t = s.tax, hotel = s.buildings.some(b => b.kind === 'hotel' && b.status === 'operating');
     const ln = (k: 'res' | 'prop' | 'biz', n: string, eff: string) => {
@@ -1889,7 +1905,7 @@ export class UI {
     const inc = s.incid ?? [];
     return `<h3>住民一人ひとりから（${n0(st.n)} 人）</h3>
       <p class="note">住民は世帯から一人ずつ作り、学校・職場・駅・休日の行き先を割り当てています。下の数はその積み上げです（人口 ${n0(Math.round(s.stats.pop))} 人と一致）。</p>
-      <p>通勤・通学の手段：${st.modes.map((v, i) => `${MODE_NAMES[i]} ${Math.round(100 * v / mt)}%`).join('・')}。働く人 ${n0(st.byRole[3])} 人のうち市内で働く ${n0(st.localWork)}・市外へ ${n0(st.outWork)}・在宅勤務 ${n0(st.teleWork)}。駅の朝の乗車 ${n0(board)} 人。住民の所得（職場の種類・正規と非正規・年金）から積み上げた住民税は月 ${n0(Math.round(st.taxResident))} 万円（いまの歳入の式では ${n0(Math.round(s.ledger.at(-1)?.taxResident ?? 0))} 万円。歳入は今の式のまま）。</p>
+      <p>通勤・通学の手段：${st.modes.map((v, i) => `${MODE_NAMES[i]} ${Math.round(100 * v / mt)}%`).join('・')}。働く人 ${n0(st.byRole[3])} 人のうち市内で働く ${n0(st.localWork)}・市外へ ${n0(st.outWork)}・在宅勤務 ${n0(st.teleWork)}。駅の朝の乗車 ${n0(board)} 人。住民一人ひとりの所得（職場の業種・正規と非正規・年金）から積み上げた住民税は月 ${n0(Math.round(st.taxResident))} 万円（歳入は同じ規則を職場ごとの人数で数えて月 ${n0(Math.round(taxBase(s).tax * (s.tax?.res ?? 1)))} 万円。差は職場の選び方と正規・非正規の引き当ての偶然。景気の係数の前）。</p>
       <table class="tbl"><thead><tr><th>できごと</th><th>先月</th><th>直近 12 か月</th><th>年の見込み</th></tr></thead><tbody>${kinds.map(row).join('')}</tbody></table>
       <p>交通事故は直近 ${y.months} か月で ${n0(y.traffic)} 件（人口 10 万人あたり年 ${n0(y.per100k)} 件。全国の相場は約 250 件）、死者 ${n0(y.killed)} 人・負傷 ${n0(y.hurt)} 人。歩道とガードレール・信号機・ゾーン 30・街灯・自転車レーン（道路の「通りの整備」）、歩道橋、交番、陸橋・高架化、ホームドアで減ります。${y.seen ? `画面で見えた事故 ${n0(y.seen)} 件（件数には足していません）。` : ''}</p>
       ${inc.length >= 3 ? `<div class="chartbox"><h4>交通事故 <small>件/月</small></h4>${chartSvg({ id: 'st-incid', series: [{ name: '交通事故', color: '#c0392b', values: inc.map(x => x.car + x.ped + x.bike) }], fmt: v => n0(v), zero: true, xLabel: i => dateStr(inc[Math.min(inc.length - 1, i)].m) }, 340, 120)}</div>` : ''}`;

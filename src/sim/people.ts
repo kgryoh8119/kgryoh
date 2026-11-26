@@ -2,11 +2,12 @@
 // 駅の利用・道路の交通・学校の在籍・事故の起きやすさを住民の積み上げで出す。
 // 住民は保存しない（s.seed・建物の番号・世帯数から同じ住民が再生成される）。街の乱数 s.rng は使わない。
 // 書き換えるのは月 1 回の事故の統計 s.incid だけ（monthlyIncidents）。人口・満足・お金・交通の既存の式は変えない（設計：docs/v95-住民一人ひとり-設計.md）
-import { P, DEFS, W, H, SCALE, isRes, isShop, isCity, fam, lvK, hasOp, countOp } from './config';
+import { P, DEFS, W, H, isRes, isShop, fam, lvK, hasOp, countOp } from './config';
 import type { GameState, Building } from './types';
 import { NHH } from './types';
 import { GATEWAYS } from './core';
 import { stationStats } from './big';
+import { taxBase, jobSlots, localShare, WAGE_GROUPS, wageGroupOf, regionK, PENSIONS, wageTaxMonth, pensionTaxMonth } from './taxbase';
 
 // ---------------------------------------------------------------- 定数（現実の相場。出典は設計の文書 7 章）
 export const ROLE_NAMES = ['未就学児', '小学生', '中学生', '働く人', '家の大人', '高齢者'] as const;
@@ -197,21 +198,10 @@ function build(s: GameState): { p: People; st: PeopleStats } {
   assignSchool(R_JHS, jhs, (P.jhsRange ?? P.schoolRange) * 1.5);
 
   // ---- 職場：市民が埋めるのは雇用の 65%（残りは市外から通う人＝core.ts の交通の式と同じ）
-  const jobB: Building[] = [], jobCap: number[] = [];
-  for (const b of s.buildings) {
-    if (b.status !== 'operating' || !b.connected || isRes(b.kind)) continue;
-    const d = DEFS[b.kind]; let j = 0;
-    if (isShop(b.kind)) j = d.jobs ?? 0; else if (d.jobs) j = d.jobs * lvK(b); else if (isCity(b.kind)) j = b.staff ?? 0;
-    if (b.kind === 'station') j += [0, 0, 450, 1100][Math.max(0, Math.min(3, b.lv ?? 1))] ?? 0;
-    if (j > 0) { jobB.push(b); jobCap.push(Math.round(j * 0.65)); }
-  }
-  { // 駅・診療所など固定の職（core.ts の 260 × SCALE）は、駅か市の施設に置く
-    const host = stations.length ? stations : s.buildings.filter(b => isCity(b.kind) && b.status === 'operating' && b.connected).slice(0, 1);
-    for (const b of host) { const k = jobB.indexOf(b), add = Math.round(260 * SCALE * 0.65 / host.length); if (k >= 0) jobCap[k] += add; else { jobB.push(b); jobCap.push(add); } }
-  }
+  const slots = jobSlots(s), jobB = slots.map(o => o.b), jobCap = slots.map(o => o.cap); // v99：歳入の積み上げ（taxbase.ts）と同じ職場の数え方
   const capAll = jobCap.reduce((a, x) => a + x, 0);
   let nWork = 0; for (let i = 0; i < n; i++) if (p.role[i] === R_WORK) nWork++;
-  const fLocal = Math.min(0.85, capAll / Math.max(1, nWork)); // 雇用が十分でも 15% は市外へ（大都市圏の相場）
+  const fLocal = localShare(capAll, nWork); // 雇用が十分でも 15% は市外へ（大都市圏の相場）
   const left = Float64Array.from(jobCap), L = 45; // 距離の減衰（区画。約 1.7 km）
   const order: number[] = []; for (let i = 0; i < n; i++) if (p.role[i] === R_WORK) { if (u(i, 3) < fLocal && jobB.length) order.push(i); else p.dest[i] = -2; }
   { const key = new Float64Array(n); for (const i of order) key[i] = u(i, 2); order.sort((a, b) => key[a] - key[b]); }
@@ -258,13 +248,12 @@ function build(s: GameState): { p: People; st: PeopleStats } {
   for (let i = 0; i < n; i++) {
     const r = p.role[i], hb = homeOf(i);
     if (r === R_WORK) {
-      // 雇用形態と所得（労働力調査 2023 年：非正規 37%。職場の種類で月収を変える。賃金構造基本統計調査の相場をまるめた）
-      p.regular[i] = u(i, 8) < 0.63 ? 1 : 0;
-      const jb = p.dest[i] >= 0 ? byId.get(p.dest[i]) : undefined;
-      const base = !jb ? 31 : isShop(jb.kind) ? 19 : isCity(jb.kind) ? 30 : DEFS[jb.kind].cat === 'biz' ? 34 : DEFS[jb.kind].cat === 'industry' ? 28 : 25;
-      p.income[i] = base * (p.regular[i] ? 1 : 0.55);
+      // v99：雇用形態と所得は職場の業種で決める（taxbase.ts の WAGE_GROUPS。正規の割合も業種ごと。住民の属性では決めない）
+      const jb = p.dest[i] >= 0 ? byId.get(p.dest[i]) : undefined, G = WAGE_GROUPS[wageGroupOf(jb ? jb.kind : null)];
+      p.regular[i] = u(i, 8) < G.share ? 1 : 0;
+      p.income[i] = (p.regular[i] ? G.reg : G.non) * regionK(s, !jb);
       if (u(i, 9) < tele) { p.mode[i] = M_NONE; continue; } // 今日は在宅勤務
-    } else if (r === R_SENIOR) p.income[i] = 11; // 年金（厚生年金・国民年金の平均の相場をまるめた）
+    } else if (r === R_SENIOR) { const x = u(i, 8); let acc = 0; p.income[i] = PENSIONS[PENSIONS.length - 1].v; for (const q of PENSIONS) { acc += q.share; if (x < acc) { p.income[i] = q.v; break; } } } // 年金（taxbase.ts の 3 段階）
     // 家・学校・職場・市外の行き先
     let km = 0, outside = false, tgt: Building | undefined;
     if (r === R_PRE || r === R_ELEM || r === R_JHS || r === R_WORK) {
@@ -344,7 +333,7 @@ export interface PeopleStats {
   carAm: Float32Array;
   /** 手段ごとの時間帯の割合（24 時間、合計 1） */
   hourShare: Float32Array[];
-  /** 住民税の積み上げ（万円/月）：所得 × 税率 */
+  /** 住民税の積み上げ（万円/月）：一人ひとりの所得から税額（taxbase.ts）を出して足したもの。税率の政策は掛け、景気の係数は掛けない */
   taxResident: number;
   /** 区画ごとの 1 日の期待件数（交通事故の 3 種類） */
   risk: { car: Float32Array; ped: Float32Array; bike: Float32Array };
@@ -431,7 +420,7 @@ function accumulate(s: GameState, p: People, byId: Map<number, Building>, statio
   const wd = WEEKDAYS / 30, hd = HOLIDAYS / 30, tax = s.tax ?? { res: 1, prop: 1, biz: 1, stay: 0 };
   for (let i = 0; i < p.n; i++) {
     const r = p.role[i], hb = byId.get(p.home[i])!; st.byRole[r]++;
-    st.taxResident += p.income[i] * P.residentTaxRate * tax.res;
+    st.taxResident += (r === R_WORK ? wageTaxMonth(p.income[i]) : r === R_SENIOR ? pensionTaxMonth(p.income[i]) : 0) * (P.resTaxK ?? 1) * tax.res; // v99：歳入と同じ税額の計算（景気の係数の前）
     const from = acc(hb), m = p.mode[i];
     if (r === R_WORK) { if (m === M_NONE) st.teleWork++; else if (p.dest[i] === -2) st.outWork++; else st.localWork++; }
     if (p.dest[i] >= 0 && r !== R_HOME && r !== R_SENIOR) { const map = r === R_WORK ? st.workers : st.enroll; map.set(p.dest[i], (map.get(p.dest[i]) ?? 0) + 1); }
@@ -659,6 +648,6 @@ export function compareWithAggregate(s: GameState): { label: string; people: num
     { label: '小学校の在籍', people: [...st.enroll.entries()].filter(([id]) => s.buildings.find(b => b.id === id && fam(b.kind) === 'school')).reduce((a, [, v]) => a + v, 0), agg: Math.round(school) },
     { label: '市内で働く市民', people: st.localWork, agg: Math.round(s.stats.localJobs * 0.65) },
     { label: '駅の朝の乗車（既存は 1 日の乗降）', people: sumMap(st.boardings), agg: stationStats(s).reduce((a, x) => a + x.riders, 0) },
-    { label: '住民税（万円/月。既存は景気の係数込み）', people: Math.round(st.taxResident), agg: Math.round(s.ledger.at(-1)?.taxResident ?? 0) },
+    { label: '住民税（万円/月。歳入は職場ごとの人数で数えた積み上げ。景気の係数の前）', people: Math.round(st.taxResident), agg: Math.round(taxBase(s).tax * (s.tax?.res ?? 1)) },
   ];
 }

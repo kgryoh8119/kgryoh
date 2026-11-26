@@ -1,5 +1,6 @@
 // 月次処理。1 回の呼び出しで 1 か月進む。描画やフレームレートには依存しない。
 import { monthlyIncidents } from './people';
+import { taxBase, recordTaxMix } from './taxbase';
 import { onMapChange, REAL } from './real';
 import { W, H, P, DEFS, POLICIES, policyCost, AIR_ROUTES, GOALS, VISIONS, isRes, isShop, isCity, isBiz, RES_TYPE, LV_UPKEEP, LV_CAP, lvK, lvOf, stageName, diffOf, hasOp, countOp, SPORTS, SCALE } from './config';
 import { getMap, idx, buildable, syncTerrain, terrainOf, isCastaway } from './map';
@@ -61,13 +62,14 @@ export function monthlyBudget(s: GameState): Ledger {
   const L = emptyLedger(s.month);
   const tax = s.tax ?? { res: 1, prop: 1, biz: 1, stay: 0 }, econ = (hasOp(s, 'megaBank') ? 1.02 : 1) * (hasOp(s, 'maglevStation') ? 1.05 : 1) * (hasOp(s, 'autoHub') ? 1.015 : 1) * (hasOp(s, 'department') ? 1.01 : 1) * (hasOp(s, 'stockExch') ? 1.025 : 1) * (hasOp(s, 'tradingCo') ? 1.008 : 1) * modMul(s, 'econ') * teamEcon(s) * (shinOpen(s) ? 1.04 : 1) * econFactor(s); // 新幹線の駅は出張・観光で景気を押し上げる
   let hotel = false;
+  // v99：個人住民税は住民一人ひとりの所得（職場の業種・雇用形態・年金）から積み上げる（taxbase.ts。前は世帯の類型ごとの世帯収入 × 5.5%）。景気の係数は所得に効く
+  L.taxResident = taxBase(s).tax * tax.res * econ;
   L.fees = (L.fees ?? 0) + modAdd(s, 'teamIncome'); // 優勝の経済効果（グッズ・放映・ふるさと納税）
   // 改修オプションの使用料・売上と維持費（市の施設の維持費は upkeepOf に含む）
   for (const b of s.buildings) if (b.opts && b.status === 'operating') { if (b.connected) L.fees! += optIncome(b); if (!isCity(b.kind)) L.upkeep += optUpkeep(b); }
   for (const b of s.buildings) {
     const d = DEFS[b.kind];
     if (isRes(b.kind) && b.status === 'operating') {
-      for (let t = 0; t < NHH; t++) L.taxResident += b.hh![t] * P.income[t] * P.residentTaxRate * tax.res * econ;
       L.taxProperty += b.units! * P.propertyTaxPerUnit * tax.prop * landK(s, b);
     } else if (isShop(b.kind) && b.status === 'operating') {
       L.taxBusiness += b.revenue * P.businessTaxRate * tax.biz * econ;
@@ -387,6 +389,7 @@ export function stepMonth(s: GameState, opts: { forecast?: boolean } = {}): void
 
   // 9. 財政
   const L = monthlyBudget(s);
+  if (!opts.forecast) recordTaxMix(s); // v99：住民税の内訳の移り変わり（説明用。保存しない）
   { const lv = logView(s).levyM; if (lv) { L.fees = (L.fees ?? 0) + lv; L.operating += lv; } } // v90：開発負担金は今月の収入
   L.capital = s.pending.capital; L.other = s.pending.other; L.borrowed = s.pending.borrowed; L.repay = s.pending.repay ?? 0; // 繰り上げ返済（一時借入）
   L.cashStart = s.pending.cashStart ?? s.cash + s.pending.capital + s.pending.other - s.pending.borrowed + (s.pending.repay ?? 0);
