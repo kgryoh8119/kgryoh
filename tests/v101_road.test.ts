@@ -86,3 +86,11 @@ describe('v101 信号の置き方', () => {
     expect([...sigPlan(r, W, H)].some(v => v)).toBe(false);
   });
 });
+
+describe('v101 鉄道のホーム', () => {
+  it('ホームの縁は車体（半幅 1.45m）に当たらず、すき間は 5〜20cm', async () => {
+    const { PF_EDGE } = await import('../src/render/rails');
+    expect(PF_EDGE - 1.45).toBeGreaterThanOrEqual(0.05);
+    expect(PF_EDGE - 1.45).toBeLessThanOrEqual(0.2);
+  });
+});

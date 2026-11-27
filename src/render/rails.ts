@@ -137,6 +137,8 @@ export const SHIN_LINES: ShinLine[] = [];
  *  渡り終えてから立てる。道路に沿って重なる所は、道路の歩道の外に柱を立てる門形にする（前は道路の真ん中に橋脚や門形の柱が立っていた） */
 export interface RailPier { portal: boolean; lat: number }
 const RHW = [0, 2.5, 5, 7.5];
+/** v101：ホームの縁の、線路の中心からの距離（m）。車体の半幅 1.45m（trainkit の WALL）に 10cm のすき間（前は 1.17m で、車体がホームにめり込んでいた） */
+export const PF_EDGE = 1.55;
 export function railPiers(s: GameState, m: MapDef, P: RailPath): Map<number, RailPier> {
   const out = new Map<number, RailPier>(), n = P.p.length / 3;
   const ground = (x: number, z: number) => heightAt(m, Math.max(0, Math.min(W * TILE - 0.01, x)), Math.max(0, Math.min(H * TILE - 0.01, z)));
@@ -468,7 +470,7 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
       spots.push({ id: b.id, pts: [], d: dC, path: a.k });
       continue;
     }
-    const dbl = P.lv[a.j] >= 2, sides = dbl ? [-1, 1] : [a.side], po = P.lv[a.j] === 3 ? 6.6 + 0.72 + 0.45 + 2.0 : dbl ? 2.2 + 0.72 + 0.45 + 2.0 : 0.72 + 0.45 + 2.0, pw = 4.0, ph = 1.1;
+    const dbl = P.lv[a.j] >= 2, sides = dbl ? [-1, 1] : [a.side], po = (P.lv[a.j] === 3 ? 6.6 : dbl ? 2.2 : 0) + PF_EDGE + 2.0, pw = 4.0, ph = 1.1; // v101：ホームの幅 4m（省令の解釈基準：相対式は 2m 以上）。縁は線路の中心から PF_EDGE
     const pts: number[] = [];
     for (let j = 0; j < n - 1; j++) {
       if (Math.abs(P.d[j] - dC) > 50 || Math.abs(P.d[j + 1] - dC) > 50) continue;

@@ -1095,7 +1095,7 @@ export class View {
     this.drawWaterWorks(s, g, kit);
     const wideS = new Set((s.wide ?? []).filter(i => s.road[i] === 2)); for (const i of grade(s).spanOf.keys()) if (s.road[i] === 2) wideS.add(i); this.wideSet = wideS; // v94：立体交差の前後は、高架の両側に側道の車線が残る 6 車線の幅
     const hwAt = (xx: number, yy: number) => { const j = idx(xx, yy), r = s.road[j]; return r === 2 && wideS.has(j) ? HW[3] : HW[r]; };
-    this.drawFlyovers(s, g);
+    const gFly = new Geo(); this.drawFlyovers(s, gFly); // v101：立体交差の高架・橋脚は影を落とす（前は路面と同じ影を落とさないメッシュで、高架が影なしに浮いて見えた）
     const stCharge = new Set(s.streets?.charge ?? []), stTree = new Set(s.streets?.tree ?? []), stStone = new Set(s.streets?.stone ?? []), stNo = new Set(s.streets?.nopole ?? []); kyodokoTiles(s, stNo); // v87：共同溝の周りも無電柱化
     // v86：路面の文字・矢印と標識の面（1 枚の絵、1 つのメッシュ）。細部は品質「中」以上、さらに細かい物は「高」だけ
     const fineR = this.fine(), hiR = fineR && this.quality === 'high', sig = this.signals(s);
@@ -1240,6 +1240,7 @@ export class View {
     // v87：送電線（鉄塔・発電所・変電所）と、道ばたの水道の設備
     if (!REAL) { drawPowerLines(s, g, b => this.place(s, b), hA, fineR); if (fineR) drawUtilities(s, g, (i, x, z) => this.deckH.get(i) ?? hA(x, z), t => HW[t] + walkW(HW[t]) * 0.5); }
     const mesh = new THREE.Mesh(g.build(!!REAL), this.matRoad); mesh.receiveShadow = true; mesh.castShadow = false; mesh.frustumCulled = false;
+    if (gFly.pos.length) { const fm = new THREE.Mesh(gFly.build(!!REAL), this.matRoad); fm.receiveShadow = true; fm.castShadow = true; fm.frustumCulled = false; this.scene.add(fm); this.groups.roads.push(fm); }
     this.scene.add(mesh); this.groups.roads.push(mesh);
     if (kit.ix.length) { const km = new THREE.Mesh(kit.build(), roadKitMat()); km.receiveShadow = true; km.frustumCulled = false; this.scene.add(km); this.groups.roads.push(km); }
     if (this.lamps) { this.scene.remove(this.lamps); this.lamps.geometry.dispose(); }
