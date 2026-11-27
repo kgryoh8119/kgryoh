@@ -72,6 +72,35 @@ export function sigPlan(road: ArrayLike<number>, W: number, H: number, wide?: { 
   }
   return out;
 }
+/** v104a：歩道を縁石で上げる（段差のある歩道）区画か、路側帯だけの区画か（純粋な関数。描画・歩く人の位置・テストで同じ答え）。返り値：1＝段差のある歩道。
+ *  ・二車線以上の道（交差点はつながる道の広い方の等級）、石畳・並木道の区画：歩道あり（v101 の walkW：3.5／3.0／2.5m）
+ *  ・生活道路のうち、駅のまわり 3 区画と学校・保育所の敷地に接する区画（busy）：人の多い道なので歩道あり
+ *  ・それ以外の生活道路：段差の無い路側帯（白線の外）
+ *  ・円弧の曲がり角は、両側の区画がどちらも歩道ありのときだけ歩道あり（区画の中で形を変えられないので）
+ *  区画どうしの境の腕は、両側がどちらも歩道ありのときだけ歩道あり（kerbArm）。歩道のある区画の、路側帯の区画へ向かう腕では、
+ *  歩道は隅切りの円弧を回ってから（直線の区画は区画の中ほどで）すりつけて終わり、その先は路側帯（v103 までは区画の境まで歩道の平板が続き、隣の路側帯にぶつかっていた） */
+export function kerbPlan(road: ArrayLike<number>, W: number, H: number, o: { wide?: { has(i: number): boolean }; special?: (i: number) => boolean; busy?: (i: number) => boolean; gate?: readonly number[] }): Uint8Array {
+  const N = W * H, out = new Uint8Array(N);
+  const nb = (i: number, dx: number, dy: number) => { const x = i % W + dx, y = ((i / W) | 0) + dy; if (x < 0 || y < 0 || x >= W || y >= H) return o.gate && o.gate.includes(i) ? 3 : 0; return road[y * W + x]; };
+  const D = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const, bend = new Uint8Array(N);
+  for (let i = 0; i < N; i++) {
+    const r = road[i]; if (!r) continue;
+    const c = D.map(([dx, dy]) => nb(i, dx, dy)), n = c.filter(v => v).length;
+    const cls = n >= 3 ? Math.max(r, ...c) : r;
+    if (n === 2 && (c[0] || c[1]) && (c[2] || c[3])) bend[i] = 1;
+    out[i] = cls >= 2 || o.special?.(i) || o.busy?.(i) ? 1 : 0;
+  }
+  for (let pass = 0; pass < 6; pass++) { let ch = false;
+    for (let i = 0; i < N; i++) if (bend[i] && out[i]) for (const [dx, dy] of D) { const x = i % W + dx, y = ((i / W) | 0) + dy; if (x < 0 || y < 0 || x >= W || y >= H) continue; const j = y * W + x; if (road[j] && !out[j]) { out[i] = 0; ch = true; break; } }
+    if (!ch) break; }
+  return out;
+}
+/** v104a：区画 i の (dx, dy) の向きの腕が段差のある歩道か（両側の区画がどちらも kerbPlan で 1。地図の外の出入り口は区画 i のまま） */
+export function kerbArm(plan: ArrayLike<number>, W: number, H: number, i: number, dx: number, dy: number): boolean {
+  const x = i % W + dx, y = ((i / W) | 0) + dy; if (!plan[i]) return false; if (x < 0 || y < 0 || x >= W || y >= H) return true; return !!plan[y * W + x];
+}
+/** v104a：歩道が路側帯へ変わる所のすりつけの長さ（m）。縁石の線が歩道の外の端へ斜めに寄り、歩道の面も路面の高さまで下りる */
+export const TAPER_L = 6;
 export interface RoadBaseArgs {
   g: Geo; cx: number; cz: number; hw: number; aE: number; aW: number; aS: number; aN: number; nConn: number;
   kerbless: boolean; stone: boolean; school: boolean;
@@ -79,8 +108,8 @@ export interface RoadBaseArgs {
   xwArms: number; fine: boolean; hA: (x: number, z: number) => number;
   /** 路面の色と明るさ、歩道の平板の色（k は部品の番号） */
   asph: number; shade: number; pave: (k: number) => number;
-  /** 腕の先が段差の無い道（生活道路）か。段差のある歩道は、その腕の先で路面の高さまで下りる */
-  lowArm: (dx: number, dz: number) => boolean;
+  /** v104a：(dx, dz) の向きの腕が段差のある歩道か（kerbArm）。歩道の無い腕へは、歩道を隅切りの先（直線は区画の中ほど）ですりつけて終わらせ、その先は路側帯 */
+  kerbArm: (dx: number, dz: number) => boolean;
   /** 曲がり角（2 方向が直角）：[東西の符号, 南北の符号] と、その車道の半幅 */
   bend?: readonly [number, number] | null; bendA?: number;
 }
@@ -121,6 +150,14 @@ export function roadBase(o: RoadBaseArgs): void {
       for (let k = 1; k <= pieceN; k++) { const t = t0 + (t1 - t0) * k / pieceN, c = Math.cos(t), s2 = Math.sin(t); P.push([ci[0] + c * ri, ci[1] + s2 * ri]); Q.push([co[0] + c * ro, co[1] + s2 * ro]); }
     };
     const cE = xwE ? [xwE[0], xwE[1]] : [], cN = xwN ? [xwN[0], xwN[1]] : [];
+    // v104a：すりつけ（tap：0 は段差のある歩道、1 は路側帯）。歩道のある腕とない腕の角は、縁石が隅切りの円弧を回ってから TAPER_L で外へ寄って終わる
+    const L = TAPER_L, cl = (v: number) => Math.max(0, Math.min(1, v)), kA = !!a && o.kerbArm(su, 0), kB = !!b && o.kerbArm(0, sv);
+    let tap: (p: P2) => number = () => (kerbless ? 1 : 0);
+    if (!kerbless) {
+      if (a && b) { if (kA && !kB) { tap = p => cl((p[1] - a - R) / L); cN.push(a + R + L); } else if (kB && !kA) { tap = p => cl((p[0] - b - R) / L); cE.push(b + R + L); } else if (!kA && !kB) tap = () => 1; }
+      else if (a) { if (!kA) tap = () => 1; else if (aO && !o.kerbArm(-su, 0)) { tap = p => cl((L - p[0]) / L); cE.push(L); } }
+      else if (b) { if (!kB) tap = () => 1; else if (bO && !o.kerbArm(0, -sv)) { tap = p => cl((L - p[1]) / L); cN.push(L); } }
+    }
     if (a && b) { // 隅切りの角：歩道の外の端は縁石の円弧と同じ中心の円弧（半径 R − 歩道の幅）。両方の腕の歩道の幅が違うときは円弧の中で移す
       const ci: P2 = [b + R, a + R];
       seg([15, a], [b + R, a], [15, a + wa], [b + R, a + wa], cE, 0);
@@ -140,35 +177,36 @@ export function roadBase(o: RoadBaseArgs): void {
     for (let k = 0; k + 1 < F.length; k++) { const A = F[k], B = F[k + 1]; if (Math.abs(A[0] * B[1] - A[1] * B[0]) < 1e-6) continue;
       for (let r = 0; r < 3; r++) { const s0 = r / 3, s1 = (r + 1) / 3, sc = (p: P2, s: number): P2 => [p[0] * s, p[1] * s];
         if (r === 0) upQ(g, [V([0, 0], 0.1), V(sc(A, s1), 0.1), V(sc(B, s1), 0.1)], road, o.shade); else upQ(g, [V(sc(A, s0), 0.1), V(sc(A, s1), 0.1), V(sc(B, s1), 0.1), V(sc(B, s0), 0.1)], road, o.shade); } }
-    // --- 歩道（段差あり）／路側帯（生活道路：路面の高さで白線の外）
-    const lowE = !kerbless && !!a && o.lowArm(su, 0), lowN = !kerbless && !!b && o.lowArm(0, sv);
-    const info = P.map((p, k) => { // 切り下げ（横断歩道の端）と、段差の無い道へ下りる割合
-      const q = Q[k], cutE = !!xwE && a > 0 && p[1] <= a + 1.2 && p[0] >= xwE[0] - 0.05 && p[0] <= xwE[1] + 0.05, cutN = !!xwN && b > 0 && p[0] <= b + 1.2 && p[1] >= xwN[0] - 0.05 && p[1] <= xwN[1] + 0.05;
-      const lo = Math.max(lowE && p[1] <= a + wa + 0.01 ? ramp(Math.min(p[0], q[0]), b ? b + R : midU) : 0, lowN && p[0] <= b + wb + 0.01 ? ramp(Math.min(p[1], q[1]), a ? a + R : midV) : 0);
-      return { cut: !kerbless && (cutE || cutN), lo };
-    });
-    const yIn = (k: number) => kerbless ? 0.1 : info[k].cut ? 0.115 : WALK_Y - 0.1 * info[k].lo, yOut = (k: number) => kerbless ? 0.1 : WALK_Y - 0.1 * info[k].lo;
+    // --- 歩道（段差あり）／路側帯（路面の高さで白線の外）。v104a：区画の中の角ごと・腕ごとに、すりつけの割合 tk で描き分ける
+    const tk = P.map(tap), Pi = P.map((p, k): P2 => [p[0] + (Q[k][0] - p[0]) * tk[k], p[1] + (Q[k][1] - p[1]) * tk[k]]); // Pi：縁石の線（すりつけでは歩道の外の端へ寄る）
+    const cutAt = P.map(p => { // 切り下げ（横断歩道の端）
+      const cutE = !!xwE && a > 0 && p[1] <= a + 1.2 && p[0] >= xwE[0] - 0.05 && p[0] <= xwE[1] + 0.05, cutN = !!xwN && b > 0 && p[0] <= b + 1.2 && p[1] >= xwN[0] - 0.05 && p[1] <= xwN[1] + 0.05;
+      return cutE || cutN; });
+    const cut = (k: number) => cutAt[k] && tk[k] < 1, yOut = (k: number) => WALK_Y - 0.1 * tk[k], yIn = (k: number) => cut(k) ? 0.115 : yOut(k);
+    const flatCol = o.school ? 0x3d7f55 : mixHex(o.asph, 0x6b675f, 0.12), full = (k: number) => tk[k] >= 1 && tk[k + 1] >= 1, none = (k: number) => tk[k] <= 0 && tk[k + 1] <= 0;
     for (let k = 0; k + 1 < P.length; k++) {
-      const col = kerbless ? (o.school ? 0x3d7f55 : mixHex(o.asph, 0x6b675f, 0.12)) : o.stone ? (k % 2 ? 0xae9888 : 0xbca898) : o.pave(k + (su > 0 ? 0 : 3) + (sv > 0 ? 0 : 7));
-      upQ(g, [V(P[k], yIn(k)), V(P[k + 1], yIn(k + 1)), V(Q[k + 1], yOut(k + 1)), V(Q[k], yOut(k))], col, kerbless ? o.shade : 1);
+      if (!none(k)) { const fp = [V(P[k], 0.1), V(P[k + 1], 0.1)]; if (tk[k + 1] > 0) fp.push(V(Pi[k + 1], 0.1)); if (tk[k] > 0) fp.push(V(Pi[k], 0.1)); upQ(g, fp, flatCol, o.shade); } // 路側帯（路面の高さ）。すりつけの始まりは三角形（同じ点を重ねると面の向きが求まらず黒くなる）
+      if (full(k)) continue;
+      const col = o.stone ? (k % 2 ? 0xae9888 : 0xbca898) : o.pave(k + (su > 0 ? 0 : 3) + (sv > 0 ? 0 : 7));
+      const sp = [V(Q[k], yOut(k)), V(Q[k + 1], yOut(k + 1))]; if (tk[k + 1] < 1) sp.push(V(Pi[k + 1], yIn(k + 1))); if (tk[k] < 1) sp.push(V(Pi[k], yIn(k)));
+      upQ(g, sp, col, 1);
     }
     const inv = (k: number): P2 => { const dx = P[k][0] - Q[k][0], dz = P[k][1] - Q[k][1], l = Math.hypot(dx, dz) || 1; return [dx / l, dz / l]; }; // 車道の側の向き
-    const off = (k: number, d: number): P2 => { const i = inv(k); return [P[k][0] + i[0] * d, P[k][1] + i[1] * d]; };
-    if (kerbless) { // 路側帯の外の端の側溝のふた
-      if (fine) for (let k = 0; k + 1 < P.length; k++) { const i0 = inv(k), i1 = inv(k + 1);
-        upQ(g, [V(Q[k], 0.112), V(Q[k + 1], 0.112), V([Q[k + 1][0] + i1[0] * 0.45, Q[k + 1][1] + i1[1] * 0.45], 0.112), V([Q[k][0] + i0[0] * 0.45, Q[k][1] + i0[1] * 0.45], 0.112)], 0x9a968c, 1); }
-      continue;
-    }
-    // --- 縁石（立ち上がりと天端）・L 字の側溝・点字ブロック（切り下げの所）
+    const off = (k: number, d: number): P2 => { const i = inv(k); return [Pi[k][0] + i[0] * d, Pi[k][1] + i[1] * d]; };
+    // 路側帯の外の端の側溝のふた
+    if (fine) for (let k = 0; k + 1 < P.length; k++) { if (!full(k)) continue; const i0 = inv(k), i1 = inv(k + 1);
+      upQ(g, [V(Q[k], 0.112), V(Q[k + 1], 0.112), V([Q[k + 1][0] + i1[0] * 0.45, Q[k + 1][1] + i1[1] * 0.45], 0.112), V([Q[k][0] + i0[0] * 0.45, Q[k][1] + i0[1] * 0.45], 0.112)], 0x9a968c, 1); }
+    // --- 縁石（立ち上がりと天端）・L 字の側溝・点字ブロック（切り下げの所）。すりつけでは縁石が低くなって終わる
     for (let k = 0; k + 1 < P.length; k++) {
-      const top0 = info[k].cut ? 0.125 : 0.22 - 0.12 * info[k].lo, top1 = info[k + 1].cut ? 0.125 : 0.22 - 0.12 * info[k + 1].lo, i0 = inv(k), i1 = inv(k + 1);
-      const A0 = V(P[k], 0.09), A1 = V(P[k + 1], 0.09), T0 = V(P[k], top0), T1 = V(P[k + 1], top1);
+      if (full(k)) continue;
+      const top0 = cut(k) ? 0.125 : 0.22 - 0.12 * tk[k], top1 = cut(k + 1) ? 0.125 : 0.22 - 0.12 * tk[k + 1], i0 = inv(k), i1 = inv(k + 1);
+      const A0 = V(Pi[k], 0.09), A1 = V(Pi[k + 1], 0.09), T0 = V(Pi[k], top0), T1 = V(Pi[k + 1], top1);
       const nx = su * (i0[0] + i1[0]), nz = sv * (i0[1] + i1[1]), fx = A1[0] - A0[0], fz = A1[2] - A0[2];
       if (-fz * nx + fx * nz < 0) g.quad(A1, A0, T0, T1, 0xb6b2a8); else g.quad(A0, A1, T1, T0, 0xb6b2a8);
       if (fine) {
         upQ(g, [T0, T1, V(off(k + 1, -0.18), top1), V(off(k, -0.18), top0)], 0xcac6bc, 1);
-        upQ(g, [V(P[k], 0.118), V(P[k + 1], 0.118), V(off(k + 1, 0.45), 0.118), V(off(k, 0.45), 0.118)], 0x99958c, 1); // L 字の側溝（コンクリート）
-        if (info[k].cut && info[k + 1].cut) upQ(g, [V(off(k, -0.45), 0.123), V(off(k + 1, -0.45), 0.123), V(off(k + 1, -0.85), 0.123), V(off(k, -0.85), 0.123)], 0xe0b62a, 1); // 点字ブロック
+        if (none(k)) upQ(g, [V(P[k], 0.118), V(P[k + 1], 0.118), V(off(k + 1, 0.45), 0.118), V(off(k, 0.45), 0.118)], 0x99958c, 1); // L 字の側溝（コンクリート）
+        if (cut(k) && cut(k + 1)) upQ(g, [V(off(k, -0.45), 0.123), V(off(k + 1, -0.45), 0.123), V(off(k + 1, -0.85), 0.123), V(off(k, -0.85), 0.123)], 0xe0b62a, 1); // 点字ブロック
       }
     }
   }
