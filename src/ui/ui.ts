@@ -308,7 +308,7 @@ export class UI {
     document.addEventListener('change', e => {
       const el = e.target as HTMLInputElement;
       if (el.dataset.policy) this.act({ type: 'policy', id: el.dataset.policy, on: el.checked });
-      if (el.id === 'quality') { this.view.setQuality(el.value as any); }
+      if (el.id === 'quality') { this.view.autoQ = false; this.view.setQuality(el.value as any); } // v102：選んだ品質は自動では上げない
       if (el.dataset.act === 'railfreq') { this.act({ type: 'pol', op: 'railfreq', n: Number(el.value) }); this.renderSide(); }
       if (el.dataset.act === 'busfreq') { this.act({ type: 'pol', op: 'freq', id: el.dataset.arg, n: Number(el.value) }); this.renderSide(); }
       if (el.id === 'loadfile' && el.files && el.files[0]) el.files[0].text().then(t => this.loadText(t));
