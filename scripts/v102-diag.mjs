@@ -8,7 +8,7 @@ const r = await page.evaluate(q => { const S = window.__sumu, g = S.game, s = g.
   for (const [nm, d, p] of [['near', 420, 0.62], ['far', 2600, 0.95]]) {
     v.focus(c, d); v.pitch = p; v.yaw = 0.7; v.target.x = v.want.x; v.target.z = v.want.z; v.dist = d; for (let k = 0; k < 4; k++) v.__frame.call(v, 0.1);
     const rows = {}; v.scene.traverseVisible(o => { if (!o.isMesh) return; const g = o.geometry; if (!g) return; let t = (g.index ? g.index.count : g.attributes.position.count) / 3; if (o.isInstancedMesh) t *= o.count;
-      const key = (o.material?.type ?? '').replace('Material', '') + (o.isInstancedMesh ? ':inst' : '') + (o.castShadow ? ':cast' : '') + (o.frustumCulled ? ':fc' : ':nofc') + ':' + (o.material?.uuid.slice(0, 4)); const rr = rows[key] ??= { n: 0, tris: 0 }; rr.n++; rr.tris += t; });
+      const key = (o.material?.type ?? '').replace('Material', '') + (o.isInstancedMesh ? ':inst' + o.count + 'x' + Math.round((g.index ? g.index.count : g.attributes.position.count) / 3) : '') + (o.castShadow ? ':cast' : '') + (o.frustumCulled ? ':fc' : ':nofc') + ':' + (o.material?.uuid.slice(0, 4)); const rr = rows[key] ??= { n: 0, tris: 0 }; rr.n++; rr.tris += t; });
     out[nm] = Object.entries(rows).sort((a, b) => b[1].tris - a[1].tris).slice(0, 14).map(([k, x]) => `${k} n=${x.n} tris=${(x.tris / 1e4).toFixed(1)}万`);
     out[nm + 'Info'] = { tris: v.renderer.info.render.triangles, calls: v.renderer.info.render.calls, chunks: v.chunkMeshes.size, low: [...v.chunkLow.values()].filter(m => m.visible).length };
   }
