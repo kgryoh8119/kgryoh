@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import type { Geo, V3 } from './geo';
 import { W, H, idx, hash } from '../sim/index';
 import type { GameState } from '../sim/index';
-import { hasXw, xwRange, cornerSpot, CORNER_R, SIDEWALK_W } from './roadbase';
+import { hasXw, xwRange, cornerSpot, crosswalkLayout, walkW, CORNER_R } from './roadbase';
 
 /** コマの番号。路面（白で描き、頂点色で色をつける）と、標識の面（色つき） */
 export const RK = { stop: 0, n30: 1, n40: 2, n50: 3, n60: 4, arS: 5, arLS: 6, arRS: 7, arR: 8, arL: 9, dia: 10, school: 11,
@@ -109,6 +109,8 @@ export interface RoadTileArgs {
   sig: boolean; fine: boolean; hi: boolean; conn: (x: number, y: number) => number; lamps: number[];
   /** v89：信号の灯の一覧（x, y, z, 表の向き nx, nz, 種類 0 青・1 黄・2 赤・3 歩行者の赤・4 歩行者の青, 青になる軸 0 東西・1 南北）。点灯は scene が周期に合わせて描く */
   sigs?: number[];
+  /** v101：区画 (x, y) が信号のある交差点か（導流帯は信号のある幹線の交差点の手前だけ） */
+  sigAt?: (x: number, y: number) => boolean;
 }
 /** 1 区画の路面標示（中央線・車線境界線・外側線・停止線・横断歩道・止まれ・矢印・ダイヤマーク・速度・導流帯）と、
  *  縁石・側溝とグレーチング・植樹帯・ガードパイプ・信号機（車両用・歩行者用）・標識（止まれ・制限速度・案内・横断歩道）・行き止まりの車止め。
@@ -139,28 +141,34 @@ export function roadTile(o: RoadTileArgs): void {
   const inM = (xx: number, yy: number) => xx >= 0 && yy >= 0 && xx < W && yy < H;
   const bigNb = arms.some(([dx, dz]) => inM(x + dx, y + dz) && s.road[idx(x + dx, y + dz)] >= 2);
   const xw = hasXw(t, o.stone, x, y, nConn), minorEW = hash(x, y, 41) < 0.5;
+  // v101：信号の無い交差点で一時停止（止まれ）にする側：つながる道のうち狭い方。どれも同じ等級なら通りごとに決めた片方（東西か南北）
+  const armCls = (dx: number, dz: number) => (inM(x + dx, y + dz) ? s.road[idx(x + dx, y + dz)] : 3);
+  const clsEW = Math.max(o.aE ? armCls(1, 0) : 0, o.aW ? armCls(-1, 0) : 0), clsNS = Math.max(o.aS ? armCls(0, 1) : 0, o.aN ? armCls(0, -1) : 0);
+  const isMinor = (ew: boolean) => junction && !o.sig && !o.stone && clsEW > 0 && clsNS > 0 && (clsEW === clsNS ? ew === minorEW : (ew ? clsEW < clsNS : clsNS < clsEW));
   const sh = (k: number) => hash(x, y, k);
   for (const [dx, dz, ah] of arms) {
     const ew = dx !== 0, ap = dx ? dx : -dz, apO = -ap, ax = hash(ew ? y : x, ew ? 7 : 13, t * 5 + (o.wide ? 1 : 0));
-    const nx = x + dx, ny = y + dz, nIn = inM(nx, ny), nT = nIn ? s.road[idx(nx, ny)] : 3;
-    const minor = t === 1 && junction && (bigNb ? nT === 1 : ew === minorEW);
-    const perp = ew ? Math.max(o.aN, o.aS) : Math.max(o.aE, o.aW), [xw0, xw1] = xwRange(ah, perp); // v95：横断歩道は隅切りの切り下げから
-    const stopAt = xw ? xw1 + 1.2 : minor ? perp + CORNER_R + 0.5 : 0, from = junction ? (stopAt ? stopAt + 0.6 : perp + CORNER_R) : 0;
+    const nx = x + dx, ny = y + dz, nIn = inM(nx, ny);
+    const minor = isMinor(ew); void bigNb;
+    const perp = ew ? Math.max(o.aN, o.aS) : Math.max(o.aE, o.aW), XL = crosswalkLayout(ah, perp), [xw0, xw1] = XL.xw; // v95：横断歩道は隅切りの切り下げから。v101：配置は crosswalkLayout（区画の半分に収まる）
+    const stopAt = xw ? XL.stop[0] : minor ? perp + CORNER_R + 0.5 : 0, from = junction ? (stopAt ? stopAt + 0.6 : perp + CORNER_R) : 0;
+    const nJ = nIn && o.conn(nx, ny) >= 3; // この腕の先の区画も交差点（30m おきの交差点）
     const approach = !junction && nConn === 2 && nIn && o.conn(nx, ny) >= 3 && !o.stone; // この先（腕の向き）が交差点
     const d0 = junction ? hw : 0;
     // v95：縁石・側溝・歩道は roadbase.ts（隅切り・切り下げつき）
     // --- 外側線・路側帯の線
     const eo = o.kerbless ? ah - 0.15 : t >= 2 ? ah - 0.8 : ah - 0.3;
-    for (const sg of [-1, 1]) AL(dx, dz, junction ? from : d0, 15, sg * eo - 0.075, sg * eo + 0.075, E1); // 交差点の中・横断歩道の上には引かない
+    if (!junction || from < 14) for (const sg of [-1, 1]) AL(dx, dz, junction ? from : d0, 15, sg * eo - 0.075, sg * eo + 0.075, E1); // 交差点の中・横断歩道の上には引かない（v101：停止線の先に 1m も残らない切れ端は引かない）
     // --- わだち（古い道：車輪の通る所が黒ずむ）
     if (fine && o.ak > 0.45) { const rc = mixHex(0x56524c, 0x34353a, Math.min(1, (o.ak - 0.45) / 0.4) * 0.7);
       for (const ln of ah >= 7 ? [1.9, 5.6] : ah >= 4.5 ? [2.5] : [1.25]) for (const sg of [-1, 1]) for (const wq of [-0.8, 0.8]) AL(dx, dz, d0, 15, sg * ln + wq - 0.28, sg * ln + wq + 0.28, rc, 0.108); }
     // --- 中央線（2 車線は通りごとに白の破線・白の実線・黄の実線、幹線は黄の実線か白の 2 本線）。交差点の手前は実線
-    const zebra = big4 && approach && ah >= 7;
+    // v101：導流帯は、信号のある幹線の交差点の手前（右折車線を作る所）で、反対側の区画も交差点でない（右折車線の長さが取れる）所だけ
+    const zebra = big4 && approach && ah >= 7 && (!o.sigAt || o.sigAt(nx, ny)) && !(inM(x - dx, y - dz) && o.conn(x - dx, y - dz) >= 3);
     if (t >= 2 && ah > 3) {
       const ylw = big4 ? ax < 0.8 : ax < 0.35, solid = big4 || ax < 0.65 || junction || approach, col = ylw ? Y1 : W1, lines = big4 && !ylw ? [-0.2, 0.2] : [0];
       const e1 = zebra ? 3 : 15;
-      for (const q of lines) { if (solid) AL(dx, dz, from, e1, q - 0.075, q + 0.075, col); else for (let d = from + 0.5; d < e1; d += 6) AL(dx, dz, d, Math.min(e1, d + 3), q - 0.075, q + 0.075, col); }
+      for (const q of lines) { if (junction && from >= 14) break; if (solid) AL(dx, dz, from, e1, q - 0.075, q + 0.075, col); else for (let d = from + 0.5; d < e1; d += 6) AL(dx, dz, d, Math.min(e1, d + 3), q - 0.075, q + 0.075, col); }
       if (zebra) { // 導流帯（ゼブラ）：中央が 3m から広がり、斜めの縞
         const wq = (d: number) => 0.65 * Math.min(1, Math.max(0, (d - 3) / 6));
         for (const sg of [-1, 1]) { const seg = (da: number, db: number) => { const [p0x, p0z] = WP(dx, dz, da, sg * wq(da) - 0.07), [p1x, p1z] = WP(dx, dz, db, sg * wq(db) - 0.07), [p2x, p2z] = WP(dx, dz, db, sg * wq(db) + 0.07), [p3x, p3z] = WP(dx, dz, da, sg * wq(da) + 0.07); mq([[p0x, p0z], [p1x, p1z], [p2x, p2z], [p3x, p3z]], W1); }; seg(3, 9); seg(9, 15); }
@@ -170,14 +178,15 @@ export function roadTile(o: RoadTileArgs): void {
     // --- 車線境界線（幹線）：破線、交差点の中と手前（交差点へ向かう側）は実線
     if (big4 && ah >= 7) for (const q of [-3.75, 3.75]) {
       const toward = approach && Math.sign(q) === apO;
-      if (junction || toward) AL(dx, dz, toward ? 3 : from, 15, q - 0.075, q + 0.075, W1);
+      if ((junction && from < 14) || toward) AL(dx, dz, toward ? 3 : from, 15, q - 0.075, q + 0.075, W1);
       if (!junction) for (let d = 0.5; d < (toward ? 3 : 15); d += 6) AL(dx, dz, d, Math.min(toward ? 3 : 15, d + 3), q - 0.075, q + 0.075, W1);
     }
     // --- 横断歩道と停止線、止まれ
     if (junction) {
-      if (xw) for (let k = -ah + 0.5; k < ah - 0.3; k += 0.9) AL(dx, dz, xw0, xw1, k, k + 0.45, W1);
-      if (stopAt) AL(dx, dz, stopAt, stopAt + 0.45, ap > 0 ? 0 : -(ah - 0.8), ap > 0 ? ah - 0.8 : 0, W1);
-      if (minor && !xw) { const [px, pz] = WP(dx, dz, stopAt + 2.3, ap * Math.min(1.25, ah * 0.5)); decal(kit, RK.stop, px, pz, -dx, -dz, 3.4, 2.3, hA, 0xffffff, pw); }
+      if (xw) for (const [k0, k1] of XL.stripes) AL(dx, dz, xw0, xw1, k0, k1, W1); // 縞 45cm・間隔 45cm、横断歩道の幅 4m（生活道路 3m）
+      if (stopAt) AL(dx, dz, stopAt, stopAt + 0.45, ap > 0 ? 0 : -(ah - 0.8), ap > 0 ? ah - 0.8 : 0, W1); // 停止線：横断歩道の 1.5m 手前、近づく車線の側だけ
+      // 路面の「止まれ」：停止線の先。先が交差点（30m おき）で区画の境を越えるときは描かない（隣の交差点の標示と重ねない）
+      if (minor && (!nJ || stopAt + 3.6 < 15)) { const [px, pz] = WP(dx, dz, stopAt + 2.3, ap * Math.min(1.25, ah * 0.5)); decal(kit, RK.stop, px, pz, -dx, -dz, 3.4, 2.3, hA, 0xffffff, pw); }
     }
     // --- 交差点の手前の区画：矢印（幹線の車線ごと）とダイヤマーク（横断歩道あり）。2 車線はダイヤだけ
     if (approach && t >= 2) {
@@ -233,10 +242,10 @@ export function roadTile(o: RoadTileArgs): void {
   }
   // --- 標識：生活道路の止まれ（止まれの側の角）、信号のない横断歩道の標識
   if (fine && junction) for (const [dx, dz, ah] of arms) {
-    const ew = dx !== 0, ap = dx ? dx : -dz, nT = inM(x + dx, y + dz) ? s.road[idx(x + dx, y + dz)] : 3, minor = t === 1 && (bigNb ? nT === 1 : ew === minorEW);
+    const ew = dx !== 0, ap = dx ? dx : -dz, minor = isMinor(ew);
     if (!(minor || (xw && !o.sig))) continue;
-    const perp = ew ? Math.max(o.aN, o.aS) : Math.max(o.aE, o.aW), d = minor && !xw ? perp + CORNER_R + 0.8 : xwRange(ah, perp)[1] + 0.6;
-    const [px, pz] = WP(dx, dz, d, ap * (ah + SIDEWALK_W - 0.5)), hy = hA(px, pz), k = minor ? RK.sStop : RK.sWalk;
+    const perp = ew ? Math.max(o.aN, o.aS) : Math.max(o.aE, o.aW), d = minor && !xw ? perp + CORNER_R + 0.8 : Math.min(14.5, xwRange(ah, perp)[1] + 0.6);
+    const [px, pz] = WP(dx, dz, d, ap * (ah + walkW(ah) - 0.5)), hy = hA(px, pz), k = minor ? RK.sStop : RK.sWalk;
     g.at(px, hy, pz); g.cyl(0, 0, 0, 0.05, 2.7, 0x9aa0a6, 5); g.at(0, 0, 0);
     g.box(px - dx * 0.04, hy + 1.9, pz - dz * 0.04, ew ? 0.03 : 0.85, 0.8, ew ? 0.85 : 0.03, 0x9aa0a6);
     face(kit, k, px + dx * 0.02, hy + 2.3, pz + dz * 0.02, dx, dz, 0.9, 0.9);

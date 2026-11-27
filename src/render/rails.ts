@@ -3,6 +3,7 @@
 // 道路と地上の線路が交わる区画は踏切（遮断機・警報機）。列車もこの線の上を走る。
 import { Geo } from './geo';
 import { RK, decal, face } from './roadkit';
+import { walkW } from './roadbase';
 import { W, H, TILE, heightAt, idx, hash } from '../sim/index';
 import { railChains } from '../sim/railnet';
 import { grade } from '../sim/grade';
@@ -135,7 +136,7 @@ export const SHIN_LINES: ShinLine[] = [];
  *  橋脚は約 24m（ラーメン高架は 12m、モノレール 22m）おき。v100：下の道路を横切る所（車線・歩道の帯）には立てず、手前の道路の外に立てるか
  *  渡り終えてから立てる。道路に沿って重なる所は、道路の歩道の外に柱を立てる門形にする（前は道路の真ん中に橋脚や門形の柱が立っていた） */
 export interface RailPier { portal: boolean; lat: number }
-const RHW = [0, 2.5, 5, 7.5], RSW = 2.5;
+const RHW = [0, 2.5, 5, 7.5];
 export function railPiers(s: GameState, m: MapDef, P: RailPath): Map<number, RailPier> {
   const out = new Map<number, RailPier>(), n = P.p.length / 3;
   const ground = (x: number, z: number) => heightAt(m, Math.max(0, Math.min(W * TILE - 0.01, x)), Math.max(0, Math.min(H * TILE - 0.01, z)));
@@ -148,7 +149,7 @@ export function railPiers(s: GameState, m: MapDef, P: RailPath): Map<number, Rai
     const t = idx(tx, ty), r = s.road[t]; if (!r || m.water[t]) return [0, 0];
     const rd = (a: number, b: number) => a >= 0 && b >= 0 && a < W && b < H && !!s.road[idx(a, b)];
     let ew = rd(tx - 1, ty) || rd(tx + 1, ty), ns = rd(tx, ty - 1) || rd(tx, ty + 1); if (!ew && !ns) ew = ns = true;
-    const rh = (wide.has(t) && r === 2 ? 7.5 : RHW[r] ?? 7.5) + RSW, cx = (tx + 0.5) * TILE, cz = (ty + 0.5) * TILE, [ax, az] = tan(j);
+    const rh0 = wide.has(t) && r === 2 ? 7.5 : RHW[r] ?? 7.5, rh = rh0 + walkW(rh0), cx = (tx + 0.5) * TILE, cz = (ty + 0.5) * TILE, [ax, az] = tan(j);
     const inE = ew && Math.abs(z - cz) < rh + 1.2, inN = ns && Math.abs(x - cx) < rh + 1.2;
     if (inE && inN) return [1, rh];
     if (inE) return [Math.abs(ax) > 0.7 ? 2 : 1, rh];
