@@ -712,7 +712,14 @@ export class View {
   /** 地図の中の地面（地形の造作をしたら作り直す）：標高の網、林の木、人がつくった水面・湿地 */
   private landObjs: THREE.Object3D[] = []; private cutKey = '';
   /** v102：林の塊（近くは細かい木、遠くは簡単な木） */
-  private forestLod: { x: number; z: number; near: THREE.Mesh; far: THREE.Mesh }[] = [];
+  private forestLod: { x: number; z: number; near: THREE.Mesh; far: THREE.Mesh; sh: THREE.Mesh }[] = [];
+  /** v102：影だけを落とす簡略な形（遠くの塊の簡略版と同じ形。画面には描かず、影の描画だけに使う）。
+   *  注視点から遠い塊は、細かい形の代わりにこれで影を落とす（影の三角形を減らす。近くの塊は今までどおり細かい形の影）。
+   *  three の影の描画は画面のカメラの層で選ぶので、層は分けず、色も深度も書かない材質で画面には何も残さない */
+  private static matShadowOnly = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+  private shadowProxy(src: THREE.Mesh): THREE.Mesh { const m = new THREE.Mesh(src.geometry, View.matShadowOnly); m.castShadow = true; m.receiveShadow = false; m.visible = false; m.frustumCulled = true; this.scene.add(m); return m; }
+  /** v102：細かい形で影を落とす、注視点からの距離（m）。これより遠い塊は簡略な形で影を落とす */
+  private shNear(): number { return this.mode === 'ground' ? 140 : this.ride ? 180 : this.quality === 'high' ? 300 : 200; }
   private buildLand(): void {
     for (const o of this.landObjs) { this.scene.remove(o); if ((o as THREE.Mesh).geometry) (o as THREE.Mesh).geometry.dispose(); }
     this.landObjs = [];
@@ -792,7 +799,7 @@ export class View {
     this.forestLod = [];
     for (const [k, c] of fNear) { const fg = fFar.get(k)!; fg.at(0, 0, 0); c.g.at(0, 0, 0);
       const mk = (g: Geo, cast: boolean) => { const mesh = new THREE.Mesh(g.build(), this.matBody); mesh.castShadow = cast; mesh.receiveShadow = true; mesh.geometry.computeBoundingSphere(); mesh.frustumCulled = true; this.scene.add(mesh); this.landObjs.push(mesh); return mesh; };
-      const near = mk(c.g, true), far = mk(fg, false); far.visible = false; this.forestLod.push({ x: ((k % 1000) + 0.5) * FCH * TILE, z: (Math.floor(k / 1000) + 0.5) * FCH * TILE, near, far }); }
+      const near = mk(c.g, true), far = mk(fg, false); far.visible = false; const sh = this.shadowProxy(far); this.landObjs.push(sh); this.forestLod.push({ sh, x: ((k % 1000) + 0.5) * FCH * TILE, z: (Math.floor(k / 1000) + 0.5) * FCH * TILE, near, far }); }
     // 人がつくった水面（池・川・海）と、湿地の水たまり
     const wg = new Geo(), mg = new Geo(), tId = terrainOf(m.seed).id;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -1693,12 +1700,16 @@ export class View {
     const lim = (this.quality === 'high' ? 1800 : this.quality === 'mid' ? 1100 : 650) * (this.lite ? 0.6 : 1), CH = 6, NCX = Math.ceil(W / CH), cam = this.camera.position;
     // 歩く人は、遠くからだと点にしか見えないので描かない（1 人 900 三角形あるため）
     { const hide = this.mode === 'orbit' && this.dist > (this.lite ? 520 : this.quality === 'high' ? 1400 : 900); for (const P of [this.pedP, this.crowdP, this.lifeP]) if (P) P.mesh.visible = !hide && (P !== this.crowdP || P.mesh.count > 0); }
-    { const fl = lim * 0.55; for (const f of this.forestLod) { const far = this.mode === 'orbit' && Math.hypot(f.x - cam.x, f.z - cam.z, cam.y * 0.6) > fl; f.near.visible = !far; f.far.visible = far; } } // v102：林の遠近
+    const tg = this.target, shN = this.shNear() + 6 * TILE * 0.71, sun = this.sun.castShadow; // 塊の半径の分を足す
+    { const fl = lim * 0.55; for (const f of this.forestLod) { const far = this.mode === 'orbit' && Math.hypot(f.x - cam.x, f.z - cam.z, cam.y * 0.6) > fl, shFar = Math.hypot(f.x - tg.x, f.z - tg.z) > shN + 5 * TILE * 0.71; f.near.visible = !far; f.far.visible = far; f.near.castShadow = !shFar; f.sh.visible = sun && shFar; } } // v102：林の遠近・影
     const want: [number, number][] = [];
     for (const [k, meshes] of this.chunkMeshes) { const low = this.chunkLow.get(k); if (!low) { for (const m of meshes) m.visible = true; continue; } const cx = ((k % NCX) + 0.5) * CH * TILE, cz = (Math.floor(k / NCX) + 0.5) * CH * TILE, d = Math.hypot(cx - cam.x, cz - cam.z, cam.y * 0.6), far = d > lim && this.mode === 'orbit';
       // v92：何もない塊（空き地だけ）は、近づいたときに細かい版を作る（地図を広げて、細かい版をすべて持つとメモリが 1.5GB を超えたため）。作るまでは簡略版を見せる
       if (this.lazyChunks.has(k)) { low.visible = true; if (d < lim * 1.2) want.push([d, k]); continue; }
-      for (const m of meshes) m.visible = !far; low.visible = far; }
+      for (const m of meshes) m.visible = !far; low.visible = far;
+      // v102：注視点から遠い塊は、簡略な形で影を落とす（細かい形は影を落とさない）
+      { const shFar = Math.hypot(cx - tg.x, cz - tg.z) > shN, sh = low.userData.sh as THREE.Mesh | undefined; if (sh) sh.visible = sun && shFar && !this.lazyChunks.has(k);
+        for (const m of meshes) { if (m.userData.c0 === undefined) m.userData.c0 = m.castShadow; m.castShadow = m.userData.c0 && !shFar; } } }
     // 近い塊から、1 回に 6 つまで（一度に作ると画面が止まるため）
     if (want.length) { const st = this.getState(); want.sort((a, b) => a[0] - b[0]);
       const tB = performance.now(); // v102：1 回に 6 つまで → 4ms まで（作り直しでコマが止まるのを抑える。少なくとも 1 つ）
@@ -1750,7 +1761,7 @@ export class View {
       if (this.chunkSig.get(k) === sig) continue;
       this.chunkSig.set(k, sig); rebuilt++;
       for (const mesh of this.chunkMeshes.get(k) ?? []) { this.scene.remove(mesh); mesh.geometry.dispose(); }
-      { const old = this.chunkLow.get(k); if (old) { this.scene.remove(old); old.geometry.dispose(); this.chunkLow.delete(k); } }
+      { const old = this.chunkLow.get(k); if (old) { this.scene.remove(old); if (old.userData.sh) this.scene.remove(old.userData.sh); old.geometry.dispose(); this.chunkLow.delete(k); } }
       this.lazyChunks.delete(k);
       // 遠くから見るときの簡略版（建物は箱 1 つ、空き地は板 1 枚）。三角形が 1 割ほどになる
       { const lg = new Geo(), cx0 = (k % NCX) * CH, cy0 = Math.floor(k / NCX) * CH;
@@ -1764,7 +1775,7 @@ export class View {
         for (let y = Math.max(2, cy0); y < Math.min(H - 4, cy0 + CH); y++) for (let x = cx0; x < Math.min(W, cx0 + CH); x++) { const i = idx(x, y); if (s.road[i] || s.occ[i] || !buildable(m, i)) continue; const r = hash(x, y, 77), cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE, top = heightAt(m, cx, cz);
           const ek = extLook(m, x, y); if (s.zone[i]) { lg.at(cx, top, cz); lg.box(0, -2, 0, 27, 2.05, 27, 0xa8997c); } else if (ek >= 0) { /* v95：遠くの畑は箱を置かない（地面の色が 3×2 区画の畑ごとの土と作物の色で、境はノイズでくねる。箱の四角い輪郭が上空から格子に見えた） */ } else if (r < (y >= 40 ? 0.72 : 0.5) && y < H - 6 && !(m.sand?.[i] || m.desert?.[i] || m.snow?.[i])) { lg.at(cx, top, cz); lg.box(0, -2, 0, 28.6, 2.1, 28.6, r < 0.3 ? 0x8cbc5c : 0x5f9445); } }
         if (!lg.pos.length) { lg.at((cx0 + CH / 2) * TILE, -60, (cy0 + CH / 2) * TILE); lg.box(0, 0, 0, 0.01, 0.01, 0.01, 0x000000); } // v95：遠くの畑の箱をやめて空になった塊も、簡略版を持たせる（持たないと、遠くの空き地の塊を後で作る工夫が効かず、細かい版をすぐ作って面が増えた）
-        { const lm = new THREE.Mesh(lg.build(false), LOD_MAT); lm.receiveShadow = true; lm.visible = false; this.scene.add(lm); this.chunkLow.set(k, lm); } }
+        { const lm = new THREE.Mesh(lg.build(false), LOD_MAT); lm.receiveShadow = true; lm.visible = false; this.scene.add(lm); this.chunkLow.set(k, lm); lm.userData.sh = this.shadowProxy(lm); } }
       // v92：空き地だけの塊で、いまカメラから遠いものは、細かい版を後で（近づいたとき）作る
       if (!(blds.get(k)?.length) && arr.every(v => v === 'z0') && this.chunkLow.has(k)) {
         const cam = this.camera.position, ccx = ((k % NCX) + 0.5) * CH * TILE, ccz = (Math.floor(k / NCX) + 0.5) * CH * TILE, lim = (this.quality === 'high' ? 1800 : this.quality === 'mid' ? 1100 : 650) * (this.lite ? 0.6 : 1);
