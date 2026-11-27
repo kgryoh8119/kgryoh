@@ -17,7 +17,7 @@ export interface PathEnv {
   /** 区画 i が円弧の曲がり角として描かれているか（2 方向が直角につながる、高架でない区画） */
   bend(i: number): boolean;
 }
-export interface PathOut { x: number; z: number; dx: number; dz: number }
+export interface PathOut { x: number; z: number; dx: number; dz: number; /** walkPos：その所の歩道（路側帯）の幅 */ w?: number }
 const dirOf = (W: number, a: number, b: number): [number, number] => [Math.sign(b % W - a % W), Math.sign(((b / W) | 0) - ((a / W) | 0))];
 /** 来た向きの分からない（出発したばかりの）曲がり角の区画では、もう一方の腕から入ってきたとみなす（円弧の上に置く） */
 function entryOf(e: PathEnv, c: number, d1: [number, number]): [number, number] {
@@ -103,14 +103,16 @@ function arcAt(o: PathOut, cx: number, cz: number, d0: [number, number], d1: [nu
  *  ・折り返し（行き止まり・来た道へ戻る）：その場で向きを変える。呼ぶ側は折り返しの区画に入るとき sg の符号を変える（同じ側の歩道に残る） */
 export function walkPos(o: PathOut, e: PathEnv, prev: number, cur: number, next: number, nn: number, t: number, sg: number): PathOut {
   const W = e.W, T = e.TILE, H2 = T / 2, cxOf = (i: number) => (i % W + 0.5) * T, czOf = (i: number) => (((i / W) | 0) + 0.5) * T;
-  if (cur === next) { const f = walkMid(e.midHW(cur)) * sg; o.x = cxOf(cur) + f; o.z = czOf(cur); o.dx = 0; o.dz = 1; return o; }
+  if (cur === next) { // 動かない（行き先の区画に着いて建物へ入る所など）：つながる腕の歩道の上（交差点の中・曲がり角の円弧にかからない、腕の先の方）
+    let d: [number, number] = [0, 1]; for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (e.armHW(cur, dx, dz) > 0) { d = [dx, dz]; break; }
+    const h = e.armHW(cur, d[0], d[1]) || e.midHW(cur), f = walkMid(h) * sg, q = H2 * 0.8; o.x = cxOf(cur) + d[0] * q + d[1] * f; o.z = czOf(cur) + d[1] * q - d[0] * f; o.dx = d[0]; o.dz = d[1]; o.w = walkW(h); return o; }
   const dm = dirOf(W, cur, next); let c: number, d0: [number, number], d1: [number, number], sl: number;
   if (t < 0.5) { c = cur; d1 = dm; d0 = prev >= 0 && prev !== cur ? dirOf(W, prev, cur) : entryOf(e, cur, dm); sl = t * T; }
   else { c = next; d0 = dm; d1 = nn >= 0 && nn !== next ? dirOf(W, next, nn) : dm; sl = (t - 1) * T; }
   const cx = cxOf(c), cz = czOf(c), dot = d0[0] * d1[0] + d0[1] * d1[1];
   /** 直線の歩道の線の、中心からの横の距離：腕 (ax, az) の側の半分、歩く側 (lx, lz)、中心からの距離 q */
   const straight = (ax: number, az: number, lx: number, lz: number, q: number) => {
-    const m = e.midHW(c), a = e.armHW(c, ax, az) || m, b = e.armHW(c, lx, lz);
+    const m = e.midHW(c), a = e.armHW(c, ax, az) || m, b = e.armHW(c, lx, lz); o.w = walkW(a);
     const junc = (e.armHW(c, 1, 0) ? 1 : 0) + (e.armHW(c, -1, 0) ? 1 : 0) + (e.armHW(c, 0, 1) ? 1 : 0) + (e.armHW(c, 0, -1) ? 1 : 0) >= 3;
     if (junc && b > 0) return walkMid(a); // 交差点の、横の腕がある角：腕の縁石は真っすぐ（隅切りまで）
     const mm = junc ? Math.max(e.armHW(c, ax, az), e.armHW(c, -ax, -az)) || m : m; // 腕の先から区画の中心へ、中心の幅（roadbase の midV・hw）へすりつける
@@ -124,13 +126,13 @@ export function walkPos(o: PathOut, e: PathEnv, prev: number, cur: number, next:
   const l0x = d0[1] * sg, l0z = -d0[0] * sg, l1x = d1[1] * sg, l1z = -d1[0] * sg; // 歩く側（左右）の向き
   if (e.bend(c)) { // 円弧の曲がり角：円弧の歩道（半径 15 ∓ 歩道の中ほど）
     const A = Math.min(e.armHW(c, -d0[0], -d0[1]) || e.midHW(c), e.armHW(c, d1[0], d1[1]) || e.midHW(c)), inner = d1[0] * l0x + d1[1] * l0z > 0;
-    arcAt(o, cx, cz, d0, d1, H2, H2 + (inner ? -1 : 1) * walkMid(A), sl); return o;
+    arcAt(o, cx, cz, d0, d1, H2, H2 + (inner ? -1 : 1) * walkMid(A), sl); o.w = walkW(A); return o;
   }
   // 交差点の右左折：入ってきた腕の歩道の線（d0 の向き、横 f0）と出ていく腕の歩道の線（d1 の向き、横 f1）の交わる角 K で曲がる
-  const f0 = walkMid(e.armHW(c, -d0[0], -d0[1]) || e.midHW(c)), f1 = walkMid(e.armHW(c, d1[0], d1[1]) || e.midHW(c));
+  const h0 = e.armHW(c, -d0[0], -d0[1]) || e.midHW(c), h1 = e.armHW(c, d1[0], d1[1]) || e.midHW(c), f0 = walkMid(h0), f1 = walkMid(h1);
   const k0 = (l1x * d0[0] + l1z * d0[1]) * f1, k1 = (l0x * d1[0] + l0z * d1[1]) * f0; // K の d0 の向きの座標、d1 の向きの座標
   const L0 = k0 + H2, L1 = H2 - k1, lam = (sl + H2) / T * (L0 + L1);
-  if (lam <= L0) { const q = -H2 + lam; o.x = cx + d0[0] * q + l0x * f0; o.z = cz + d0[1] * q + l0z * f0; o.dx = d0[0]; o.dz = d0[1]; }
-  else { const q = k1 + lam - L0; o.x = cx + d1[0] * q + l1x * f1; o.z = cz + d1[1] * q + l1z * f1; o.dx = d1[0]; o.dz = d1[1]; }
+  if (lam <= L0) { const q = -H2 + lam; o.w = walkW(h0); o.x = cx + d0[0] * q + l0x * f0; o.z = cz + d0[1] * q + l0z * f0; o.dx = d0[0]; o.dz = d0[1]; }
+  else { const q = k1 + lam - L0; o.w = walkW(h1); o.x = cx + d1[0] * q + l1x * f1; o.z = cz + d1[1] * q + l1z * f1; o.dx = d1[0]; o.dz = d1[1]; }
   return o;
 }

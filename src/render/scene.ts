@@ -108,7 +108,7 @@ import { FX, glowTex } from './fx';
 import { buildRailPaths, drawRailPaths, railAt, SHIN_LINES, shinDeckY, RAIL_LM, type RailPath, type Gate, type StationSpot } from './rails';
 import { Landmarks, type LmItem } from './landmarks';
 import { roadKitMat, roadTile, face, RK } from './roadkit';
-import { roadBase, hasXw, walkW, sigPlan } from './roadbase';
+import { roadBase, crosswalkArms, walkW, sigPlan } from './roadbase';
 import { crowdPlan, occupancyPhase, occDay, occupancyOf } from './occupancy';
 import { drawPowerLines, drawUtilities, kyodokoTiles, infraKey, pipeReach, pipeOverlay } from './infra'; // v87
 import { makeTrains, TRAIN_PART as TK_PART, FAMS, CAR_DIM, famColor, type TrainFam } from './trainkit'; // v88
@@ -134,7 +134,8 @@ const extLook = (m: MapDef, x: number, y: number): number => (!REAL && m.deco &&
 import { DISTRICTS } from '../sim/types';
 import { residentPlan, profileOf, shortWho, stationFlow, isHoliday, RM_WALK, RM_BIKE, RM_BUS, RM_CAR, type Plan, type RTrip } from './residents'; // v98
 import { LowSet, FarFlow, lowPersonGeo, lowCarGeo, tripTile, type FarEnv } from './lodcrowd'; // v102
-import { roadGeom, lanePos, type PathEnv } from './farpath'; // v103
+import { roadGeom, lanePos, walkPos, type PathEnv } from './farpath'; // v103
+import { veilQuads } from './veil'; // v103
 import { incInterval, hourRate, pickInc, incSeverity, incUnits, incText, incFollowText, IncidentFeed, FATAL_P, POLICE_BASE, KOBAN, FIRE_BASE, FUNERAL, type IncidentEvent, type IncKind, type IncSub, type Unit } from './incidents';
 import { emPlan, roadRoute, roadNear, emSite, nearestBase, jamLook, stationLook, isRightTurn, EM_VM, EM_BASE, HOSPITALS, type EmKind } from './traffic';
 
@@ -1136,6 +1137,10 @@ export class View {
     const connAt = (xx: number, yy: number) => { if (!inMap(xx, yy) || !s.road[idx(xx, yy)]) return 0; let n = 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) n += this.roadConn(s, xx, yy, dx, dy) ? 1 : 0; return n; };
     const schools = s.buildings.filter(b => (b.kind === 'school' || b.kind === 'nursery' || b.kind === 'nurseryS' || b.kind === 'nurseryL' || b.kind === 'jhs') && b.status !== 'construction');
     const schoolNear = (xx: number, yy: number) => schools.some(b => xx >= b.x - 3 && xx < b.x + b.w + 3 && yy >= b.y - 3 && yy < b.y + b.h + 3);
+    // v103：横断歩道を引く腕（roadbase の crosswalkArms）。学校・保育所・駅のまわり 3 区画は、信号の無い交差点でもすべての腕に
+    const stations = s.buildings.filter(b => b.kind === 'station' && b.status !== 'construction'), stNear = (xx: number, yy: number) => stations.some(b => xx >= b.x - 3 && xx < b.x + b.w + 3 && yy >= b.y - 3 && yy < b.y + b.h + 3);
+    const xwOf = (xx: number, yy: number) => { if (!inMap(xx, yy) || !s.road[idx(xx, yy)]) return 0; const c = (dx: number, dy: number) => this.roadConn(s, xx, yy, dx, dy);
+      return crosswalkArms({ e: c(1, 0), w: c(-1, 0), s: c(0, 1), n: c(0, -1), sig: sig[idx(xx, yy)] === 1, near: schoolNear(xx, yy) || stNear(xx, yy), stone: stStone.has(idx(xx, yy)) }); };
     // v89：シェアモビリティのポートを置ける所（駅のまわり 3 区画は 2、商業の建物の隣は 1）と、置いた数の上限（街の規模に応じて控えめに）
     const shareG = new Uint8Array(N); let shareCap = 0, shareN = 0; this.sharePos = [];
     if (fineR) { for (const b of s.buildings) { if (b.status !== 'operating') continue; const st = b.kind === 'station', r = st ? 3 : fam(b.kind) === 'shop' ? 1 : 0; if (!r) continue; shareCap += st ? 3 : 0.08;
@@ -1178,7 +1183,7 @@ export class View {
       const bendA = bend ? Math.min(cE ? aE : aW, cS ? aS : aN) : 0;
       const Wd = hw + walkW(hw); // v101：歩道の幅は等級ごと（walkW）
       // v95：路面・歩道（路側帯）・縁石・隅切り・切り下げ（render/roadbase.ts）。v101：歩道の幅は等級ごとに一定（walkW）、交差点の角は円弧
-      roadBase({ g, cx, cz, hw, aE, aW, aS, aN, nConn, kerbless, stone, school, xw: hasXw(tR, stone, x, y, nConn), fine: fineR, hA, asph, shade: tv,
+      roadBase({ g, cx, cz, hw, aE, aW, aS, aN, nConn, kerbless, stone, school, xwArms: xwOf(x, y), fine: fineR, hA, asph, shade: tv,
         pave: (k: number) => { const hc = hash(x * 12 + k, y * 12, 5); return tR === 3 || wideT ? [0xb7ab98, 0xa89c8a, 0xc2b6a2, 0x9d958a][((hc * 7) | 0) % 4] : [0xbab6ad, 0xb0aca3][((hc * 3) | 0) % 2]; },
         lowArm: (dx: number, dz: number) => { const xx = x + dx, yy = y + dz; if (!inMap(xx, yy)) return false; const j = idx(xx, yy); return s.road[j] === 1 && !stStone.has(j) && !stTree.has(j); },
         bend, bendA });
@@ -1204,7 +1209,7 @@ export class View {
         for (let k = 0; k <= 24; k++) { const a = (k / 24) * Math.PI / 2; for (const off of [-(bendA - 0.3), bendA - 0.3]) dot(a, 15 + off, 0.09, 0xdcdcd8); if (t >= 2 && k % 4 < 2) dot(a, 15, 0.12, t === 3 ? 0xf2c230 : 0xeeeeea); }
       }
       // v86：路面標示（等級・幅・交差点の形ごと）、縁石・側溝・植樹帯・ガードパイプ・信号機・標識（render/roadkit.ts）
-      if (!bend) roadTile({ g, kit, s, i, x, y, t: tR, cx, cz, hw, Wd, aE, aW, aS, aN, nConn, kerbless, stone, wide: wideT, ak, hA, mark, sig: sig[i] === 1, fine: fineR, hi: hiR, conn: connAt, lamps: lampPos, sigs: sigPos, sigAt: (xx: number, yy: number) => inMap(xx, yy) && sig[idx(xx, yy)] === 1 });
+      if (!bend) roadTile({ g, kit, s, i, x, y, t: tR, cx, cz, hw, Wd, aE, aW, aS, aN, nConn, kerbless, stone, wide: wideT, ak, hA, mark, sig: sig[i] === 1, fine: fineR, hi: hiR, conn: connAt, lamps: lampPos, sigs: sigPos, sigAt: (xx: number, yy: number) => inMap(xx, yy) && sig[idx(xx, yy)] === 1, xwArms: xwOf(x, y), xwAt: xwOf });
       // 電柱・街灯
       const ew = !!(cE || cW), ns = !!(cS || cN);
       const px = cx + (ns ? -(Wd - 0.6) : 0), pz = cz + (ew ? -(Wd - 0.6) : (ns ? 0 : -(Wd - 0.6)));
@@ -1958,18 +1963,21 @@ export class View {
     this.scene.add(mesh); this.groups.overlay.push(mesh);
   }
   /** まだ編入していない区域を暗くし、市の区域との境に黄色い線を引く */
-  private lockKey = ''; private lockMesh: THREE.Mesh | null = null;
+  private lockKey = ''; private lockMeshes: THREE.Mesh[] = []; // v103：塊ごと（画面の外の塊は描かない）
   private matLock = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.3, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   private matLockLine = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.75, depthWrite: false, side: THREE.DoubleSide });
   private lockLine: THREE.Mesh | null = null;
   private rebuildLock(s: GameState): void {
-    for (const k of ['lockMesh', 'lockLine'] as const) { const o = this[k]; if (o) { this.scene.remove(o); o.geometry.dispose(); this[k] = null; } }
+    { const o = this.lockLine; if (o) { this.scene.remove(o); o.geometry.dispose(); this.lockLine = null; } }
+    for (const o of this.lockMeshes) { this.scene.remove(o); o.geometry.dispose(); } this.lockMeshes = [];
     if (!s.unlocked) return;
-    const g = new Geo(), gl = new Geo(), m = this.map, un = new Set(s.unlocked), lk = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && !un.has(blockOf(idx(x, y)));
+    const gl = new Geo(), m = this.map, un = new Set(s.unlocked), lk = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && !un.has(blockOf(idx(x, y)));
     // v70：編入前の区域は薄く暗くするだけ（区画のすき間の格子を描かない。地形の色が透けて見えるように）
-    { const SUB = 3, st = TILE / SUB, hq = (X: number, Z: number) => heightAt(m, X, Z) + 1.2;
-      for (let i = 0; i < N; i++) { const x = i % W, y = (i / W) | 0; if (!lk(x, y) || m.water[i]) continue;
-        for (let j = 0; j < SUB; j++) for (let k = 0; k < SUB; k++) { const X0 = x * TILE + k * st, X1 = X0 + st, Z0 = y * TILE + j * st, Z1 = Z0 + st; g.quad([X0, hq(X0, Z1), Z1], [X1, hq(X1, Z1), Z1], [X1, hq(X1, Z0), Z0], [X0, hq(X0, Z0), Z0], 0x18202c); } } }
+    // v103：地形に沿う細かさを区画ごとに選び（平らな所は 1 枚にまとめる。高さの差 15cm 以内）、32×32 区画の塊に分けて画面の外の塊は描かない（src/render/veil.ts）
+    for (const q of veilQuads(W, H, TILE, i => lk(i % W, (i / W) | 0) && !m.water[i], (X, Z) => heightAt(m, X, Z) + 1.2).values()) {
+      const g = new Geo(); for (let k = 0; k < q.length; k += 8) { const [x0, z0, x1, z1, a, b, c, d] = q.slice(k, k + 8); g.quad([x0, a, z1], [x1, b, z1], [x1, c, z0], [x0, d, z0], 0x18202c); }
+      const mesh = new THREE.Mesh(g.build(), this.matLock); mesh.renderOrder = 4; this.scene.add(mesh); this.lockMeshes.push(mesh);
+    }
     // 境目：黄色い低い柵（立てた帯）と、地面の線
     const hy = (x: number, z: number) => heightAt(m, x, z), SEG = 3, Hh = 9;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -1984,7 +1992,6 @@ export class View {
         }
       }
     }
-    const mesh = new THREE.Mesh(g.build(), this.matLock); mesh.frustumCulled = false; mesh.renderOrder = 4; this.scene.add(mesh); this.lockMesh = mesh;
     const line = new THREE.Mesh(gl.build(), this.matLockLine); line.frustumCulled = false; line.renderOrder = 6; this.scene.add(line); this.lockLine = line;
   }
   private rebuildOverlay(s: GameState): void {
@@ -3044,7 +3051,7 @@ export class View {
   private busSegs: { cur: number; next: number; t: number }[] = [];
   private wideSet = new Set<number>();
   private laneOff(s: GameState, i: number, lane: number): number { const t = s.road[i]; return t === 3 || (t === 2 && this.wideSet.has(i)) ? (lane ? 1.9 : 5.6) : t === 2 ? 2.5 : 1.25; }
-  private lp = { x: 0, z: 0, dx: 0, dz: 1 };
+  private lp = { x: 0, z: 0, dx: 0, dz: 1 }; private wpo = { x: 0, z: 0, dx: 0, dz: 1, w: 2.5 };
   /** v103：道の形の問い合わせ（車線・歩道の位置。src/render/farpath.ts）。道路・拡幅・高架は参照で見るので、街ごとに 1 つ */
   private pathE: PathEnv | null = null; private pathS: GameState | null = null;
   private pathEnv(s: GameState): PathEnv {
@@ -3483,9 +3490,18 @@ export class View {
     const sigG = this.signals(s), cyc = this.lifeT % 36, sigAxis = cyc < 18 ? 0 : 1, amber = cyc % 18 > 15, h = this.hour;
     this.sigLights(cyc, sigAxis, amber);
     const pedGrid = this.pedGrid;
+    // v103：歩く人は次の次の区画まで決めて歩く（曲がる前から曲がり方が分かり、歩道の角で曲がる。src/render/farpath.ts の walkPos）。
+    // 選び方は前と同じ（行き先へ向かう・朝の通勤は駅の方へ）。区画が外から変わったとき（出入り・置き直し）は選び直す
+    const pickPed = (a: Agent, at: number, back: number) => {
+      const G = (a as any).goal ?? -1, L = a.L!; let n = G >= 0 ? this.resNext(s, at, back, G, true) : this.nextTile(s, at, back, true);
+      // 朝の通勤・通学は駅（と市外への出口）の方へ（v98：住民は自分の行き先へ）
+      if (G < 0 && (L.t === 'worker' || L.t === 'teen') && h >= 6 && h < 9.5 && Math.random() < 0.7) { const f = this.flowField(s)[at]; if (f >= 0 && f !== back && s.road[f] !== 3) n = f; }
+      return n;
+    };
+    const nnOf = (a: Agent): number => { const A = a as any, k = a.cur * 1048576 + a.next; if (A.nnK !== k || a.nn === undefined) { A.nnK = k; a.nn = a.cur === a.next ? a.next : pickPed(a, a.next, a.cur); } return a.nn!; };
     const stepPed = (a: Agent, i: number) => {
       const ld = a.lead !== undefined ? this.peds[a.lead] : null, L = a.L!;
-      if (ld) { a.cur = ld.cur; a.next = ld.next; a.prev = ld.prev; a.t = ld.t; a.lane = ld.lane; a.wait = ld.wait; a.enter = ld.enter; a.exit = ld.exit; a.speed = ld.speed; }
+      if (ld) { a.cur = ld.cur; a.next = ld.next; a.prev = ld.prev; a.nn = ld.nn; (a as any).nnK = (ld as any).nnK; a.t = ld.t; a.lane = ld.lane; a.wait = ld.wait; a.enter = ld.enter; a.exit = ld.exit; a.speed = ld.speed; }
       else {
         if (!s.road[a.cur] || !s.road[a.next]) { a.cur = this.pickTile(this.pedTiles); if (a.cur < 0) return; a.next = this.nextTile(s, a.cur, -1, true); a.prev = -1; a.t = 0; a.enter = a.exit = undefined; }
         const inDist = TILE / 2 - (this.pedHW(s, a.cur)) - 1.25 + 1.2;
@@ -3507,25 +3523,24 @@ export class View {
           if (closed.size && closed.has(a.next) && a.cur !== a.next && nt > 0.55) { nt = Math.max(a.t, 0.55); a.wait = true; }
           a.t = nt;
           if (a.t >= 1) {
-            a.t -= 1; const G = (a as any).goal ?? -1; let n = G >= 0 ? this.resNext(s, a.next, a.cur, G, true) : this.nextTile(s, a.next, a.cur, true);
-            // 朝の通勤・通学は駅（と市外への出口）の方へ（v98：住民は自分の行き先へ）
-            if (G < 0 && (L.t === 'worker' || L.t === 'teen') && h >= 6 && h < 9.5 && Math.random() < 0.7) { const f = this.flowField(s)[a.next]; if (f >= 0 && f !== a.cur && s.road[f] !== 3) n = f; }
+            a.t -= 1; const G = (a as any).goal ?? -1, n = nnOf(a);
             a.prev = a.cur; a.cur = a.next; a.next = n;
+            if (a.next === a.prev && a.next !== a.cur) a.lane = a.lane ? 0 : 1; // v103：来た道へ戻るときは同じ側の歩道のまま（前は道の反対側へ飛んでいた）
             if (G >= 0 ? a.cur === G : this.wantsEnter(a)) a.enter = 0;
           }
         }
       }
-      const x0 = (a.cur % W + 0.5) * TILE, z0 = (((a.cur / W) | 0) + 0.5) * TILE, x1 = (a.next % W + 0.5) * TILE, z1 = (((a.next / W) | 0) + 0.5) * TILE;
-      let dx = x1 - x0, dz = z1 - z0; const Ln = Math.hypot(dx, dz) || 1; dx /= Ln; dz /= Ln;
-      // v95：拡幅した道・幅の違う道でも、その区画の歩道の上を歩く（区画の境目でなめらかに寄せる）
-      const hwC = this.pedHW(s, a.cur), hwN = a.next !== a.cur && s.road[a.next] && this.roadDeg(s, a.next) < 3 ? this.pedHW(s, a.next) : hwC, fk = Math.max(0, Math.min(1, (a.t - 0.4) / 0.2)), hw = hwC + (hwN - hwC) * fk, wk = walkW(hwC) + (walkW(hwN) - walkW(hwC)) * fk, sg = a.lane ? 1 : -1, ex = a.enter ?? a.exit ?? 0;
-      let off = (hw + wk * 0.5 + (a.side === 1 ? 0.62 : a.side === 2 ? -0.55 : 0) + ex) * sg;
+      // v103：歩道（路側帯）の上の位置は、区画ごとの道の形から（腕ごとの幅・交差点の角・円弧の曲がり角・幅のすりつけ。src/render/farpath.ts）。
+      // 前は区画の中心どうしを結ぶ線を、いまの区画の幅（交差点の区画は交差点の等級）だけずらしていて、二車線の腕の車道や交差点の中を歩くことがあった。
+      // 行き先の区画に着いて建物へ入る人（いまの区画と次の区画が同じ）は、前は向きが無く区画の中心（車道の真ん中）に立っていた
+      const sg = a.lane ? 1 : -1, ex = a.enter ?? a.exit ?? 0, wp = walkPos(this.wpo, this.pathEnv(s), a.prev, a.cur, a.next, nnOf(a), a.t, sg), dx = wp.dx, dz = wp.dz, wk = wp.w ?? 2.5;
+      let dl = a.side === 1 ? 0.62 : a.side === 2 ? -0.55 : 0; // 歩道の中ほどから横へ（2 人連れの並び）
       // v95：前の人・すれ違う人と重ならない（近くの格子だけを見る）。前にいる人の横へずれて追い越す・すれ違う。歩道の幅の中にとどめる
       if (!ld && ex === 0) { const A = a as any; let dg = 0; const bx = A.px, bz = A.pz;
         if (bx !== undefined) { const gx = Math.floor(bx / 2), gz = Math.floor(bz / 2);
           for (let u = -1; u <= 1 && !dg; u++) for (let v = -1; v <= 1 && !dg; v++) { const l = pedGrid.get((gx + u) * 8192 + gz + v); if (l) for (const o of l) { if (o === a) continue; const O = o as any, rx = O.px - bx, rz = O.pz - bz, fw = rx * dx + rz * dz, lat = rx * dz - rz * dx; if (fw > -0.2 && fw < 1.6 && Math.abs(lat) < 0.6) { dg = lat > 0 ? -0.55 : 0.55; break; } } } }
-        A.dg = (A.dg ?? 0) + (dg - (A.dg ?? 0)) * Math.min(1, dt * 3); const lo = hw + 0.35, hi = hw + wk - 0.3, m0 = Math.abs(off) + A.dg * sg; off = Math.max(lo, Math.min(hi, m0)) * sg; }
-      const px = x0 + dx * TILE * a.t + dz * off, pz = z0 + dz * TILE * a.t - dx * off; (a as any).px = px; (a as any).pz = pz;
+        A.dg = (A.dg ?? 0) + (dg - (A.dg ?? 0)) * Math.min(1, dt * 3); dl = Math.max(0.35 - wk * 0.5, Math.min(wk * 0.5 - 0.3, dl + A.dg * sg)); }
+      const lat = (dl + ex) * sg, px = wp.x + dz * lat, pz = wp.z - dx * lat; (a as any).px = px; (a as any).pz = pz;
       const yaw = a.enter !== undefined ? Math.atan2(dz * sg, -dx * sg) : a.exit !== undefined ? Math.atan2(-dz * sg, dx * sg) : Math.atan2(dx, dz);
       let d = yaw - a.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
       a.yaw += d * Math.min(1, dt * 6);

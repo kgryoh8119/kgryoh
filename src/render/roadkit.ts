@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import type { Geo, V3 } from './geo';
 import { W, H, idx, hash } from '../sim/index';
 import type { GameState } from '../sim/index';
-import { hasXw, xwRange, cornerSpot, crosswalkLayout, walkW, CORNER_R } from './roadbase';
+import { xwRange, cornerSpot, crosswalkLayout, walkW, CORNER_R } from './roadbase';
 
 /** コマの番号。路面（白で描き、頂点色で色をつける）と、標識の面（色つき） */
 export const RK = { stop: 0, n30: 1, n40: 2, n50: 3, n60: 4, arS: 5, arLS: 6, arRS: 7, arR: 8, arL: 9, dia: 10, school: 11,
@@ -111,7 +111,11 @@ export interface RoadTileArgs {
   sigs?: number[];
   /** v101：区画 (x, y) が信号のある交差点か（導流帯は信号のある幹線の交差点の手前だけ） */
   sigAt?: (x: number, y: number) => boolean;
+  /** v103：横断歩道を引く腕（roadbase の crosswalkArms のビット：1 東・2 西・4 南・8 北）と、区画 (x, y) の交差点の同じ値（手前の区画のダイヤマーク） */
+  xwArms: number; xwAt?: (x: number, y: number) => number;
 }
+/** 腕 (dx, dz) の crosswalkArms のビット */
+const xwBit = (dx: number, dz: number) => (dx > 0 ? 1 : dx < 0 ? 2 : dz > 0 ? 4 : 8);
 /** 1 区画の路面標示（中央線・車線境界線・外側線・停止線・横断歩道・止まれ・矢印・ダイヤマーク・速度・導流帯）と、
  *  縁石・側溝とグレーチング・植樹帯・ガードパイプ・信号機（車両用・歩行者用）・標識（止まれ・制限速度・案内・横断歩道）・行き止まりの車止め。
  *  向きの決まり：腕 (dx, dz) は区画の中心から外向き。日本は左側通行なので、中心へ近づく車線は進む向きの左＝直交する座標の符号 ap の側 */
@@ -140,7 +144,7 @@ export function roadTile(o: RoadTileArgs): void {
   };
   const inM = (xx: number, yy: number) => xx >= 0 && yy >= 0 && xx < W && yy < H;
   const bigNb = arms.some(([dx, dz]) => inM(x + dx, y + dz) && s.road[idx(x + dx, y + dz)] >= 2);
-  const xw = hasXw(t, o.stone, x, y, nConn), minorEW = hash(x, y, 41) < 0.5;
+  const minorEW = hash(x, y, 41) < 0.5;
   // v101：信号の無い交差点で一時停止（止まれ）にする側：つながる道のうち狭い方。どれも同じ等級なら通りごとに決めた片方（東西か南北）
   const armCls = (dx: number, dz: number) => (inM(x + dx, y + dz) ? s.road[idx(x + dx, y + dz)] : 3);
   const clsEW = Math.max(o.aE ? armCls(1, 0) : 0, o.aW ? armCls(-1, 0) : 0), clsNS = Math.max(o.aS ? armCls(0, 1) : 0, o.aN ? armCls(0, -1) : 0);
@@ -149,7 +153,7 @@ export function roadTile(o: RoadTileArgs): void {
   for (const [dx, dz, ah] of arms) {
     const ew = dx !== 0, ap = dx ? dx : -dz, apO = -ap, ax = hash(ew ? y : x, ew ? 7 : 13, t * 5 + (o.wide ? 1 : 0));
     const nx = x + dx, ny = y + dz, nIn = inM(nx, ny);
-    const minor = isMinor(ew); void bigNb;
+    const minor = isMinor(ew), xw = !!(o.xwArms & xwBit(dx, dz)); void bigNb;
     const perp = ew ? Math.max(o.aN, o.aS) : Math.max(o.aE, o.aW), XL = crosswalkLayout(ah, perp), [xw0, xw1] = XL.xw; // v95：横断歩道は隅切りの切り下げから。v101：配置は crosswalkLayout（区画の半分に収まる）
     const stopAt = xw ? XL.stop[0] : minor ? perp + CORNER_R + 0.5 : 0, from = junction ? (stopAt ? stopAt + 0.6 : perp + CORNER_R) : 0;
     const nJ = nIn && o.conn(nx, ny) >= 3; // この腕の先の区画も交差点（30m おきの交差点）
@@ -190,8 +194,9 @@ export function roadTile(o: RoadTileArgs): void {
     }
     // --- 交差点の手前の区画：矢印（幹線の車線ごと）とダイヤマーク（横断歩道あり）。2 車線はダイヤだけ
     if (approach && t >= 2) {
-      if (big4 && ah >= 7) { for (const [q, k] of [[1.9, RK.arRS], [5.6, sh(81) < 0.5 ? RK.arLS : RK.arS]] as const) { const [px, pz] = WP(dx, dz, 9.5, apO * q); decal(kit, k, px, pz, dx, dz, 5, 1.7, hA, 0xffffff, pw); const [qx, qz] = WP(dx, dz, -2, apO * q); decal(kit, RK.dia, qx, qz, dx, dz, 4.5, 1.5, hA, 0xffffff, pw); } }
-      else { const [qx, qz] = WP(dx, dz, 3, apO * 2.5); decal(kit, RK.dia, qx, qz, dx, dz, 4.5, 1.5, hA, 0xffffff, pw); }
+      const dia = !o.xwAt || !!(o.xwAt(nx, ny) & xwBit(-dx, -dz)); // v103：ダイヤマークは、この先の交差点のこちら側の腕に横断歩道があるときだけ
+      if (big4 && ah >= 7) { for (const [q, k] of [[1.9, RK.arRS], [5.6, sh(81) < 0.5 ? RK.arLS : RK.arS]] as const) { const [px, pz] = WP(dx, dz, 9.5, apO * q); decal(kit, k, px, pz, dx, dz, 5, 1.7, hA, 0xffffff, pw); const [qx, qz] = WP(dx, dz, -2, apO * q); if (dia) decal(kit, RK.dia, qx, qz, dx, dz, 4.5, 1.5, hA, 0xffffff, pw); } }
+      else if (dia) { const [qx, qz] = WP(dx, dz, 3, apO * 2.5); decal(kit, RK.dia, qx, qz, dx, dz, 4.5, 1.5, hA, 0xffffff, pw); }
       // 案内標識（幹線の手前、青い板を道路の上へ張り出す）
       if (fine && big4 && sh(83) < 0.55) { const po = Wd - 0.5, [px, pz] = WP(dx, dz, 2, apO * po), arm = po - 3.2, hy = hA(px, pz);
         g.at(px, hy, pz); g.cyl(0, 0, 0, 0.18, 7.2, 0x8b9094, 6); g.at(0, 0, 0);
@@ -237,12 +242,12 @@ export function roadTile(o: RoadTileArgs): void {
     g.box(hx, hy + 5.15, hz, ew ? 0.28 : 1.25, 0.42, ew ? 1.25 : 0.28, 0x5d636a);
     for (let k = 0; k < 3; k++) { const u = (1 - k) * 0.4; g.box(hx + Lx * u + dx * 0.15, hy + 5.21, hz + Lz * u + dz * 0.15, ew ? 0.05 : 0.3, 0.3, ew ? 0.3 : 0.05, 0x23272b); o.sigs?.push(hx + Lx * u + dx * 0.19, hy + 5.21, hz + Lz * u + dz * 0.19, dx, dz, k, ew ? 0 : 1); } // v89：灯そのものは scene の信号灯（点灯が切り替わる）
     // 歩行者用（横断歩道の向こうへ向ける）
-    if (xw) for (const [nx, nz] of [[-Lx, -Lz], [dx, dz]]) { const bx = px + nx * 0.3, bz = pz + nz * 0.3; g.box(bx, hy + 2.3, bz, nx ? 0.25 : 0.42, 0.85, nz ? 0.25 : 0.42, 0x5d636a); g.box(bx + nx * 0.13, hy + 2.75, bz + nz * 0.13, nx ? 0.03 : 0.3, 0.3, nz ? 0.03 : 0.3, 0x23272b); g.box(bx + nx * 0.13, hy + 2.38, bz + nz * 0.13, nx ? 0.03 : 0.3, 0.3, nz ? 0.03 : 0.3, 0x23272b);
+    if (o.xwArms & xwBit(dx, dz)) for (const [nx, nz] of [[-Lx, -Lz], [dx, dz]]) { const bx = px + nx * 0.3, bz = pz + nz * 0.3; g.box(bx, hy + 2.3, bz, nx ? 0.25 : 0.42, 0.85, nz ? 0.25 : 0.42, 0x5d636a); g.box(bx + nx * 0.13, hy + 2.75, bz + nz * 0.13, nx ? 0.03 : 0.3, 0.3, nz ? 0.03 : 0.3, 0x23272b); g.box(bx + nx * 0.13, hy + 2.38, bz + nz * 0.13, nx ? 0.03 : 0.3, 0.3, nz ? 0.03 : 0.3, 0x23272b);
       o.sigs?.push(bx + nx * 0.16, hy + 2.75, bz + nz * 0.16, nx, nz, 3, nx ? 0 : 1, bx + nx * 0.16, hy + 2.38, bz + nz * 0.16, nx, nz, 4, nx ? 0 : 1); } // 横断歩道を渡る人の進む向き＝表の向きの軸
   }
   // --- 標識：生活道路の止まれ（止まれの側の角）、信号のない横断歩道の標識
   if (fine && junction) for (const [dx, dz, ah] of arms) {
-    const ew = dx !== 0, ap = dx ? dx : -dz, minor = isMinor(ew);
+    const ew = dx !== 0, ap = dx ? dx : -dz, minor = isMinor(ew), xw = !!(o.xwArms & xwBit(dx, dz));
     if (!(minor || (xw && !o.sig))) continue;
     const perp = ew ? Math.max(o.aN, o.aS) : Math.max(o.aE, o.aW), d = minor && !xw ? perp + CORNER_R + 0.8 : Math.min(14.5, xwRange(ah, perp)[1] + 0.6);
     const [px, pz] = WP(dx, dz, d, ap * (ah + walkW(ah) - 0.5)), hy = hA(px, pz), k = minor ? RK.sStop : RK.sWalk;

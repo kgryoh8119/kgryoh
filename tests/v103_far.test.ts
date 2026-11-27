@@ -114,5 +114,9 @@ describe('v103 歩道・車線の位置（純粋な関数）', () => {
       }
     }
   });
+  it('行き先の区画に着いて動かない人（いまの区画＝次の区画）も、車道の真ん中でなく歩道の上（前は区画の中心に立っていた）', () => {
+    const shape = makeShape(road, wide);
+    for (let i = 0; i < W * H; i++) if (road[i]) for (const sg of [1, -1]) { walkPos(o, e, -1, i, i, i, 0.3, sg); const q = shape(o.x, o.z); expect(q.inRoad && !q.crossing).toBe(false); }
+  });
   it('歩道の中ほど：幹線 9.25m・2 車線 6.5m・生活道路 3.75m', () => { expect(walkMid(7.5)).toBeCloseTo(9.25); expect(walkMid(5)).toBeCloseTo(6.5); expect(walkMid(2.5)).toBeCloseTo(3.75); });
 });

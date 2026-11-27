@@ -1,6 +1,5 @@
 // v95：路面・歩道・縁石の形。区画を 4 つの象限に分け、象限ごとに「車道の端（縁石）」の折れ線を作って、路面・歩道・縁石・側溝を描く
 import type { Geo, V3 } from './geo';
-import { hash } from '../sim/index';
 
 const mixHex = (a: number, b: number, t: number) => { const f = (k: number) => Math.round(((a >> k) & 255) * (1 - t) + ((b >> k) & 255) * t); return (f(16) << 16) | (f(8) << 8) | f(0); };
 /** 歩道の幅の最小（m）。生活道路の路側帯と同じ（v95 以前の scene の SW と同じ値） */
@@ -30,8 +29,18 @@ export function crosswalkLayout(ah: number, perp: number): { xw: [number, number
   for (let k = -ah + 0.5; k + XW_STRIPE <= ah - 0.3 + 1e-6; k += XW_STRIPE + XW_GAP) stripes.push([k, k + XW_STRIPE]);
   return { xw, stop: [s0, s0 + STOP_W], stripes };
 }
-/** 交差点に横断歩道を引くか（roadTile と roadBase で同じ答え） */
-export function hasXw(t: number, stone: boolean, x: number, y: number, nConn: number): boolean { return nConn >= 3 && !stone && (t >= 2 || hash(x, y, 43) < 0.35); }
+/** v103：交差点の腕ごとの横断歩道（純粋な関数。roadTile・roadBase・手前の区画のダイヤマークで同じ答え）。返り値はビット：1 東・2 西・4 南・8 北の腕を横切る横断歩道。
+ *  e・w・s・n：その向きの腕の先の道の等級（0 腕なし・1 生活道路・2 二車線・3 幹線）、sig：信号のある交差点、near：学校・保育所・駅の近く。
+ *  ・信号のある交差点、学校・駅の近く：つながる腕のすべて
+ *  ・二車線以上の道が通る交差点（幹線と脇の道を含む）：つながる腕のすべて（幹線を渡る横断歩道と、幹線の歩道を歩く人が脇の道の入口を渡る横断歩道）
+ *  ・生活道路どうし（一時停止の交差点）：引かない（日本の住宅地に多い形。歩く人は路側帯から交差点をそのまま渡る）
+ *  v101 までは、生活道路どうしでも 35% の交差点に引いていた */
+export function crosswalkArms(o: { e: number; w: number; s: number; n: number; sig: boolean; near: boolean; stone: boolean }): number {
+  const arms = (o.e ? 1 : 0) | (o.w ? 2 : 0) | (o.s ? 4 : 0) | (o.n ? 8 : 0), nConn = (o.e ? 1 : 0) + (o.w ? 1 : 0) + (o.s ? 1 : 0) + (o.n ? 1 : 0);
+  if (nConn < 3 || o.stone) return 0;
+  if (o.sig || o.near || Math.max(o.e, o.w, o.s, o.n) >= 2) return arms;
+  return 0;
+}
 /** 交差点の角の歩道の中ほど（象限の座標 |u|, |v|）。b：南北の腕の半幅、a：東西の腕の半幅（0 は無い腕）。信号機・標識の柱の位置。
  *  v101：歩道の幅は腕の等級ごと（walkW）。角は隅切りの円弧の中心から、歩道の幅の半分だけ内 */
 export function cornerSpot(a: number, b: number, hw: number): [number, number] {
@@ -65,7 +74,9 @@ export function sigPlan(road: ArrayLike<number>, W: number, H: number, wide?: { 
 }
 export interface RoadBaseArgs {
   g: Geo; cx: number; cz: number; hw: number; aE: number; aW: number; aS: number; aN: number; nConn: number;
-  kerbless: boolean; stone: boolean; school: boolean; xw: boolean; fine: boolean; hA: (x: number, z: number) => number;
+  kerbless: boolean; stone: boolean; school: boolean;
+  /** v103：横断歩道を引く腕（crosswalkArms のビット：1 東・2 西・4 南・8 北） */
+  xwArms: number; fine: boolean; hA: (x: number, z: number) => number;
   /** 路面の色と明るさ、歩道の平板の色（k は部品の番号） */
   asph: number; shade: number; pave: (k: number) => number;
   /** 腕の先が段差の無い道（生活道路）か。段差のある歩道は、その腕の先で路面の高さまで下りる */
@@ -88,11 +99,12 @@ export function roadBase(o: RoadBaseArgs): void {
   if (o.bend) { bendBase(o); return; }
   const { g, cx, cz, hw, hA, kerbless, fine } = o, R = CORNER_R, junction = o.nConn >= 3;
   const midV = junction ? Math.max(o.aE, o.aW) : hw, midU = junction ? Math.max(o.aS, o.aN) : hw;
-  const xwE = o.xw && junction ? xwRange(Math.max(o.aE, o.aW), Math.max(o.aN, o.aS)) : null, xwN = o.xw && junction ? xwRange(Math.max(o.aN, o.aS), Math.max(o.aE, o.aW)) : null;
   const pieceN = fine ? 8 : 4, ramp = (d: number, d0: number) => Math.max(0, Math.min(1, (d - d0) / Math.max(1, 15 - d0)));
   const road = o.stone ? (hw <= 2.5 ? 0x8d877c : 0x55524c) : o.asph;
   for (const su of [1, -1]) for (const sv of [1, -1]) {
     const a = su > 0 ? o.aE : o.aW, b = sv > 0 ? o.aS : o.aN, aO = su > 0 ? o.aW : o.aE, bO = sv > 0 ? o.aN : o.aS;
+    // 横断歩道の切り下げ：この象限の東西の腕（xwE）・南北の腕（xwN）に横断歩道があるとき（v103：腕ごと）
+    const xwE = junction && (o.xwArms & (su > 0 ? 1 : 2)) ? xwRange(Math.max(o.aE, o.aW), Math.max(o.aN, o.aS)) : null, xwN = junction && (o.xwArms & (sv > 0 ? 4 : 8)) ? xwRange(Math.max(o.aN, o.aS), Math.max(o.aE, o.aW)) : null;
     // v101：歩道の幅は腕の等級ごと（東西の腕 wa、南北の腕 wb）。直線の区画で両端の幅が違うときは、区画の中でなめらかに変える
     const wa = walkW(a || midV), wb = walkW(b || midU), SWd = Math.max(wa, wb);
     const P: P2[] = [], Q: P2[] = [];
