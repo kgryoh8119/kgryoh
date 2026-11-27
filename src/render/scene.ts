@@ -108,7 +108,8 @@ import { FX, glowTex } from './fx';
 import { buildRailPaths, drawRailPaths, railAt, SHIN_LINES, shinDeckY, RAIL_LM, type RailPath, type Gate, type StationSpot } from './rails';
 import { Landmarks, type LmItem } from './landmarks';
 import { roadKitMat, roadTile, face, RK } from './roadkit';
-import { roadBase, crosswalkArms, walkW, sigPlan } from './roadbase';
+import { roadBase, crosswalkArms, walkW, sigPlan, kerbPlan, kerbArm } from './roadbase';
+import { frontagePlan, frontDoor, frontW, sideBit, FRONT_U, surfaceAt } from './frontage'; // v104a
 import { crowdPlan, occupancyPhase, occDay, occupancyOf } from './occupancy';
 import { drawPowerLines, drawUtilities, kyodokoTiles, infraKey, pipeReach, pipeOverlay } from './infra'; // v87
 import { makeTrains, TRAIN_PART as TK_PART, FAMS, CAR_DIM, famColor, type TrainFam } from './trainkit'; // v88
@@ -1139,6 +1140,10 @@ export class View {
     const schoolNear = (xx: number, yy: number) => schools.some(b => xx >= b.x - 3 && xx < b.x + b.w + 3 && yy >= b.y - 3 && yy < b.y + b.h + 3);
     // v103：横断歩道を引く腕（roadbase の crosswalkArms）。学校・保育所・駅のまわり 3 区画は、信号の無い交差点でもすべての腕に
     const stations = s.buildings.filter(b => b.kind === 'station' && b.status !== 'construction'), stNear = (xx: number, yy: number) => stations.some(b => xx >= b.x - 3 && xx < b.x + b.w + 3 && yy >= b.y - 3 && yy < b.y + b.h + 3);
+    // v104a：段差のある歩道の区画（roadbase の kerbPlan）。二車線以上・石畳・並木道に加え、駅のまわり 3 区画と学校・保育所に接する生活道路も歩道つき
+    const schoolTouch = (xx: number, yy: number) => schools.some(b => xx >= b.x - 1 && xx <= b.x + b.w && yy >= b.y - 1 && yy <= b.y + b.h);
+    const kp = kerbPlan(s.road, W, H, { special: j => stStone.has(j) || stTree.has(j), busy: j => s.road[j] === 1 && (stNear(j % W, (j / W) | 0) || schoolTouch(j % W, (j / W) | 0)), gate: GATEWAYS }); this.kerbP = kp;
+    const kArm = (j: number) => (dx: number, dz: number) => kerbArm(kp, W, H, j, dx, dz);
     const xwOf = (xx: number, yy: number) => { if (!inMap(xx, yy) || !s.road[idx(xx, yy)]) return 0; const c = (dx: number, dy: number) => this.roadConn(s, xx, yy, dx, dy);
       return crosswalkArms({ e: c(1, 0), w: c(-1, 0), s: c(0, 1), n: c(0, -1), sig: sig[idx(xx, yy)] === 1, near: schoolNear(xx, yy) || stNear(xx, yy), stone: stStone.has(idx(xx, yy)) }); };
     // v89：シェアモビリティのポートを置ける所（駅のまわり 3 区画は 2、商業の建物の隣は 1）と、置いた数の上限（街の規模に応じて控えめに）
@@ -1177,7 +1182,8 @@ export class View {
       }
       // v86：アスファルトの色は老朽度で連続的に変える（新しい道は黒く、古い道は白っぽく）。区画ごとに舗装し直した年が違うように、明るさを少しずらす
       const age = s.roadAge[i] ?? 0, ak = Math.min(1, age / 85), old = age > 70, asph = t === 3 ? mixHex(0x2b2e32, 0x54524d, ak) : mixHex(0x2f3236, 0x56544f, ak), tv = 1 + (hash(x, y, 11) - 0.5) * 0.07;
-      const stone = stStone.has(i), kerbless = tR === 1 && !stone && !stTree.has(i), school = kerbless && schoolNear(x, y); // 生活道路：段差の歩道はなく、白線の外が路側帯（学校の近くは緑に塗る）
+      // 歩道の無い区画（生活道路）：段差の歩道はなく、白線の外が路側帯（学校の近くは緑に塗る）。v104a：腕ごとに kerbPlan から。どの腕も歩道なしなら区画ごと路側帯
+      const stone = stStone.has(i), ka = kArm(i), kerbless = nConn ? !((cE && ka(1, 0)) || (cW && ka(-1, 0)) || (cS && ka(0, 1)) || (cN && ka(0, -1))) : !kp[i], school = schoolNear(x, y);
       // 曲がり角（2 方向だけ、直角につながる区画）は、円弧の道にする
       const bend = nConn === 2 && !!(cE || cW) && !!(cS || cN) && !this.deckH.has(i) ? [cE ? 1 : -1, cS ? 1 : -1] as const : null;
       const bendA = bend ? Math.min(cE ? aE : aW, cS ? aS : aN) : 0;
@@ -1185,7 +1191,7 @@ export class View {
       // v95：路面・歩道（路側帯）・縁石・隅切り・切り下げ（render/roadbase.ts）。v101：歩道の幅は等級ごとに一定（walkW）、交差点の角は円弧
       roadBase({ g, cx, cz, hw, aE, aW, aS, aN, nConn, kerbless, stone, school, xwArms: xwOf(x, y), fine: fineR, hA, asph, shade: tv,
         pave: (k: number) => { const hc = hash(x * 12 + k, y * 12, 5); return tR === 3 || wideT ? [0xb7ab98, 0xa89c8a, 0xc2b6a2, 0x9d958a][((hc * 7) | 0) % 4] : [0xbab6ad, 0xb0aca3][((hc * 3) | 0) % 2]; },
-        lowArm: (dx: number, dz: number) => { const xx = x + dx, yy = y + dz; if (!inMap(xx, yy)) return false; const j = idx(xx, yy); return s.road[j] === 1 && !stStone.has(j) && !stTree.has(j); },
+        kerbArm: ka,
         bend, bendA });
       // 走行中給電の道路：車線の真ん中に、給電コイルの青い線
       if (stCharge.has(i) && !bend) { const ew2 = !!(cE || cW); for (const o of [-Wd * 0.62, -Wd * 0.25, Wd * 0.25, Wd * 0.62]) { const wx = cx + (ew2 ? 0 : o), wz = cz + (ew2 ? o : 0); g.at(0, hA(wx, wz) + 0.06, 0); g.box(wx, 0, wz, ew2 ? TILE : 0.32, 0.02, ew2 ? 0.32 : TILE, 0x3ad0e8); } g.at(0, 0, 0); }
@@ -1209,7 +1215,7 @@ export class View {
         for (let k = 0; k <= 24; k++) { const a = (k / 24) * Math.PI / 2; for (const off of [-(bendA - 0.3), bendA - 0.3]) dot(a, 15 + off, 0.09, 0xdcdcd8); if (t >= 2 && k % 4 < 2) dot(a, 15, 0.12, t === 3 ? 0xf2c230 : 0xeeeeea); }
       }
       // v86：路面標示（等級・幅・交差点の形ごと）、縁石・側溝・植樹帯・ガードパイプ・信号機・標識（render/roadkit.ts）
-      if (!bend) roadTile({ g, kit, s, i, x, y, t: tR, cx, cz, hw, Wd, aE, aW, aS, aN, nConn, kerbless, stone, wide: wideT, ak, hA, mark, sig: sig[i] === 1, fine: fineR, hi: hiR, conn: connAt, lamps: lampPos, sigs: sigPos, sigAt: (xx: number, yy: number) => inMap(xx, yy) && sig[idx(xx, yy)] === 1, xwArms: xwOf(x, y), xwAt: xwOf });
+      if (!bend) roadTile({ g, kit, s, i, x, y, t: tR, cx, cz, hw, Wd, aE, aW, aS, aN, nConn, kerbless, stone, wide: wideT, ak, hA, mark, sig: sig[i] === 1, fine: fineR, hi: hiR, conn: connAt, lamps: lampPos, sigs: sigPos, sigAt: (xx: number, yy: number) => inMap(xx, yy) && sig[idx(xx, yy)] === 1, xwArms: xwOf(x, y), xwAt: xwOf, armKerb: ka });
       // 電柱・街灯
       const ew = !!(cE || cW), ns = !!(cS || cN);
       const px = cx + (ns ? -(Wd - 0.6) : 0), pz = cz + (ew ? -(Wd - 0.6) : (ns ? 0 : -(Wd - 0.6)));
@@ -2380,9 +2386,11 @@ export class View {
     const at = (u: number, v: number) => [sx + tx * u + nx * side * v, sz + tz * u + nz * side * v], face = Math.atan2(-nx * side, -nz * side);
     for (let u = -26; u <= 26; u += 0.95) for (let v = 6.5; v <= 21; v += 0.95) { const ju = u + (rr() - 0.5) * 0.5, jv = v + (rr() - 0.5) * 0.5; pts.push([ju, jv, Math.abs(ju) * 1.7 + (jv - 6.5) * 0.9 + rr() * 1.5]); }
     pts.sort((p, q) => p[2] - q[2]);
-    for (const [u, v] of pts) { const [x, z] = at(u, v); out.pz.push(x, this.surfY(x, z) + 0.15, z, face + (rr() - 0.5) * 0.8); } // 駅舎の方を向く
+    // v104a：道路の区画に掛かる所は、歩道（路側帯）と入口の通路の上だけ（道路の区画の歩道の外は草地、車道には立たせない）
+    const pe0 = this.pathEnv(s), fr = this.frontOf(s), paved = (x: number, z: number) => { const k = surfaceAt(pe0, s.road, H, x, z, fr); return k >= 2; };
+    for (const [u, v] of pts) { const [x, z] = at(u, v); if (!paved(x, z)) continue; out.pz.push(x, this.surfY(x, z) + 0.15, z, face + (rr() - 0.5) * 0.8); } // 駅舎の方を向く
     // 入場規制の列：広場の外で 4 回折り返す（0.7m おきに、進む向きを向いて並ぶ）
-    for (let row = 0; row < 5; row++) { const v = 22.5 + row * 1.3, dir = row % 2 ? -1 : 1; for (let k = 0; k <= 50; k++) { const u = dir * (-17.5 + k * 0.7); const [x, z] = at(u + (rr() - 0.5) * 0.15, v); out.q.push(x, this.surfY(x, z) + 0.15, z, Math.atan2(tx * dir, tz * dir) + (rr() - 0.5) * 0.4); } }
+    for (let row = 0; row < 5; row++) { const v = 22.5 + row * 1.3, dir = row % 2 ? -1 : 1; for (let k = 0; k <= 50; k++) { const u = dir * (-17.5 + k * 0.7); const [x, z] = at(u + (rr() - 0.5) * 0.15, v); if (!paved(x, z)) continue; out.q.push(x, this.surfY(x, z) + 0.15, z, Math.atan2(tx * dir, tz * dir) + (rr() - 0.5) * 0.4); } }
     // 駅のまわり（3 区画以内）の歩道：道路の両側に 0.9m おき。駅に近い順
     const sw: [number, number, number, number][] = [];
     // v103：歩道（路側帯）の幅の中ほど（腕ごとの幅。src/render/farpath.ts の walkMid）。前は生活道路で中心から 2.1m（外側線の内＝車道の中）に並べていた。
@@ -2391,8 +2399,10 @@ export class View {
     for (let y = b.y - 3; y < b.y + b.h + 3; y++) for (let x = b.x - 3; x < b.x + b.w + 3; x++) { if (!inMap(x, y)) continue; const i = idx(x, y), t = s.road[i]; if (!t || t === 3 || pe.bend(i)) continue;
       const hE = Math.max(pe.armHW(i, 1, 0), pe.armHW(i, -1, 0)), hN = Math.max(pe.armHW(i, 0, 1), pe.armHW(i, 0, -1)), ew = hE > 0, ns = hN > 0, cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE;
       for (let k = -15; k < 15; k += 0.9) for (const sg of [-1, 1]) { const dd = Math.hypot(cx - lx, cz - lz) + rr() * 8;
-        if (ew && !(ns && Math.abs(k) < hN + walkW(hN))) { const j = (rr() - 0.5) * walkW(hE) * 0.4; sw.push([cx + k, cz + sg * (walkMid(hE) + j), dd + Math.abs(k) * 0.2, cx > lx ? -Math.PI / 2 : Math.PI / 2]); }
-        if (ns && !(ew && Math.abs(k) < hE + walkW(hE))) { const j = (rr() - 0.5) * walkW(hN) * 0.4; sw.push([cx + sg * (walkMid(hN) + j), cz + k, dd + Math.abs(k) * 0.2, cz > lz ? Math.PI : 0]); } } }
+        // v104a：腕の無い側（T 字の突き当たりの向こう）には並べない（前は区画の端から端まで並べ、T 字の向こうの草地に立っていた）
+        const aU = pe.armHW(i, k >= 0 ? 1 : -1, 0), aV = pe.armHW(i, 0, k >= 0 ? 1 : -1), j0 = (rr() - 0.5) * 0.4, j1 = (rr() - 0.5) * 0.4;
+        if (ew && (aU || Math.abs(k) < hN) && !(ns && Math.abs(k) < hN + walkW(hN))) sw.push([cx + k, cz + sg * (walkMid(hE) + j0 * walkW(hE)), dd + Math.abs(k) * 0.2, cx > lx ? -Math.PI / 2 : Math.PI / 2]);
+        if (ns && (aV || Math.abs(k) < hE) && !(ew && Math.abs(k) < hE + walkW(hE))) sw.push([cx + sg * (walkMid(hN) + j1 * walkW(hN)), cz + k, dd + Math.abs(k) * 0.2, cz > lz ? Math.PI : 0]); } }
     sw.sort((p, q) => p[2] - q[2]);
     for (const [x, z, , yw] of sw.slice(0, 700)) out.st.push(x, this.surfY(x, z) + 0.15, z, yw + (rr() - 0.5) * 0.6);
     this.plaza.set(sp.id, out); return out;
@@ -3186,6 +3196,49 @@ export class View {
   }
   /** 建物の入口：1 店・駅など、2 住宅、3 学校。道沿いの歩道から入れる */
   private doorGrid: Uint8Array | null = null; private doorTiles: number[] = [];
+  /** v104a：段差のある歩道の区画（rebuildRoads の kerbPlan）と、建物の入口の通路（frontagePlan：区画 → 側と入口の種類） */
+  kerbP: Uint8Array | null = null; private frontK = ''; private frontM = new Map<number, number>(); private frontMesh: THREE.Mesh | null = null;
+  /** 建物の入口の種類：1 店・駅など、2 住宅、3 学校、4 そのほか（会社・工場など。通勤の人が入る） */
+  private doorKind(b: Building): number { const f = fam(b.kind); return b.kind === 'station' || f === 'shop' || (DEFS[b.kind].visitors ?? 0) >= 1500 || f === 'health' || f === 'library' || f === 'culture' ? 1 : isRes(b.kind) ? 2 : f === 'school' || f === 'jhs' || b.kind === 'highschool' ? 3 : f === 'park' || DEFS[b.kind].cat === 'nature' || DEFS[b.kind].cat === 'agri' ? 0 : 4; }
+  /** v104a：入口の通路（道路と建物が変わったときだけ作り直す） */
+  frontOf(s: GameState): Map<number, number> {
+    const k = `${s.roadVersion}:${s.bVersion}`; if (k === this.frontK) return this.frontM;
+    const g = new Uint8Array(N); for (const b of s.buildings) { if (b.status !== 'operating') continue; const v = this.doorKind(b); for (let dy = 0; dy < b.h; dy++) for (let dx = 0; dx < b.w; dx++) if (inMap(b.x + dx, b.y + dy)) g[idx(b.x + dx, b.y + dy)] = v; }
+    this.frontK = k; this.frontM = REAL ? new Map() : frontagePlan(s.road, W, H, j => g[j]); return this.frontM;
+  }
+  /** v104a：入口の通路を描く（歩道の外の端から区画の境まで。段差のある歩道は歩道の高さ、路側帯は路面の高さ） */
+  private drawFrontage(s: GameState): void {
+    if (this.frontMesh) { this.scene.remove(this.frontMesh); this.frontMesh.geometry.dispose(); this.frontMesh = null; }
+    const F = this.frontOf(s); if (!F.size) return;
+    const g = new Geo(), m = this.map, hA = (x: number, z: number) => heightAt(m, x, z), kp = this.kerbP;
+    for (const [i, v] of F) {
+      if (this.deckH.has(i) || this.tunnelSet.has(i)) continue;
+      const x = i % W, y = (i / W) | 0, cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE, h = this.pedHW(s, i), w0 = h + walkW(h), y0 = kp && kp[i] ? 0.205 : 0.112;
+      for (const bit of [1, 2, 4, 8]) { const d = frontDoor(v, bit); if (!d) continue;
+        const dx = bit === 1 ? 1 : bit === 2 ? -1 : 0, dz = bit === 4 ? 1 : bit === 8 ? -1 : 0, hw2 = frontW(d) / 2, col = d === 1 ? 0xb9b2a4 : 0xaeaaa0;
+        const P = (q: number, u: number): [number, number] => (dx ? [cx + dx * q, cz + u] : [cx + u, cz + dz * q]);
+        for (const [q0, q1] of [[w0 - 0.05, (w0 + 15) / 2], [(w0 + 15) / 2, 15.4]]) { // 地形に沿うよう 2 つに切る
+          const p = [P(q0, -hw2), P(q1, -hw2), P(q1, hw2), P(q0, hw2)].map(([px, pz]) => [px, hA(px, pz) + y0, pz] as [number, number, number]);
+          const ux = p[1][0] - p[0][0], uz = p[1][2] - p[0][2], vx = p[2][0] - p[0][0], vz = p[2][2] - p[0][2];
+          if (uz * vx - ux * vz >= 0) g.quad(p[0], p[1], p[2], p[3], col); else g.quad(p[0], p[3], p[2], p[1], col); }
+      } }
+    if (!g.pos.length) return;
+    const mesh = new THREE.Mesh(g.build(), this.matRoad); mesh.receiveShadow = true; mesh.frustumCulled = false; this.scene.add(mesh); this.frontMesh = mesh;
+  }
+  /** v104a：着いた区画で建物に入る。入口の通路のある側へ（反対側なら、生活道路は道を渡って、二車線以上は入らない）。入れなければ false */
+  private startEnter(s: GameState, a: Agent): boolean {
+    const v = this.frontOf(s).get(a.cur); if (!v || a.cur === a.next) return false;
+    const bitOf = (lane: number) => { const j = this.sideTile(a.cur, a.next, lane); if (j < 0) return 0; const dx = j % W - a.cur % W, dy = ((j / W) | 0) - ((a.cur / W) | 0); return sideBit(dx, dy); };
+    if (frontDoor(v, bitOf(a.lane))) { a.enter = 0; return true; }
+    const o = a.lane ? 0 : 1; if (!frontDoor(v, bitOf(o)) || s.road[a.cur] !== 1) return false;
+    const h = this.pedHW(s, a.cur); a.lane = o; a.enter = -2 * (h + walkW(h) * 0.5); return true; // 生活道路（中央線なし）は道を渡って向かいの入口へ
+  }
+  /** v104a：出てくる区画の、入口の通路のある側の lane（無ければ -1） */
+  private exitLane(s: GameState, cur: number, next: number): number {
+    const v = this.frontOf(s).get(cur); if (!v || cur === next) return -1;
+    for (const lane of [0, 1]) { const j = this.sideTile(cur, next, lane); if (j < 0) continue; if (frontDoor(v, sideBit(j % W - cur % W, ((j / W) | 0) - ((cur / W) | 0)))) return lane; }
+    return -1;
+  }
   private buildDoors(s: GameState, near: (i: number) => boolean): void {
     const g = new Uint8Array(N);
     for (const b of s.buildings) {
@@ -3292,7 +3345,7 @@ export class View {
     const next = this.resNext(s, cur, -1, t.to, ped);
     const a: Agent = { cur, next, prev: -1, t: atStart ? 0.2 : Math.random(), speed: ped ? 1.2 : 7 + Math.random() * 4, lane: Math.random() < 0.5 ? 0 : 1, yaw: 0, bob: Math.random() * 6, kind: t.mode === RM_BUS ? 1 : 0 };
     (a as any).rt = t; (a as any).goal = t.to;
-    if (ped && atStart && fromNear) a.exit = TILE / 2 - this.pedHW(s, cur) - 1.25 + 1.2; // 家（建物）から出てくる
+    if (ped && atStart && fromNear) { const ln = this.exitLane(s, cur, next); if (ln >= 0) { a.lane = ln; a.t = FRONT_U / TILE; a.exit = TILE / 2 - this.pedHW(s, cur) - 1.25 + 1.2; } } // 家（建物）から出てくる。v104a：入口の通路から（無ければ歩道に現れる）
     return a;
   }
   /** 住民の車の形：車は乗用車、自転車はママチャリ・スポーツ車、バスは路線バス。業務の車と列の車（住民なし）は今までの分布 */
@@ -3321,7 +3374,7 @@ export class View {
     const t = A.ret ? null : this.resTake(old.mode); this.resDirty = true;
     if (!t) { A.dead = 1; return; }
     const b = this.resAgent(s, t, true); if (!b) { A.dead = 1; return; }
-    a.cur = b.cur; a.next = b.next; a.prev = -1; a.t = b.t; a.nn = undefined; a.enter = undefined; a.exit = b.exit; A.rt = t; A.goal = t.to; A.ret = 0;
+    a.cur = b.cur; a.next = b.next; a.prev = -1; a.t = b.t; a.nn = undefined; a.enter = undefined; a.exit = b.exit; a.lane = b.lane; (a as any).pe = 0; A.rt = t; A.goal = t.to; A.ret = 0;
     if (ped) { const cm = calMonth(s.month); a.L = this.resLook(t, cm, this.rainNow(s)); a.speed = a.L.speed; A.relook = 1; } else { a.v = 0; this.dressCar(a); }
   }
   /** 数秒に 1 回：住民の移動を作り直し、描く数を合わせる（足りなければ家から出てくる人・車を足し、多すぎれば建物に入って消える・車は遠い順に消す） */
@@ -3513,11 +3566,14 @@ export class View {
           // 建物に入った：しばらくして、別の建物の入口から出てくる
           if (a.enter > inDist) {
             a.enter = undefined; if ((a as any).rt) { this.resArrive(s, a, true); } else { const j = this.doorTiles.length ? this.doorTiles[(Math.random() * this.doorTiles.length) | 0] : this.pickTile(this.pedList, this.pedW);
-            if (j >= 0) { a.cur = j; a.next = this.nextTile(s, j, -1, true); a.prev = -1; a.t = 0.2 + Math.random() * 0.5; const g = this.doorGrid; a.lane = g && g[this.sideTile(a.cur, a.next, 1)] ? 1 : g && g[this.sideTile(a.cur, a.next, 0)] ? 0 : a.lane; a.exit = TILE / 2 - (this.pedHW(s, a.cur)) - 1.25 + 1.2; } }
+            if (j >= 0) { a.cur = j; a.next = this.nextTile(s, j, -1, true); a.prev = -1; const ln = this.exitLane(s, a.cur, a.next); // v104a：入口の通路から出てくる（通路の無い区画では歩道に現れる）
+              if (ln >= 0) { a.t = FRONT_U / TILE; a.lane = ln; a.exit = TILE / 2 - (this.pedHW(s, a.cur)) - 1.25 + 1.2; } else a.t = 0.2 + Math.random() * 0.5; } }
           }
         } else if (a.exit !== undefined) { a.exit -= a.speed * dt; a.wait = false; if (a.exit <= 0) a.exit = undefined; }
         else {
           let nt = a.t + a.speed * dt / TILE; a.wait = false;
+          // v104a：着いた区画では、入口の通路（区画の中ほど）まで歩いてから入る。入口の無い側・通路の無い区画では、草地を横切らずに着いたことにする
+          if ((a as any).pe && nt >= FRONT_U / TILE) { (a as any).pe = 0; a.t = FRONT_U / TILE; if (this.startEnter(s, a)) return stepPed(a, i); if ((a as any).rt) { this.resArrive(s, a, true); return stepPed(a, i); } }
           // 信号：幹線の交差点の手前（横断歩道の前）で、赤なら止まって待つ
           if (a.cur !== a.next && sigG[a.next]) {
             const stopT = 1 - ((this.pedHW(s, a.next)) + 2.4) / TILE, axis = Math.abs(a.next - a.cur) === 1 ? 0 : 1;
@@ -3529,7 +3585,7 @@ export class View {
             a.t -= 1; const G = (a as any).goal ?? -1, n = nnOf(a);
             a.prev = a.cur; a.cur = a.next; a.next = n;
             if (a.next === a.prev && a.next !== a.cur) a.lane = a.lane ? 0 : 1; // v103：来た道へ戻るときは同じ側の歩道のまま（前は道の反対側へ飛んでいた）
-            if (G >= 0 ? a.cur === G : this.wantsEnter(a)) a.enter = 0;
+            if (G >= 0 ? a.cur === G : this.wantsEnter(a)) (a as any).pe = 1;
           }
         }
       }
@@ -4062,10 +4118,11 @@ export class View {
     const stK = s.buildings.filter(b => b.kind === 'station').map(b => `${b.id}.${b.status === 'construction' ? 0 : 1}.${b.lv ?? 1}.${b.shin === undefined ? '-' : s.month >= b.shin ? 'o' : 'p'}`).join(','); // 駅ビル・新幹線は線路と一緒に描く
     { const mm = getMap(s.seed), ck = s.rail ? (s.railGrade ?? []).map((g, i) => (g === 3 && s.rail![i] ? i : -1)).filter(i => i >= 0).join(',') : ''; if (mm !== this.map || (!REAL && ck !== this.cutKey)) { this.map = mm; if (!REAL) this.buildLand(); this.chunkSig.clear(); this.sigRoad = ''; this.sigTown = ''; this.sigOverlay = ''; this.sigSites = ''; } } // 地形の造作
     if (this.infraV !== s.bVersion) { this.infraV = s.bVersion; this.infraK = infraKey(s); } // v87：鉄塔・発電所・変電所・共同溝が変わったら道路（送電線・無電柱化）を描き直す
-    const sr = `${id}:${s.roadVersion}:${old}:${fac}:${stK}:${this.infraK}:${this.quality}:${this.lite ? 1 : 0}`; // v88：品質を切り替えたら道路も作り直す（low では細部を省く）
-    if (sr !== this.sigRoad) { this.sigRoad = sr; this.rebuildRoads(s); this.sigOverlay = ''; }
+    const scK = s.buildings.filter(b => (b.kind === 'school' || b.kind === 'nursery' || b.kind === 'nurseryS' || b.kind === 'nurseryL' || b.kind === 'jhs') && b.status !== 'construction').map(b => b.id).join(','); // v104a：学校に接する生活道路は歩道つき
+    const sr = `${id}:${s.roadVersion}:${old}:${fac}:${stK}:${scK}:${this.infraK}:${this.quality}:${this.lite ? 1 : 0}`; // v88：品質を切り替えたら道路も作り直す（low では細部を省く）
+    if (sr !== this.sigRoad) { this.sigRoad = sr; this.rebuildRoads(s); this.sigOverlay = ''; this.frontK = ''; if (!REAL) this.drawFrontage(s); } // v104a：入口の通路は道路の歩道の高さに合わせて描き直す
     const st = `${id}:${s.bVersion}:${s.roadVersion}:${s.buildings.filter(b => isCity(b.kind) && b.age > 70).length}`;
-    if (st !== this.sigTown) { this.sigTown = st; this.rebuildTown(s); this.buildLightProfile(s); this.sigOverlay = ''; }
+    if (st !== this.sigTown) { this.sigTown = st; this.rebuildTown(s); this.buildLightProfile(s); this.sigOverlay = ''; if (!REAL) this.drawFrontage(s); }
     const ss = `${st}:${s.month}`;
     if (ss !== this.sigSites) { this.sigSites = ss; this.rebuildSites(s); this.decorate(s); }
     const so = `${ss}:${this.layer}:${s.pol?.routes?.length ?? 0}:${this.routeKey}:${this.showZones}${this.showArea}:${this.placeMode ? `${Math.floor(this.target.x / 300)},${Math.floor(this.target.z / 300)}` : ''}:${s.stats.waitlist.toFixed(1)}:${s.stats.maxVc.toFixed(3)}`;

@@ -113,6 +113,8 @@ export interface RoadTileArgs {
   sigAt?: (x: number, y: number) => boolean;
   /** v103：横断歩道を引く腕（roadbase の crosswalkArms のビット：1 東・2 西・4 南・8 北）と、区画 (x, y) の交差点の同じ値（手前の区画のダイヤマーク） */
   xwArms: number; xwAt?: (x: number, y: number) => number;
+  /** v104a：腕 (dx, dz) が段差のある歩道か（roadbase の kerbArm）。無ければ区画ごとの kerbless */
+  armKerb?: (dx: number, dz: number) => boolean;
 }
 /** 腕 (dx, dz) の crosswalkArms のビット */
 const xwBit = (dx: number, dz: number) => (dx > 0 ? 1 : dx < 0 ? 2 : dz > 0 ? 4 : 8);
@@ -161,7 +163,9 @@ export function roadTile(o: RoadTileArgs): void {
     const d0 = junction ? hw : 0;
     // v95：縁石・側溝・歩道は roadbase.ts（隅切り・切り下げつき）
     // --- 外側線・路側帯の線
-    const eo = o.kerbless ? ah - 0.15 : t >= 2 ? ah - 0.8 : ah - 0.3;
+    // v104a：外側線は腕ごと（腕の先の道の等級と歩道の有無）。前は交差点の区画の等級で引いていて、幹線と交わる交差点では生活道路の腕の線が 0.65m 内へずれていた。
+    // 生活道路の外側線は、歩道の有無にかかわらず車道の端から 0.3m（歩道の始まる所・終わる所で線が段違いにならない）
+    const aCls = junction ? Math.min(t, armCls(dx, dz)) : t, eo = aCls >= 2 && (o.armKerb ? o.armKerb(dx, dz) : !o.kerbless) ? ah - 0.8 : ah - 0.3;
     if (!junction || from < 14) for (const sg of [-1, 1]) AL(dx, dz, junction ? from : d0, 15, sg * eo - 0.075, sg * eo + 0.075, E1); // 交差点の中・横断歩道の上には引かない（v101：停止線の先に 1m も残らない切れ端は引かない）
     // --- わだち（古い道：車輪の通る所が黒ずむ）
     if (fine && o.ak > 0.45) { const rc = mixHex(0x56524c, 0x34353a, Math.min(1, (o.ak - 0.45) / 0.4) * 0.7);
@@ -206,7 +210,7 @@ export function roadTile(o: RoadTileArgs): void {
     }
   }
   // --- 生活道路どうしの交差点：優先の側の外側線を点線で交差点の中へ通す
-  if (t === 1 && junction && !bigNb && !o.stone) { const ewMaj = !minorEW; for (const sg of [-1, 1]) for (let d = -hw + 0.3; d < hw - 0.2; d += 1.1) { if (ewMaj) mark(d, sg * (hw - 0.15) - 0.075, d + 0.5, sg * (hw - 0.15) + 0.075, E1); else mark(sg * (hw - 0.15) - 0.075, d, sg * (hw - 0.15) + 0.075, d + 0.5, E1); } }
+  if (t === 1 && junction && !bigNb && !o.stone) { const ewMaj = !minorEW; for (const sg of [-1, 1]) for (let d = -hw + 0.3; d < hw - 0.2; d += 1.1) { if (ewMaj) mark(d, sg * (hw - 0.3) - 0.075, d + 0.5, sg * (hw - 0.3) + 0.075, E1); else mark(sg * (hw - 0.3) - 0.075, d, sg * (hw - 0.3) + 0.075, d + 0.5, E1); } }
   // --- 直線の区画：速度の数字・自転車ナビマーク・制限速度の標識・植樹帯・ガードパイプ
   const straight = nConn === 2 && (!!o.aE === !!o.aW) && !junction, ewS = !!o.aE;
   const anyApproach = arms.some(([dx, dz]) => inM(x + dx, y + dz) && o.conn(x + dx, y + dz) >= 3);
