@@ -8,6 +8,8 @@ import { W, H, TILE, heightAt, idx, hash } from '../sim/index';
 import { railChains } from '../sim/railnet';
 import { grade } from '../sim/grade';
 import type { GameState, MapDef, Building } from '../sim/index';
+import { stationGrade, platformSpan, stationHeritage } from './grades';
+import { drawStationBuilding } from './stationkit';
 
 export interface RailPath {
   /** 点の並び（x, y, z）。約 3m おき */
@@ -186,7 +188,7 @@ export function shinTunnel(m: MapDef, L: ShinLine, u: number): boolean {
   return false;
 }
 export interface StationSpot { id: number; pts: number[]; d: number; path: number; bld?: { x: number; y: number; z: number; rot: number } }
-/** 駅舎を glb（render/landmarks.ts）で置くか。置くときは地上の駅（レベル 1）の駅舎の箱を描かない */
+/** 赤れんがの駅舎の glb（render/landmarks.ts）が使えるか。v104b：使えるときだけ、大型ターミナルの一部を歴史的な駅舎にする */
 export const RAIL_LM = { station: false };
 /** 駅が線路のどこに付くか：駅の敷地に一番近い線の点（地上・高架を優先） */
 interface Anchor { b: Building; k: number; j: number; side: number; under: boolean }
@@ -199,7 +201,7 @@ function stationAnchors(s: GameState, paths: RailPath[]): Anchor[] {
     paths.forEach((P, k) => {
       const n = P.d.length;
       for (let j = 0; j < n; j++) {
-        const x = P.p[j * 3], z = P.p[j * 3 + 2], dx = Math.max(x0 - x, 0, x - x1), dz = Math.max(z0 - z, 0, z - z1), d = Math.hypot(dx, dz) + (P.off[j] < -1.2 ? 25 : 0);
+        const x = P.p[j * 3], z = P.p[j * 3 + 2], dx = Math.max(x0 - x, 0, x - x1), dz = Math.max(z0 - z, 0, z - z1), d = Math.hypot(dx, dz) + (P.off[j] < -1.2 ? 25 : 0) + 0.002 * Math.hypot(x - (x0 + x1) / 2, z - (z0 + z1) / 2); // v104b：同じ近さなら敷地の中ほど（前は敷地の端にホームの中心が来て、駅舎が敷地からずれた）
         if (d < bd && P.d[j] > 45 && P.d[j] < P.len - 45) { bd = d; best = { b, k, j, side: 0, under: P.off[j] < -1.2 }; }
       }
     });
@@ -214,7 +216,8 @@ function stationAnchors(s: GameState, paths: RailPath[]): Anchor[] {
 
 /** 線路・高架・鉄橋・坑口・踏切・架線柱・駅（ホーム・屋根・駅舎・跨線橋）を描く。動かす遮断機と、ホームの乗客の立ち位置を返す */
 /** detail：0 簡略（品質「低」）・1 中・2 高。kit：標識の面と路面の文字を描く Geo（render/roadkit.ts。無ければ描かない） */
-export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[], detail = 2, kit?: Geo): { gates: Gate[]; spots: StationSpot[]; lamps: number[] } {
+/** grades：駅ごとの見た目の段（render/grades.ts。無ければ lv と人口だけで決める） */
+export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[], detail = 2, kit?: Geo, grades?: Map<number, number>): { gates: Gate[]; spots: StationSpot[]; lamps: number[] } {
   const lamps: number[] = []; // 夜に灯る明かり（ホームの蛍光灯・線路沿いの灯）
   g.at(0, 0, 0);
   const gates: Gate[] = [], spots: StationSpot[] = [];
@@ -472,8 +475,12 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
     }
     const dbl = P.lv[a.j] >= 2, sides = dbl ? [-1, 1] : [a.side], po = (P.lv[a.j] === 3 ? 6.6 : dbl ? 2.2 : 0) + PF_EDGE + 2.0, pw = 4.0, ph = 1.1; // v101：ホームの幅 4m（省令の解釈基準：相対式は 2m 以上）。縁は線路の中心から PF_EDGE
     const pts: number[] = [];
+    // v104b：駅の見た目の段。ホームの長さ（4 両が止まれる長さは守る）と屋根の長さ、駅舎の形が変わる
+    const SG0 = grades?.get(b.id) ?? stationGrade({ lv: b.lv ?? 1, riders: 0, pop: s.stats?.pop ?? 0 }), SG = Math.min(4, SG0), SP = platformSpan(SG), HL = SP.half; // 5 は撮影用（赤れんがの駅舎に決める）
+    const along = Math.max(-30, Math.min(30, (lx - X(a.j)) * tx + (lz - Z(a.j)) * tz));
+    const xing = SG === 0 && dbl; // 無人駅の複線は構内踏切（ホームの + の端から線路を渡る）
     for (let j = 0; j < n - 1; j++) {
-      if (Math.abs(P.d[j] - dC) > 50 || Math.abs(P.d[j + 1] - dC) > 50) continue;
+      if (Math.abs(P.d[j] - dC) > HL || Math.abs(P.d[j + 1] - dC) > HL) continue;
       const [ax, az] = tan(j), [bx2, bz2] = tan(j + 1), x0 = X(j), y0 = Y(j), z0 = Z(j), x1 = X(j + 1), y1 = Y(j + 1), z1 = Z(j + 1);
       for (const sd of sides) {
         const o0 = sd * po, w2 = pw / 2;
@@ -484,59 +491,52 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
         for (const e of [-w2, w2]) both(A(o0 + e, -2.2, 0) as any, A(o0 + e, -2.2, 1) as any, A(o0 + e, ph, 1) as any, A(o0 + e, ph, 0) as any, 0xa9a49a);
         // v77：むき出しだったホームに、屋根（中央 88m、縁の厚みつき）・柱・背面の柵と壁・ベンチ・駅名標・自動販売機・端の柵を足す
         const dd = P.d[j] - dC, ad = Math.abs(dd), back = o0 + w2 * sd, lr = Math.atan2(-az, ax);
-        if (ad < 44) { const ra = o0 - w2 - 0.5, rb = o0 + w2 + 0.5;
+        if (ad < SP.roof) { const ra = o0 - w2 - 0.5, rb = o0 + w2 + 0.5;
           up(A(ra, 4.95, 0), A(ra, 4.95, 1), A(rb, 4.95, 1), A(rb, 4.95, 0), 0x5f6b77);
           both(A(ra, 4.6, 0) as any, A(ra, 4.6, 1) as any, A(rb, 4.6, 1) as any, A(rb, 4.6, 0) as any, 0xd9dcde);                        // 屋根の裏（明るい天井）
           for (const e of [ra, rb]) both(A(e, 4.55, 0) as any, A(e, 4.55, 1) as any, A(e, 4.97, 1) as any, A(e, 4.97, 0) as any, 0x4c5762); // 屋根の縁
           if (j % 3 === 0) { const [px, py, pz] = A(o0 + w2 * sd * 0.45, ph, 0); g.at(px, py, pz, lr); g.cyl(0, 0, 0, 0.13, 3.5, 0x8b9094, 6); g.box(0, 3.3, 0, 0.18, 0.22, pw + 0.6, 0x8b9094); g.at(0, 0, 0); lamps.push(px, py + 3.3, pz); } // 柱と梁、蛍光灯
         }
         // 背面：柵（全長）。屋根の下の中央は腰から上も壁（広告や時刻表のある壁）
-        both(A(back, ph, 0) as any, A(back, ph, 1) as any, A(back, ph + 1.2, 1) as any, A(back, ph + 1.2, 0) as any, 0xdedcd5);
-        if (ad < 26) both(A(back, ph + 1.2, 0) as any, A(back, ph + 1.2, 1) as any, A(back, ph + 3.0, 1) as any, A(back, ph + 3.0, 0) as any, j % 6 < 2 ? 0x9fc3d6 : 0xe9e7e0);
+        const door = SG <= 1 && sd === a.side && Math.abs(dd - along) < 1.6; // 無人駅・小さな駅舎：駅舎（階段）からホームへ入る所は柵を開ける
+        if (!door) both(A(back, ph, 0) as any, A(back, ph, 1) as any, A(back, ph + 1.2, 1) as any, A(back, ph + 1.2, 0) as any, 0xdedcd5);
+        if (!door && ad < Math.min(26, Math.max(3, SP.roof - 4))) both(A(back, ph + 1.2, 0) as any, A(back, ph + 1.2, 1) as any, A(back, ph + 3.0, 1) as any, A(back, ph + 3.0, 0) as any, j % 6 < 2 ? 0x9fc3d6 : 0xe9e7e0);
         const put = (o: number, f: () => void) => { const [px, py, pz] = A(o, ph, 0); g.at(px, py, pz, lr); f(); g.at(0, 0, 0); };
         const jc = Math.round(dd / 3); // 中心から何コマ目か（約 3m おき）
-        if (jc % 5 === 2 && ad < 38) put(back - sd * 0.75, () => { g.box(0, 0.38, 0, 1.9, 0.08, 0.5, 0x3a6ea5); g.box(0, 0.46, sd * 0.22, 1.9, 0.5, 0.06, 0x3a6ea5); for (const u of [-0.8, 0.8]) g.box(u, 0, 0, 0.08, 0.38, 0.45, 0x70767c); }); // ベンチ
-        if (jc === 0 || jc === 9 || jc === -9) put(back - sd * 0.35, () => { for (const u of [-1.0, 1.0]) g.cyl(u, 0, 0, 0.05, 2.3, 0x70767c, 5); g.box(0, 1.35, 0, 2.5, 0.95, 0.08, 0xf6f6f2); g.box(0, 1.35, -sd * 0.05, 2.5, 0.16, 0.02, 0x2f8f57); g.box(0, 1.75, -sd * 0.05, 1.2, 0.3, 0.02, 0x2b2f33); }); // 駅名標（白い板・緑の帯・駅名の黒い文字の帯）
-        if (jc === 4) put(back - sd * 0.5, () => { g.box(0, 0, 0, 1.05, 1.85, 0.7, 0xf0f0ee); g.box(0, 0.75, -sd * 0.36, 0.95, 1.0, 0.02, 0xc8362e); });   // 自動販売機
+        if (jc % 5 === 2 && ad < Math.min(38, HL - 4)) put(back - sd * 0.75, () => { g.box(0, 0.38, 0, 1.9, 0.08, 0.5, 0x3a6ea5); g.box(0, 0.46, sd * 0.22, 1.9, 0.5, 0.06, 0x3a6ea5); for (const u of [-0.8, 0.8]) g.box(u, 0, 0, 0.08, 0.38, 0.45, 0x70767c); }); // ベンチ
+        if (jc === 0 || ((jc === 9 || jc === -9) && SG >= 1)) put(back - sd * 0.35, () => { for (const u of [-1.0, 1.0]) g.cyl(u, 0, 0, 0.05, 2.3, 0x70767c, 5); g.box(0, 1.35, 0, 2.5, 0.95, 0.08, 0xf6f6f2); g.box(0, 1.35, -sd * 0.05, 2.5, 0.16, 0.02, 0x2f8f57); g.box(0, 1.75, -sd * 0.05, 1.2, 0.3, 0.02, 0x2b2f33); }); // 駅名標（白い板・緑の帯・駅名の黒い文字の帯）
+        if (jc === 4 && SG >= 1) put(back - sd * 0.5, () => { g.box(0, 0, 0, 1.05, 1.85, 0.7, 0xf0f0ee); g.box(0, 0.75, -sd * 0.36, 0.95, 1.0, 0.02, 0xc8362e); });   // 自動販売機
         if (jc === -5) put(back - sd * 0.45, () => { g.box(0, 0, 0, 0.55, 0.95, 0.5, 0x8d9499); g.box(0.6, 0, 0, 0.55, 0.95, 0.5, 0x4d7fb0); });         // ごみ箱・リサイクル箱
-        if (ad > 46.5 && ad < 50) { const e = dd > 0 ? 1 : 0; both(A(o0 - w2, ph, e) as any, A(o0 + w2, ph, e) as any, A(o0 + w2, ph + 1.2, e) as any, A(o0 - w2, ph + 1.2, e) as any, 0xdedcd5); both(A(o0 - w2, -2.2, e) as any, A(o0 + w2, -2.2, e) as any, A(o0 + w2, ph, e) as any, A(o0 - w2, ph, e) as any, 0xa9a49a); } // ホームの端の柵と、端の壁
+        if (ad > HL - 3.5 && ad < HL && !(xing && dd > 0)) { const e = dd > 0 ? 1 : 0; both(A(o0 - w2, ph, e) as any, A(o0 + w2, ph, e) as any, A(o0 + w2, ph + 1.2, e) as any, A(o0 - w2, ph + 1.2, e) as any, 0xdedcd5); both(A(o0 - w2, -2.2, e) as any, A(o0 + w2, -2.2, e) as any, A(o0 + w2, ph, e) as any, A(o0 - w2, ph, e) as any, 0xa9a49a); } // ホームの端の柵と、端の壁
         if (detail >= 1) up(A(o0 - w2 * sd, ph + 0.015, 0), A(o0 - w2 * sd, ph + 0.015, 1), A(o0 - w2 * sd + 0.3 * sd, ph + 0.015, 1), A(o0 - w2 * sd + 0.3 * sd, ph + 0.015, 0), 0xe4e0d4); // v86：ホームの縁石（線路側の白いふち）
         // v88：発車標（屋根からつるす黒い箱に橙の表示）・時計・停止位置目標（4 両の先頭が止まる所）・大きな駅のホームドア（腰の高さの柵と、乗り口のすき間）
-        if (detail >= 1 && ad < 44 && (jc === 2 || jc === -2)) put(o0 - w2 * sd * 0.1, () => { g.box(0, 3.55, 0, 0.18, 0.5, 2.2, 0x1e2022); g.box(sd * 0.1, 3.62, 0, 0.02, 0.34, 2.0, 0xe89a32); for (const u of [-0.8, 0.8]) g.box(0, 4.05, u, 0.04, 0.55, 0.04, 0x70767c); });
-        if (detail >= 1 && ad < 44 && jc === 6) put(o0 + w2 * sd * 0.45, () => { g.box(0, 3.4, 0, 0.12, 0.5, 0.5, 0xf2f2ee); g.box(0, 3.45, 0, 0.14, 0.4, 0.4, 0x2a2a2a); g.box(0, 3.9, 0, 0.04, 0.6, 0.04, 0x70767c); });
-        if (detail >= 1 && (jc === 13 || jc === -13)) put(o0 - w2 * sd + 0.25 * sd, () => { g.box(0, 0, 0, 0.06, 1.3, 0.06, 0x70767c); g.box(0, 1.15, 0, 0.04, 0.42, 0.42, 0xf2f2ee); g.box(0.03, 1.2, 0, 0.02, 0.3, 0.3, 0xe0662a); });
-        if (detail >= 1 && b.w * b.h >= 9 && ad < 41) { const e = o0 - w2 * sd + 0.45 * sd, L = (t: number, dy: number) => { const p = A(e, dy, 0), q = A(e, dy, 1); return [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t]; };
+        if (detail >= 1 && SG >= 2 && ad < SP.roof && (jc === 2 || jc === -2)) put(o0 - w2 * sd * 0.1, () => { g.box(0, 3.55, 0, 0.18, 0.5, 2.2, 0x1e2022); g.box(sd * 0.1, 3.62, 0, 0.02, 0.34, 2.0, 0xe89a32); for (const u of [-0.8, 0.8]) g.box(0, 4.05, u, 0.04, 0.55, 0.04, 0x70767c); });
+        if (detail >= 1 && ad < SP.roof && jc === 6) put(o0 + w2 * sd * 0.45, () => { g.box(0, 3.4, 0, 0.12, 0.5, 0.5, 0xf2f2ee); g.box(0, 3.45, 0, 0.14, 0.4, 0.4, 0x2a2a2a); g.box(0, 3.9, 0, 0.04, 0.6, 0.04, 0x70767c); });
+        if (detail >= 1 && SG >= 1 && (jc === 13 || jc === -13)) put(o0 - w2 * sd + 0.25 * sd, () => { g.box(0, 0, 0, 0.06, 1.3, 0.06, 0x70767c); g.box(0, 1.15, 0, 0.04, 0.42, 0.42, 0xf2f2ee); g.box(0.03, 1.2, 0, 0.02, 0.3, 0.3, 0xe0662a); });
+        if (detail >= 1 && SG >= 3 && ad < HL - 9) { const e = o0 - w2 * sd + 0.45 * sd, L = (t: number, dy: number) => { const p = A(e, dy, 0), q = A(e, dy, 1); return [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t]; };
           both(L(0, ph), L(0.62, ph), L(0.62, ph + 1.25), L(0, ph + 1.25), 0xd4d9de); both(L(0, ph + 1.25), L(0.62, ph + 1.25), L(0.62, ph + 1.35), L(0, ph + 1.35), 0x2f6fb5); }
         // 乗客の立ち位置（ホームの中ほど）
-        if (Math.abs(P.d[j] - dC) < 40) for (const u of [-0.9, 0.2, 1.1]) { const [px, py, pz] = A(o0 + u * sd * 0.9, ph, 0); pts.push(px + (Math.random() - 0.5) * 2, py, pz + (Math.random() - 0.5) * 2); }
+        if (Math.abs(P.d[j] - dC) < HL - 10) for (const u of [-0.9, 0.2, 1.1]) { const [px, py, pz] = A(o0 + u * sd * 0.9, ph, 0); pts.push(px + (Math.random() - 0.5) * 2, py, pz + (Math.random() - 0.5) * 2); }
       }
     }
     const spot: StationSpot = { id: b.id, pts, d: dC, path: a.k }; spots.push(spot);
     const ty = Y(a.j), elevated = ty - heightAt(m, X(a.j), Z(a.j)) > 3;
-    // 駅舎：駅の側のホームの外、線路と同じ向き
-    // 駅舎は駅の敷地に寄せる（ホームから 9〜30m 離し、線路に沿っては ±30m まで）
-    const along = Math.max(-30, Math.min(30, (lx - X(a.j)) * tx + (lz - Z(a.j)) * tz)), across = Math.max(po + 9, Math.min(po + 30, ((lx - X(a.j)) * nx + (lz - Z(a.j)) * nz) * a.side));
-    const sx = X(a.j) + tx * along + nx * a.side * across, sz = Z(a.j) + tz * along + nz * a.side * across, sy = heightAt(m, sx, sz);
-    g.at(sx, sy, sz, rot);
-    g.box(0, -0.6, a.side * 9, 48, 0.75, 16, 0xc8c3b8, 0xd2cdc2); // 駅前広場
-    const lv0 = Math.max(1, Math.min(3, b.lv ?? 1));
-    if (RAIL_LM.station && !elevated && lv0 === 1) spot.bld = { x: sx, y: sy, z: sz, rot: rot + (a.side < 0 ? Math.PI : 0) }; // 駅舎の正面は駅前広場の側
-    else {
-      g.box(0, 0, 0, 22, elevated ? ty - sy + 1 : 6.5, 10, 0xe9e5dc, 0x8f9496);
-      g.box(0, elevated ? ty - sy + 1 : 6.5, 0, 23, 0.4, 11, 0x5a6672);
-      g.box(0, 0, a.side * 5.6, 9, 3.2, 1.4, 0x5a6672); // 入口のひさし
-    }
-    g.box(-13, 2.5, a.side * 12, 7, 0.14, 2.4, 0x9fb3bd); for (const u of [-16, -10]) g.cyl(u, 0, a.side * 12.8, 0.07, 2.5, 0x8b9094, 4); // バス停
-    // 駅ビル（レベル 2）・大型ターミナル（レベル 3）：駅舎の後ろに高い建物
-    const lv = Math.max(1, Math.min(3, b.lv ?? 1)), bz0 = -a.side * 2;
-    if (lv >= 2) {
-      const fl = lv === 2 ? 7 : 12, hh = fl * 3.8;
-      g.box(0, 0, bz0, 40, hh, 16, 0xdfe3e6, 0x8f9496); g.box(0, hh, bz0, 40.4, 0.6, 16.4, 0x2f6fb5);
-      for (let f = 1; f < fl; f++) { g.box(0, f * 3.8 + 1.0, bz0 + 8.05, 38, 1.6, 0.1, 0x7fa3bd); g.box(0, f * 3.8 + 1.0, bz0 - 8.05, 38, 1.6, 0.1, 0x7fa3bd); }
-      g.box(0, 2.6, bz0 + 8.2, 30, 0.5, 2.2, 0xc3312b); // 商業の帯
-      if (lv === 3) { const th = 22 * 3.6; g.box(-12, hh, bz0, 14, th - hh, 12, 0xcfd6dc, 0x6f7a84); for (let f = 0; f < 22; f += 2) g.box(-12, f * 3.6 + 1, bz0 + 6.05, 13, 1.4, 0.1, 0x6f93ad); g.box(14, hh, bz0, 10, 14, 10, 0xe9e5dc, 0x5a6672); }
-    }
-    g.at(0, 0, 0);
+    // v104b：駅舎は段ごとに render/stationkit.ts で描く。原点は線路の中心線上（駅舎の真横）、+z が駅前広場の側
+    { const across0 = ((lx - X(a.j)) * nx + (lz - Z(a.j)) * nz) * a.side, want = 0; void across0; // v104b：駅舎はホームのすぐ外に寄せる（敷地の奥に置くと、駅ビルやデッキが敷地の外の道路にはみ出す）
+      const ox = X(a.j) + tx * along, oz = Z(a.j) + tz * along, oy = heightAt(m, ox + nx * a.side * want, oz + nz * a.side * want);
+      const r2 = Math.atan2(-a.side * tz, a.side * tx), c2 = Math.cos(r2), s2 = Math.sin(r2);
+      const r = drawStationBuilding({ g, detail, lamps, ox, oy, oz, rot: r2, yr: ty - oy, edgeN: po + pw / 2, edgeF: dbl ? -(po + pw / 2) : -2.6, pfN: po, pfF: dbl ? -po : NaN, want,
+        grade: SG, seed: b.id, elevated, heritage: RAIL_LM.station && !elevated && (SG0 >= 5 || stationHeritage(SG, b.id)), shin: b.shin !== undefined ? po + 9 : 0,
+        ground: (x, z) => ground(ox + x * c2 + z * s2, oz - x * s2 + z * c2) - oy });
+      if (r.bld) spot.bld = r.bld;
+      g.at(0, 0, 0); }
+    // 無人駅の複線：構内踏切（ホームの + の端から、坂を下りて線路を渡る）
+    if (xing && !elevated) { const dX = dC + HL + 4.5; let jx = a.j; while (jx < n - 2 && P.d[jx] < dX) jx++;
+      const [ux, uz] = tan(jx); g.at(X(jx), Y(jx), Z(jx), Math.atan2(-uz, ux));
+      g.box(0, 0, 0, 2.2, 0.16, 2 * po + 1, 0x6b6660);                              // 踏み板
+      for (const e of [-po, po]) { const qa: [number, number, number] = [-4.6, ph, e - 1], qb: [number, number, number] = [-1.1, 0.16, e - 1], qc: [number, number, number] = [-1.1, 0.16, e + 1], qd: [number, number, number] = [-4.6, ph, e + 1];
+        g.quad(qa, qb, qc, qd, 0xbdb8ad); g.quad(qd, qc, qb, qa, 0xbdb8ad); }        // ホームの端の坂
+      g.at(0, 0, 0); }
     // 新幹線：駅の反対側に高架のホームと、停まっている白い車両（整備中は高架だけ）
     if (b.shin !== undefined) {
       const open = s.month >= b.shin, off = (po + 16) * -a.side, L = 160, hy = Math.max(ty, heightAt(m, X(a.j), Z(a.j))) + 12;
@@ -569,18 +569,6 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
       g.box(0, hy + 7, 0, L * 0.7, 0.5, 16, 0xe6e8ea, 0x9fb3bd); // 大屋根
       // 開業後の列車は、走る列車（scene.ts の moveShin）として描く
       g.at(0, 0, 0);
-    }
-    // 跨線橋（地上の駅で、ホームが 2 面のとき）
-    // 高架の駅：駅舎からホームへの連絡通路
-    if (elevated) {
-      const L = across - po - 2 - 5, mx = X(a.j) + tx * along + nx * a.side * (po + 2 + L / 2), mz = Z(a.j) + tz * along + nz * a.side * (po + 2 + L / 2);
-      if (L > 1) { g.at(mx, ty - 1.5, mz, Math.atan2(-nz, nx)); g.box(0, 0, 0, L, 4.2, 5, 0xe4e2dc, 0x596672); g.at(0, 0, 0); }
-    }
-    if (!elevated && dbl) {
-      const fx = X(a.j) + tx * along + nx * a.side * (across - 5), fz = Z(a.j) + tz * along + nz * a.side * (across - 5), bx3 = X(a.j) + tx * along - nx * a.side * (po + 1), bz3 = Z(a.j) + tz * along - nz * a.side * (po + 1), y = ty + 7.2;
-      const L = Math.hypot(fx - bx3, fz - bz3);
-      g.at((fx + bx3) / 2, y, (fz + bz3) / 2, Math.atan2(-(fz - bz3), fx - bx3)); g.box(0, 0, 0, L, 3.0, 3.6, 0xe4e2dc, 0x596672); g.at(0, 0, 0);
-      for (const [qx, qz] of [[X(a.j) + tx * along - nx * a.side * po, Z(a.j) + tz * along - nz * a.side * po], [X(a.j) + tx * along + nx * a.side * po, Z(a.j) + tz * along + nz * a.side * po]]) { g.at(qx, ty + ph, qz, rot); g.box(0, 0, 0, 3.2, 6.2, 3.2, 0xe4e2dc); g.at(0, 0, 0); }
     }
   }
   return { gates, spots, lamps };

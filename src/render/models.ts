@@ -19,6 +19,8 @@ export interface Ctx {
   fine?: boolean;
   /** 名所の glb（render/landmarks.ts）を別に置くか。置くときは天守などをコードで組まない */
   lm?: { has(k: string): boolean };
+  /** v104b：施設の見た目の段（render/grades.ts の facilityGrade。0 小・1 標準・2 大、-1 か無しは段なし） */
+  grade?: number;
 }
 /** 細部用の決まった乱数（本体の乱数の並びを変えないため、位置から作る） */
 const dh = (a: number, b: number, k = 0) => { const v = Math.sin(a * 12.9898 + b * 78.233 + k * 37.719) * 43758.5453; return v - Math.floor(v); };
@@ -936,8 +938,17 @@ export function modelNursery(c: Ctx): void {
 }
 
 export function modelSchool(c: Ctx, fx0 = -38, fx1 = 14, label = '小学校'): void {
-  const g = c.g, wall = dull(c, 0xf1ede2, 0xcfc9ba);
+  const g = c.g, wall = dull(c, 0xf1ede2, 0xcfc9ba), gr = c.grade ?? -1;
   pad(c, 88.4, 58.4, 0xcdb892);
+  if (gr === 0) { schoolWood(c, label); return; }
+  if (gr === 2) { // v104b：大規模校：4 階の校舎と、校庭の西に 3 階の新校舎（L の形）、屋上に太陽光パネル
+    const h4 = 14.8, wz = -14, wx = -33;
+    g.box(wx, 0, wz, 10, 11.2, 14, wall, 0x9b9d9e); g.box(wx, 11.2, wz, 10.4, 0.6, 14.4, 0xd6d3cb, 0x9b9d9e);
+    for (let f = 0; f < 3; f++) winRow(c, 2, wz - 6, wz + 6, f * 3.6 + 1.1, wx + 5, 4, 2.2, 1.9, 0.2, 0xb9d0da);
+    g.box(-10, 11.8, -21, 58, 3.6, 10.5, wall, 0x9b9d9e); g.box(-10, 11.8 + 3.6, -21, 58.4, 0.5, 10.9, 0xd6d3cb, 0x9b9d9e); // 4 階
+    for (const x of [-38, -6]) winRow(c, 0, x, x + 26, 12.7, -15.75, 8, 2.2, 1.9, 0.2, 0xb9d0da);
+    for (let i = 0; i < 6; i++) g.box(-34 + i * 8.6, h4 + 1.2, -21, 7.2, 0.25, 7, 0x2a3a5a, 0x34486e); // 屋上の太陽光パネル
+  }
   const bz = -21, w = 58, d = 10.5, h = 11.2, bx = -10, fz = bz + d / 2;
   g.box(bx, 0, bz, w, h, d, wall, 0x9b9d9e); g.box(bx, h, bz, w + 0.4, 0.6, d + 0.4, 0xd6d3cb, 0x9b9d9e);
   for (let f = 0; f < 3; f++) { winRow(c, 0, bx - w / 2 + 1, bx - 4, f * 3.6 + 1.1, fz, 9, 2.2, 1.9, 0.2, 0xb9d0da); winRow(c, 0, bx + 4, bx + w / 2 - 1, f * 3.6 + 1.1, fz, 9, 2.2, 1.9, 0.2, 0xb9d0da); winRow(c, 1, bx - w / 2 + 1, bx + w / 2 - 1, f * 3.6 + 1.4, bz - d / 2, 14, 1.6, 1.4, 0.15); }
@@ -962,16 +973,44 @@ export function modelSchool(c: Ctx, fx0 = -38, fx1 = 14, label = '小学校'): v
   g.cyl(8, 0, 22, 0.08, 9, 0xd9d9d6, 5); g.box(8.7, 7.8, 22, 1.3, 0.9, 0.04, 0xf7f7f4);
 }
 
+/** v104b：木造の分校（小さな街のレベル 1）：板張りの 2 階建てと瓦の切妻屋根、小さな木造の体育館、広い校庭 */
+function schoolWood(c: Ctx, label: string): void {
+  const g = c.g, wall = dull(c, 0xcdb48a, 0xb09a78), trim = 0x5a4030, roof = dull(c, 0x4a4f58, 0x5c5f64);
+  const bx = -8, bz = -20, w = 40, d = 9, h = 7.0, fz = bz + d / 2;
+  g.box(bx, 0, bz, w, h, d, wall, trim); g.gable(bx, h, bz, w, d, 2.6, roof, 'x', wall, 0.8);
+  g.box(bx, 3.4, fz + 0.06, w, 0.25, 0.1, trim); for (let i = 0; i <= 8; i++) g.box(bx - w / 2 + i * 5, 0, fz + 0.07, 0.25, h, 0.1, trim);
+  for (let f = 0; f < 2; f++) winRow(c, 0, bx - w / 2 + 1, bx + w / 2 - 1, f * 3.5 + 1.0, fz + 0.02, 10, 2.4, 1.8, 0.25, 0xc9dadf);
+  g.box(bx, 0, fz + 1.4, 6, 4.2, 2.8, wall, trim); g.gable(bx, 4.2, fz + 1.4, 6, 2.8, 1.4, roof, 'z', wall, 0.4);        // 玄関
+  g.box(bx, 2.6, fz + 2.86, 3.6, 0.9, 0.08, 0xf6f3ea); sign(c, label, 0, bx, 2.65, fz + 2.9, 3.4);
+  g.box(29, 0, -18, 16, 6.5, 12, wall, trim); g.gable(29, 6.5, -18, 16, 12, 2.4, roof, 'z', wall, 0.6);                // 木造の体育館
+  winRow(c, 3, -23, -13, 3.4, 21, 3, 1.8, 1.4, 0.2);
+  for (const z of [0, 22]) g.box(-12, 0.07, z, 52, 0.02, 0.25, 0xf4f1e6); for (const x of [-38, 14]) g.box(x, 0.07, 11, 0.25, 0.02, 22, 0xf4f1e6);
+  for (let i = 0; i < 4; i++) g.cyl(-40 + i * 1.8, 0, 26.5, 0.05, 1.2 + i * 0.25, 0x5a8fc4, 4);
+  g.box(24, 0, 10, 0.6, 1.4, 0.6, 0x9a948a); g.box(24, 1.4, 10, 0.4, 1.6, 0.4, 0x8a7a5a);                                // 銅像の台
+  for (let i = 0; i < 6; i++) tree(c, -40 + i * 11, 27.4, 1.0, i % 3 === 0 ? 2 : 0); tree(c, 38, 12, 1.1); tree(c, 38, 24, 1.0);
+  fenceRect(c, 87.6, 57.6, 1.2, 0x8a7a5a, 8);
+  g.box(-5.2, 0, 28.8, 0.6, 1.8, 0.6, 0x6b4a32); g.box(5.2, 0, 28.8, 0.6, 1.8, 0.6, 0x6b4a32);
+}
+
 export function modelPark(c: Ctx): void {
   pad(c, 28.4, 28.4, 0x86b86a);
-  const g = c.g;
+  const g = c.g, gr = c.grade ?? -1;
+  if (gr >= 1) { // v104b：噴水（段 1）、池と花壇・トイレ（段 2）
+    g.cyl(0, 0.05, 0, 2.6, 0.55, 0xb9b6ae, 12); g.cyl(0, 0.5, 0, 2.2, 0.12, 0x4f8fb0, 12); g.cyl(0, 0.6, 0, 0.25, 1.6, 0xd9d9d6, 6);
+    g.box(-8.6, 0.05, -1.6, 3.6, 0.6, 1.2, 0x5aa9d6); g.box(-8.6, 0.6, -1.6, 3.4, 0.1, 1.0, 0xf2c94c); // シーソー台
+  }
+  if (gr === 2) {
+    g.cyl(-7.5, 0.02, 7.8, 3.6, 0.2, 0x8a9a7a, 12); g.cyl(-7.5, 0.1, 7.8, 3.2, 0.15, 0x4f8fb0, 12); // 池
+    for (const [x, z, col] of [[3.5, 3.4, 0xe07a8c], [-3.5, -3.4, 0xe8c84a], [3.5, -3.4, 0xb07ac8]] as const) { g.box(x, 0, z, 2.6, 0.4, 2.6, 0x9a8a72); g.box(x, 0.4, z, 2.3, 0.15, 2.3, col); }
+    g.box(10.6, 0, -9.8, 3.6, 2.6, 2.6, 0xe6e0d0, 0x8b8f93); // トイレ
+  }
   slab(c, 0, 4, 3.0, 21, 0xd6c7a1, 0.07); slab(c, 0, 0, 22, 3.0, 0xd6c7a1, 0.07); g.cyl(0, 0.02, 0, 3.6, 0.07, 0xd6c7a1, 12);
   for (const [x, z, k] of [[-11.5, -11.5, 0], [-4, -12.2, 2], [4.5, -12, 0], [11.8, -11, 1], [-12, -3, 0], [12, 3, 0], [-11.5, 10.5, 2], [11.5, 11, 0]]) tree(c, x, z, 0.9 + c.rnd() * 0.3, k);
   // ぶらんこ
   for (const x of [5.2, 9.6]) { g.box(x, 0, -5.6, 0.1, 2.5, 0.1, 0x4a8fc0); g.box(x, 0, -4.4, 0.1, 2.5, 0.1, 0x4a8fc0); }
   g.box(7.4, 2.45, -5, 4.6, 0.1, 0.1, 0x4a8fc0); for (const x of [6.4, 8.4]) { g.box(x, 0.5, -5, 0.5, 0.06, 0.25, 0x8a5a3a); g.box(x - 0.22, 0.5, -5, 0.02, 1.95, 0.02, 0x555555); g.box(x + 0.22, 0.5, -5, 0.02, 1.95, 0.02, 0x555555); }
   // すべり台・砂場
-  g.box(-7.4, 0, -6.6, 1.1, 2.0, 1.1, 0xe2a23a); g.box(-7.4, 0.8, -4.6, 0.9, 0.12, 3.2, 0xd95f4a); g.box(-5.2, 0.05, 5.6, 4.4, 0.25, 3.6, 0xbfb09a, 0xe8d9a8);
+  g.box(-7.4, 0, -6.6, 1.1, 2.0, 1.1, 0xe2a23a); g.box(-7.4, 0.8, -4.6, 0.9, 0.12, 3.2, 0xd95f4a); if (gr !== 2) g.box(-5.2, 0.05, 5.6, 4.4, 0.25, 3.6, 0xbfb09a, 0xe8d9a8);
   // あずまやとベンチ
   for (const [x, z] of [[6.2, 5.8], [9.8, 5.8], [6.2, 9.4], [9.8, 9.4]]) g.cyl(x, 0, z, 0.1, 2.5, 0x6b4a32, 5);
   g.pyramid(8, 2.5, 7.6, 5.4, 5.4, 1.4, 0x5a3f2c); g.box(8, 0, 7.6, 2.2, 0.45, 0.6, 0x8a6a48);
@@ -984,14 +1023,17 @@ export function modelPark(c: Ctx): void {
 }
 
 export function modelFire(c: Ctx): void {
+  if (c.grade === 0) { modelFireS(c); return; } // v104b：小さな街のレベル 1 は出張所（車庫 2 台の平屋）
   pad(c, 28.4, 28.4, 0xb9b6ae);
-  const g = c.g, wall = dull(c, 0xe9e6df, 0xc9c4b8);
-  g.box(-2.5, 0, -5.5, 19, 10, 13, wall, 0x9b9d9e); g.box(-2.5, 10, -5.5, 19.4, 0.5, 13.4, 0xd0cdc5, 0x9b9d9e);
+  const g = c.g, wall = dull(c, 0xe9e6df, 0xc9c4b8), big = c.grade === 2, bh = big ? 13.6 : 10, th = big ? 24 : 16;
+  g.box(-2.5, 0, -5.5, 19, bh, 13, wall, 0x9b9d9e); g.box(-2.5, bh, -5.5, 19.4, 0.5, 13.4, 0xd0cdc5, 0x9b9d9e);
+  if (big) { winRow(c, 0, -11.5, 6.5, 10.0, 1, 6, 1.8, 1.5, 0.6); g.box(-2.5, bh + 0.5, -8, 6, 2.6, 5, wall, 0x9b9d9e); }
   g.box(-2.5, 4.6, 1.06, 19.1, 0.9, 0.12, 0xc0322b);
   for (let i = 0; i < 3; i++) { g.box(-8.2 + i * 5.7, 0, 1.08, 4.6, 4.2, 0.12, 0xdadad6); for (let k = 0; k < 5; k++) g.box(-8.2 + i * 5.7, 0.3 + k * 0.8, 1.16, 4.4, 0.06, 0.03, 0xb0b0ac); }
   winRow(c, 0, -11.5, 6.5, 6.4, 1, 6, 1.8, 1.5, 0.7); winRow(c, 2, -11.5, 0.5, 6.4, 7, 3, 1.6, 1.4, 0.5); winRow(c, 1, -11.5, 6.5, 6.4, -12, 5, 1.6, 1.4, 0.4); winRow(c, 1, -11.5, 6.5, 2, -12, 5, 1.6, 1.4, 0.3);
   sign(c, '消防署', 0, -2.5, 7.95, 1.02, 4.0);
-  g.box(10.5, 0, -8, 3.6, 16, 3.6, wall, 0x9b9d9e); g.box(10.5, 14.2, -8, 3.8, 1.0, 3.8, 0xc0322b); g.cyl(10.5, 16, -8, 0.06, 4, 0x8b8f93, 4);  // 訓練塔
+  g.box(10.5, 0, -8, 3.6, th, 3.6, wall, 0x9b9d9e); g.box(10.5, th - 1.8, -8, 3.8, 1.0, 3.8, 0xc0322b); g.cyl(10.5, th, -8, 0.06, 4, 0x8b8f93, 4);  // 訓練塔
+  if (big) for (let k = 1; k < 6; k++) g.box(10.5, k * 3.8, -6.1, 3.0, 0.2, 0.9, 0x8b8f93); // 訓練塔の踊り場
   winRow(c, 0, 9.5, 11.5, 3, -6.2, 1, 1.0, 9, 0.3);
   slab(c, -2.5, 8, 19, 12, 0xcfcbc2, 0.07);
   // 消防車
@@ -1038,6 +1080,12 @@ export function modelWaste(c: Ctx): void {
 export function modelStation(c: Ctx): void {
   pad(c, 88.4, 28.4, 0xcfc9bc);
   const g = c.g;
+  if ((c.grade ?? -1) >= 10) { // v104b：駅舎・ホームは線路と一緒に段ごとに描く（render/stationkit.ts）。前はここのホームと線路のホームが二重になっていた
+    const sg = c.grade! - 10, half = [12, 18, 26, 44, 44][Math.min(4, sg)];   // 駅前広場の幅の半分（駅の段で広がる）
+    slab(c, 0, 0, half * 2, 26, 0xd9d3c4, 0.06);
+    if (half < 44) for (const e of [-1, 1]) { const w = 44 - half, x = e * (half + w / 2); slab(c, x, 0, w, 26, 0x86b86a, 0.07); for (let k = 0; k < Math.floor(w / 9); k++) tree(c, x - e * w / 2 + e * (4.5 + k * 9), (k % 2 ? 7 : -7), 0.9, k % 3 === 1 ? 2 : 0); }
+    return;
+  }
   if (!c.lm?.has('station')) stationHouse(c);
   // 駅前広場
   slab(c, 0, 8.2, 86, 11, 0xd9d3c4, 0.06);
@@ -1085,6 +1133,26 @@ export function modelClinic(c: Ctx): void {
 export function modelKoban(c: Ctx): void {
   pad(c, 28.4, 28.4, 0xb9b6ae);
   const g = c.g;
+  if (c.grade === 0) { // v104b：駐在所：警察官が住む 2 階建ての家に、事務所と赤い灯
+    const wall = dull(c, 0xe8e2d2, 0xccc4b0);
+    g.box(-3, 0, -2, 12, 6.0, 9, wall, 0x9b9d9e); g.gable(-3, 6.0, -2, 12, 9, 2.0, 0x3b4656, 'x', wall, 0.6);
+    winRow(c, 0, -8, 2, 3.8, 2.5, 3, 1.6, 1.2, 0.6); winRow(c, 1, -8, 2, 1.0, -6.5, 3, 1.6, 1.2, 0.4);
+    g.box(-5, 0, 3.4, 7, 3.2, 3, 0xf2efe6, 0x2c3e5c); g.box(-5, 3.2, 3.4, 7.4, 0.3, 3.4, 0x2c3e5c); win(c, 0, -5.8, 0.4, 4.92, 2.6, 1.8, 0.9, 0xd3e4ea); g.box(-3.0, 0, 4.92, 1.0, 2.1, 0.08, 0x55595c);
+    g.box(-5, 2.3, 5.0, 0.45, 0.45, 0.45, 0xd8322a); win(c, 0, -5, 2.35, 5.24, 0.36, 0.36, 1, 0xff5a4a); g.cyl(-7.2, 2.5, 4.94, 0.3, 0.05, 0xd8b23a, 10); // 赤い灯と記章
+    g.box(5.5, 0.2, 6.5, 1.6, 0.9, 0.5, 0xf2f2ee); g.box(5.5, 0.25, 6.5, 0.1, 0.8, 1.6, 0x25282c);                              // 白いバイク
+    slab(c, 6, -6, 12, 12, 0x86b86a, 0.07); tree(c, 9, -9, 1.0); tree(c, -10, 9, 0.8, 2); bush(c, 3, -9, 0.7); g.box(10, 0, 4, 2.4, 1.6, 0.1, 0x8a8a84);
+    return;
+  }
+  if (c.grade === 2) { // v104b：大型の交番：2 階建てのガラスの箱と、時計の柱
+    g.box(-5, 0, 2, 12, 7.6, 9, 0xf0ede4, 0x9b9d9e); g.box(-5, 7.6, 2, 12.4, 0.5, 9.4, 0x1d3557); g.box(-5, 3.6, 6.56, 12.1, 0.5, 0.1, 0x1d3557);
+    win(c, 0, -6.2, 0.4, 6.52, 7.4, 2.8, 1, 0xd3e4ea); winRow(c, 0, -10.5, 0.5, 4.6, 6.52, 3, 2.6, 2.2, 0.7);
+    sign(c, '交番', 0, -5, 3.0, 6.6, 3.2, 1.6); g.box(-5, 4.25, 6.8, 0.55, 0.55, 0.55, 0xd8322a); win(c, 0, -5, 4.3, 7.08, 0.44, 0.44, 1, 0xff5a4a);
+    g.box(4.5, 0, 8.5, 0.8, 6.5, 0.8, 0x1d3557); g.cyl(4.5, 6.5, 8.5, 0.9, 0.3, 0xf2f2ee, 10); // 時計の柱
+    g.box(-5, 3.6, 8.2, 12, 0.18, 3.2, 0x1d3557);
+    g.box(1.5, 0.3, 10.5, 1.7, 0.65, 4.1, 0xf2f2ee); g.box(1.5, 0.3, 10.5, 1.74, 0.3, 4.14, 0x25282c); g.box(1.5, 0.95, 10.3, 1.5, 0.55, 2.2, 0x2a3138); g.box(1.5, 1.5, 10.3, 0.9, 0.14, 0.3, 0xd8322a);
+    slab(c, 6, -6, 12, 12, 0x86b86a, 0.07); tree(c, 9, -9, 1.0); tree(c, -10, -9, 0.95); slab(c, -2, 10.5, 22, 6, 0xc8c2b6, 0.07);
+    return;
+  }
   g.box(-6, 0, 4.5, 8, 6.2, 7, 0xefe9da, 0x9b9d9e); g.box(-6, 6.2, 4.5, 8.3, 0.4, 7.3, 0x2c3e5c); g.box(-6, 2.9, 4.5, 8.1, 0.4, 7.1, 0x2c3e5c);
   win(c, 0, -7.4, 0.5, 8, 3.2, 2.0, 1, 0xd3e4ea); g.box(-3.4, 0, 8.06, 1.1, 2.2, 0.1, 0x55595c); winRow(c, 0, -10, -2, 3.9, 8, 2, 1.6, 1.3, 0.8);
   sign(c, '交番', 0, -6, 2.15, 8.4, 2.8, 1.4); g.box(-6, 3.35, 8.5, 0.5, 0.5, 0.5, 0xd8322a); win(c, 0, -6, 3.4, 8.76, 0.4, 0.4, 1, 0xff5a4a);
@@ -1298,8 +1366,16 @@ export function modelGas(c: Ctx): void {
 export function modelPolice(c: Ctx): void {
   pad(c, 58.4, 58.4, 0xb9b6ae);
   const g = c.g;
-  block(c, -4, -10, 40, 20, 5, dull(c, 0xe8e4da, 0xccc6b8), { label: '警察署', band: 0x2c3e5c });
-  g.cyl(18, 19.5, -10, 0.08, 6, 0x8b8f93, 4); g.box(18.6, 24, -10, 1.6, 1, 0.05, 0xf2f2ee);
+  const gr = c.grade ?? -1, wall = dull(c, 0xe8e4da, 0xccc6b8);
+  if (gr === 2) { // v104b：高層の警察署（9 階）と屋上のヘリポート、低層の別棟
+    const h = block(c, -8, -12, 30, 18, 9, wall, { label: '警察署', band: 0x2c3e5c });
+    g.box(-8, h + 0.45, -12, 14, 0.3, 14, 0x5a5e62); g.cyl(-8, h + 0.75, -12, 5.4, 0.03, 0xf2f2ee, 18); g.box(-8, h + 0.8, -12, 2.6, 0.02, 0.6, 0xf2f2ee); g.box(-9.3, h + 0.8, -12, 0.6, 0.02, 4, 0xf2f2ee); g.box(-6.7, h + 0.8, -12, 0.6, 0.02, 4, 0xf2f2ee);
+    block(c, 17, -10, 16, 22, 2, wall, { band: 0x2c3e5c });
+  } else {
+    block(c, -4, -10, 40, 20, 5, wall, { label: '警察署', band: 0x2c3e5c });
+    g.cyl(18, 19.5, -10, 0.08, 6, 0x8b8f93, 4); g.box(18.6, 24, -10, 1.6, 1, 0.05, 0xf2f2ee);
+    if (gr === 1) { block(c, 21, 2, 12, 10, 3, wall, { band: 0x2c3e5c }); } // 別棟（3 階）
+  }
   parking(c, 0, 16, 50, 14, 10);
   for (let i = 0; i < 3; i++) { const x = -20 + i * 6; g.box(x, 0.3, 16, 1.7, 0.65, 4.1, 0xf2f2ee); g.box(x, 0.3, 16, 1.74, 0.3, 4.14, 0x25282c); g.box(x, 1.5, 15.8, 0.9, 0.14, 0.3, 0xd8322a); }
   tree(c, -26, 26, 1.0); tree(c, 26, -26, 0.9);
@@ -1335,7 +1411,8 @@ function hospitalLow(c: Ctx, wall: number): void {
 export function modelHospital(c: Ctx): void {
   pad(c, 88.4, 58.4, 0xb9b6ae);
   const g = c.g, wall = dull(c, 0xf3f3ee, 0xd6d3cb);
-  { const v = (c.rnd() + dh(g.ox * 0.013, g.oz * 0.017, 9)) % 1; if (v < 0.36) { hospitalTower(c, wall); return; } if (v < 0.68) { hospitalLow(c, wall); return; } }
+  { const v = (c.rnd() + dh(g.ox * 0.013, g.oz * 0.017, 9)) % 1, gr = c.grade ?? -1; // v104b：段があるときは段で（0 郊外の低層・1 総合病院・2 高層の病棟とヘリポート）
+    if (gr === 2 || (gr < 0 && v < 0.36)) { hospitalTower(c, wall); return; } if (gr === 0 || (gr < 0 && v < 0.68)) { hospitalLow(c, wall); return; } }
   { const h = block(c, -14, -12, 50, 18, 7, wall, { band: 0xa9d1bd, lit: 0.6 }); g.box(-14, h - 5.6, -2.95, 13, 5.2, 0.12, 0xffffff); sign(c, '病院', 0, -14, h - 5.4, -2.9, 10); }
   block(c, 22, -14, 20, 16, 4, wall, { band: 0xa9d1bd, lit: 0.5 });
   g.box(-14, 26.2, -12, 12, 0.2, 12, 0x8a8f94); g.cyl(-14, 26.4, -12, 4.5, 0.05, 0xf2f2ee, 16);
@@ -1536,7 +1613,23 @@ export function modelBusTerminal(c: Ctx): void {
 }
 export function modelCityHall(c: Ctx): void {
   pad(c, 88.4, 58.4, 0xd6d1c6);
-  const g = c.g, wall = dull(c, 0xece8df, 0xcfc8b8);
+  const g = c.g, wall = dull(c, 0xece8df, 0xcfc8b8), gr = c.grade ?? -1;
+  if (gr === 0) { // v104b：町役場：3 階建ての横長の庁舎と小さな時計塔、旗の柱、前の広い駐車場
+    block(c, -6, -14, 52, 16, 3, wall, { lit: 0.5, band: 0x8f8678, roof: 0x6f7a86 });
+    g.box(-6, 0, -4.4, 8, 15, 4, wall, 0x6f7a86); g.box(-6, 12, -2.35, 2.4, 2.4, 0.12, 0xfafaf7); g.box(-6, 13.1, -2.27, 0.1, 0.9, 0.05, 0x222222); g.box(-5.6, 13.1, -2.27, 0.7, 0.1, 0.05, 0x222222);
+    g.box(-6, 3.6, -1.2, 12, 0.3, 4.6, 0x8f8678); for (const x of [-11, -1]) g.cyl(x, 0, 0.8, 0.2, 3.6, 0xd9d6cf, 6);
+    for (const x of [-20, -17, -14]) { g.cyl(x, 0, 6, 0.06, 9, 0xd9d9d6, 5); g.box(x + 0.7, 7.8, 6, 1.3, 0.9, 0.04, x === -17 ? 0xf2f2ee : 0x2f6fb5); }
+    parking(c, 6, 14, 60, 18, 10); for (let i = 0; i < 5; i++) tree(c, -40 + i * 6, 26, 0.95, i % 2 ? 0 : 2); tree(c, 40, -24, 1.0); tree(c, 40, 6, 0.9);
+    return;
+  }
+  if (gr === 2) { // v104b：高層の市役所：16 階の行政棟（屋上にヘリポート）と、低層の議会棟、前の市民広場
+    const h = block(c, -14, -12, 30, 24, 16, 0xdde2e6, { label: '市役所', lit: 0.5, glass: 0x7f9fb8, band: 0x8a96a3, fh: 3.8 });
+    g.box(-14, h + 0.45, -12, 16, 0.3, 16, 0x5a5e62); g.cyl(-14, h + 0.75, -12, 6, 0.03, 0xf2f2ee, 18);
+    block(c, 20, -10, 26, 20, 3, wall, { lit: 0.5, band: 0xb5ad9a }); g.cyl(20, 11.4, -10, 7, 2.4, 0x6f8a8a, 14, 0x7f9a9a); // 議会棟（丸い屋根の議場）
+    slab(c, -10, 16, 52, 16, 0xd9d3c4, 0.08); g.cyl(-10, 0, 17, 4.5, 0.6, 0xb9b6ae, 14); g.cyl(-10, 0.5, 17, 3.9, 0.12, 0x4f8fb0, 14);
+    parking(c, 30, 18, 26, 14, 5); for (let i = 0; i < 7; i++) tree(c, -40 + i * 6, 26, 0.95, 1);
+    return;
+  }
   block(c, -10, -10, 46, 22, 8, wall, { label: '市役所', lit: 0.5, band: 0xb5ad9a });
   block(c, 24, -6, 18, 16, 3, wall, { lit: 0.5 });
   g.cyl(-10, 29.4, -10, 3, 3, 0x9aa0a6, 8); g.box(-10, 32, -10, 0.2, 5, 0.2, 0xd9d9d6); g.box(-8.8, 35.4, -10, 2.2, 1.4, 0.06, 0xf2f2ee);

@@ -107,6 +107,7 @@ const ATMO_SHADER = {
 import { FX, glowTex } from './fx';
 import { buildRailPaths, drawRailPaths, railAt, SHIN_LINES, shinDeckY, RAIL_LM, type RailPath, type Gate, type StationSpot } from './rails';
 import { Landmarks, type LmItem } from './landmarks';
+import { stationGrade, facilityGrade } from './grades'; // v104b
 import { roadKitMat, roadTile, face, RK } from './roadkit';
 import { roadBase, crosswalkArms, walkW, sigPlan, kerbPlan, kerbArm } from './roadbase';
 import { frontagePlan, frontDoor, frontW, sideBit, FRONT_U, surfaceAt } from './frontage'; // v104a
@@ -1612,7 +1613,7 @@ export class View {
   private railStations = new Set<number>();
   private drawRails(s: GameState, g: Geo, lampPos?: number[], kit?: Geo): void {
     this.railPaths = buildRailPaths(s, this.map);
-    const r = drawRailPaths(g, s, this.map, this.railPaths, !this.fine() ? 0 : this.quality === 'high' ? 2 : 1, kit); if (lampPos) for (const v of r.lamps) lampPos.push(v);
+    const r = drawRailPaths(g, s, this.map, this.railPaths, !this.fine() ? 0 : this.quality === 'high' ? 2 : 1, kit, this.stGrades(s)); if (lampPos) for (const v of r.lamps) lampPos.push(v);
     this.gates = r.gates; this.gateAng = r.gates.map(() => Math.PI / 2); this.plaza.clear(); this.stSpots = r.spots;
     const ids = r.spots.map(o => o.id).sort((a, b) => a - b).join(',');
     if (ids !== [...this.railStations].sort((a, b) => a - b).join(',')) this.chunkSig.clear(); // 駅を線路側で描くかどうかが変わったら、町の塊を描き直す
@@ -1653,8 +1654,10 @@ export class View {
     if (b.status === 'construction') modelConstruction(c, b.kind, b.w, b.h, 1 - b.remain / Math.max(1, b.total));
     else {
       const pv = [c.g.pos.length, c.wa.pos.length, c.wb.pos.length, c.sign.pos.length];
-      if (this.landmarks?.full(b.kind)) lmPad(c, b.w, b.h); else MODEL[b.kind](c);
-      this.dressUp(c, b, p, pv, v0);
+      c.grade = this.lookGrade(s, b); // v104b：見た目の段（対象外は -1）
+      if (this.landmarks?.full(b.kind) && !this.lmOff(s, b)) lmPad(c, b.w, b.h); else MODEL[b.kind](c);
+      const fg = c.grade; c.grade = -1;
+      this.dressUp(c, b, p, pv, v0, fg >= 0);
       if (b.kind === 'ropeway') this.drawRopeway(c, b, p);
       if (ol > 0) {
         // 古い建物：色をくすませ（彩度を落として少し暗く）、敷地の縁に雑草、とても古ければ屋根や壁に錆のしみ
@@ -1669,9 +1672,9 @@ export class View {
     }
   }
   /** 施設の成長の見た目：レベルで建物が高くなり（公園・自然は除く）、敷地の角にレベルの旗。外観の様式で色を塗り替える */
-  private dressUp(c: Ctx, b: Building, p: { x: number; y: number; z: number; rot: number }, pv: number[], v0: number): void {
+  private dressUp(c: Ctx, b: Building, p: { x: number; y: number; z: number; rot: number }, pv: number[], v0: number, graded = false): void {
     const lv = b.lv ?? 1, d = DEFS[b.kind];
-    if (lv >= 2 && d.cat !== 'park' && d.cat !== 'nature' && fam(b.kind) !== 'park' && d.fam !== 'agri') {
+    if (lv >= 2 && !graded && d.cat !== 'park' && d.cat !== 'nature' && fam(b.kind) !== 'park' && d.fam !== 'agri') {
       const k = 1 + 0.12 * (lv - 1), base = p.y + 0.6;
       ([[c.g, pv[0]], [c.wa, pv[1]], [c.wb, pv[2]], [c.sign, pv[3]]] as [Geo, number][]).forEach(([g, from]) => { const P = g.pos; for (let i = from + 1; i < P.length; i += 3) if (P[i] > base) P[i] = base + (P[i] - base) * k; });
     }
@@ -1742,7 +1745,7 @@ export class View {
   private lmList(s: GameState): LmItem[] {
     const L = this.landmarks, out: LmItem[] = []; if (!L) return out;
     for (const b of s.buildings) {
-      if (!L.has(b.kind) || b.status === 'construction') continue;
+      if (!L.has(b.kind) || b.status === 'construction' || this.lmOff(s, b)) continue;
       if (b.kind === 'station' && this.railStations.has(b.id)) { const sp = this.stSpots.find(o => o.id === b.id); if (sp?.bld) out.push({ id: b.id, kind: b.kind, ...sp.bld, off: [0, 0, 0] }); continue; }
       out.push({ id: b.id, kind: b.kind, ...this.place(s, b) });
     }
@@ -1762,7 +1765,7 @@ export class View {
     for (const b of s.buildings) {
       if (b.status === 'construction') continue;
       const k = key(b.x, b.y);
-      push(k, `${b.id}.${b.status}.${b.acc}.${oldLevel(s, b)}`);
+      push(k, `${b.id}.${b.status}.${b.acc}.${oldLevel(s, b)}.${this.lookGrade(s, b)}`);
       let a = blds.get(k); if (!a) blds.set(k, (a = [])); a.push(b);
     }
     for (let y = 2; y < (REAL ? 40 : H - 4); y++) for (let x = 0; x < W; x++) { const i = idx(x, y); push(key(x, y), s.road[i] ? 'r' : s.occ[i] ? 'o' : 'z' + s.zone[i]); }
@@ -2368,6 +2371,18 @@ export class View {
   /** v102：駅ごとの、いまの 1 時間あたりの乗車（住民）・駅に描いた人の数（精細＋簡略） */
   stRNow: Map<number, number> = new Map(); stDrawn = 0;
   stInfo(): { id: number; am: number; crowd: number; agg: number; perH: number; drawn: number }[] { const s = this.getState(), rc = this.stCrowdRes(s); return this.stStats(s).map(x => ({ id: x.b.id, am: this.stRAm.get(x.b.id) ?? 0, crowd: rc?.get(x.b.id) ?? -1, agg: x.crowd, perH: this.stRNow.get(x.b.id) ?? 0, drawn: this.stDrawn })); }
+  /** v104b：駅ごとの見た目の段（render/grades.ts）。同じ lv のあいだは下げない（乗降客数が月ごとに揺れても、駅舎が建ったり戻ったりしない）。stGradeForce は撮影用 */
+  private stGr = new Map<number, { lv: number; g: number }>(); stGradeForce: number | null = null;
+  private stGrades(s: GameState): Map<number, number> {
+    const out = new Map<number, number>(), st = this.stStats(s), pop = s.stats?.pop ?? 0;
+    for (const b of s.buildings) { if (b.kind !== 'station') continue; const lv = b.lv ?? 1, x = st.find(o => o.b.id === b.id), p = this.stGr.get(b.id);
+      let g = stationGrade({ lv, riders: x?.riders ?? 0, pop }); if (p && p.lv === lv) g = Math.max(g, p.g); this.stGr.set(b.id, { lv, g }); out.set(b.id, this.stGradeForce ?? g); }
+    return out;
+  }
+  /** v104b：建物の模型に渡す見た目の段。線路と一緒に描く駅は 10＋駅の段（敷地は舗装と植え込みだけ。駅舎・ホームは rails.ts）、ほかは facilityGrade */
+  private lookGrade(s: GameState, b: Building): number { return b.kind === 'station' ? (this.railStations.has(b.id) ? 10 + (this.stGrades(s).get(b.id) ?? 0) : -1) : facilityGrade(b.kind, b.lv ?? 1, s.stats?.pop ?? 0); }
+  /** v104b：市役所は段 1（市役所）だけ glb、段 0（町役場）・段 2（高層の市役所）はコードの模型 */
+  private lmOff(s: GameState, b: Building): boolean { return b.kind === 'cityHall' && facilityGrade(b.kind, b.lv ?? 1, s.stats?.pop ?? 0) !== 1; }
   /** v87：駅ごとの混雑率（sim の stationStats を読むだけ。政策の記録がまだ無い街では空） */
   private stStats(s: GameState): { b: Building; crowd: number; riders: number }[] {
     if (s.pol) { try { return stationStats(s); } catch { return []; } }
@@ -4115,7 +4130,7 @@ export class View {
     const id = sid(s);
     let old = 0; for (let i = 0; i < N; i++) if (s.road[i] && s.roadAge[i] > 70) old++; else if (s.road[i] && s.roadAge[i] > 40) old += 1000;
     let fac = 0; if (REAL) for (const b of s.buildings) if (!b.osm) fac += b.id + (b.kind === 'station' && b.status !== 'construction' ? 0.5 : 0); // 施設の敷地を横切る細い道を消すため。駅は完成で線路側に描く
-    const stK = s.buildings.filter(b => b.kind === 'station').map(b => `${b.id}.${b.status === 'construction' ? 0 : 1}.${b.lv ?? 1}.${b.shin === undefined ? '-' : s.month >= b.shin ? 'o' : 'p'}`).join(','); // 駅ビル・新幹線は線路と一緒に描く
+    const stG = REAL ? null : this.stGrades(s), stK = s.buildings.filter(b => b.kind === 'station').map(b => `${b.id}.${b.status === 'construction' ? 0 : 1}.${b.lv ?? 1}.${stG?.get(b.id) ?? ''}.${b.shin === undefined ? '-' : s.month >= b.shin ? 'o' : 'p'}`).join(','); // 駅ビル・新幹線は線路と一緒に描く
     { const mm = getMap(s.seed), ck = s.rail ? (s.railGrade ?? []).map((g, i) => (g === 3 && s.rail![i] ? i : -1)).filter(i => i >= 0).join(',') : ''; if (mm !== this.map || (!REAL && ck !== this.cutKey)) { this.map = mm; if (!REAL) this.buildLand(); this.chunkSig.clear(); this.sigRoad = ''; this.sigTown = ''; this.sigOverlay = ''; this.sigSites = ''; } } // 地形の造作
     if (this.infraV !== s.bVersion) { this.infraV = s.bVersion; this.infraK = infraKey(s); } // v87：鉄塔・発電所・変電所・共同溝が変わったら道路（送電線・無電柱化）を描き直す
     const scK = s.buildings.filter(b => (b.kind === 'school' || b.kind === 'nursery' || b.kind === 'nurseryS' || b.kind === 'nurseryL' || b.kind === 'jhs') && b.status !== 'construction').map(b => b.id).join(','); // v104a：学校に接する生活道路は歩道つき
