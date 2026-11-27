@@ -134,7 +134,7 @@ const extLook = (m: MapDef, x: number, y: number): number => (!REAL && m.deco &&
 import { DISTRICTS } from '../sim/types';
 import { residentPlan, profileOf, shortWho, stationFlow, isHoliday, RM_WALK, RM_BIKE, RM_BUS, RM_CAR, type Plan, type RTrip } from './residents'; // v98
 import { LowSet, FarFlow, lowPersonGeo, lowCarGeo, tripTile, type FarEnv } from './lodcrowd'; // v102
-import { roadGeom, lanePos, walkPos, type PathEnv } from './farpath'; // v103
+import { roadGeom, lanePos, walkPos, walkMid, type PathEnv } from './farpath'; // v103
 import { veilQuads } from './veil'; // v103
 import { incInterval, hourRate, pickInc, incSeverity, incUnits, incText, incFollowText, IncidentFeed, FATAL_P, POLICE_BASE, KOBAN, FIRE_BASE, FUNERAL, type IncidentEvent, type IncKind, type IncSub, type Unit } from './incidents';
 import { emPlan, roadRoute, roadNear, emSite, nearestBase, jamLook, stationLook, isRightTurn, EM_VM, EM_BASE, HOSPITALS, type EmKind } from './traffic';
@@ -2385,11 +2385,14 @@ export class View {
     for (let row = 0; row < 5; row++) { const v = 22.5 + row * 1.3, dir = row % 2 ? -1 : 1; for (let k = 0; k <= 50; k++) { const u = dir * (-17.5 + k * 0.7); const [x, z] = at(u + (rr() - 0.5) * 0.15, v); out.q.push(x, this.surfY(x, z) + 0.15, z, Math.atan2(tx * dir, tz * dir) + (rr() - 0.5) * 0.4); } }
     // 駅のまわり（3 区画以内）の歩道：道路の両側に 0.9m おき。駅に近い順
     const sw: [number, number, number, number][] = [];
-    for (let y = b.y - 3; y < b.y + b.h + 3; y++) for (let x = b.x - 3; x < b.x + b.w + 3; x++) { if (!inMap(x, y)) continue; const i = idx(x, y), t = s.road[i]; if (!t || t === 3) continue;
-      const hw0 = t === 2 && this.wideSet?.has(i) ? HW[3] : HW[t], hw = hw0 + (t === 1 ? -0.4 : walkW(hw0) * 0.5), cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE, ew = (x > 0 && s.road[i - 1]) || (x < W - 1 && s.road[i + 1]), ns = (y > 0 && s.road[i - W]) || (y < H - 1 && s.road[i + W]);
-      for (let k = -15; k < 15; k += 0.9) for (const sg of [-1, 1]) { if (ew && ns && Math.abs(k) < hw + 1) continue; const j = (rr() - 0.5) * 0.5, dd = Math.hypot(cx - lx, cz - lz) + rr() * 8;
-        if (ew || !ns) sw.push([cx + k, cz + sg * (hw + j), dd + Math.abs(k) * 0.2, cx > lx ? -Math.PI / 2 : Math.PI / 2]);
-        if (ns) sw.push([cx + sg * (hw + j), cz + k, dd + Math.abs(k) * 0.2, cz > lz ? Math.PI : 0]); } }
+    // v103：歩道（路側帯）の幅の中ほど（腕ごとの幅。src/render/farpath.ts の walkMid）。前は生活道路で中心から 2.1m（外側線の内＝車道の中）に並べていた。
+    // 交差点では横の道を渡る所（横の道の車道と歩道の帯）に立たせない。円弧の曲がり角の区画には置かない
+    const pe = this.pathEnv(s);
+    for (let y = b.y - 3; y < b.y + b.h + 3; y++) for (let x = b.x - 3; x < b.x + b.w + 3; x++) { if (!inMap(x, y)) continue; const i = idx(x, y), t = s.road[i]; if (!t || t === 3 || pe.bend(i)) continue;
+      const hE = Math.max(pe.armHW(i, 1, 0), pe.armHW(i, -1, 0)), hN = Math.max(pe.armHW(i, 0, 1), pe.armHW(i, 0, -1)), ew = hE > 0, ns = hN > 0, cx = (x + 0.5) * TILE, cz = (y + 0.5) * TILE;
+      for (let k = -15; k < 15; k += 0.9) for (const sg of [-1, 1]) { const dd = Math.hypot(cx - lx, cz - lz) + rr() * 8;
+        if (ew && !(ns && Math.abs(k) < hN + walkW(hN))) { const j = (rr() - 0.5) * walkW(hE) * 0.4; sw.push([cx + k, cz + sg * (walkMid(hE) + j), dd + Math.abs(k) * 0.2, cx > lx ? -Math.PI / 2 : Math.PI / 2]); }
+        if (ns && !(ew && Math.abs(k) < hE + walkW(hE))) { const j = (rr() - 0.5) * walkW(hN) * 0.4; sw.push([cx + sg * (walkMid(hN) + j), cz + k, dd + Math.abs(k) * 0.2, cz > lz ? Math.PI : 0]); } } }
     sw.sort((p, q) => p[2] - q[2]);
     for (const [x, z, , yw] of sw.slice(0, 700)) out.st.push(x, this.surfY(x, z) + 0.15, z, yw + (rr() - 0.5) * 0.6);
     this.plaza.set(sp.id, out); return out;

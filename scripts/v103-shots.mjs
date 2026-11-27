@@ -31,6 +31,13 @@ if (WHAT.includes('far')) {
     await shoot(nm);
   }
 }
+if (WHAT.includes('goal')) {
+  // 朝 8 時、駅へ歩く人がいちばん多く着く道路の区画（駅前）を真上から。精細な人のまま（前は着いた人が車道の真ん中に立っていた）
+  await at(8, info.st, 400, 0.9, 0.7); await sim(15);
+  const gt = await page.evaluate(() => { const v = window.__sumu.view, c = new Map(); for (const a of v.peds) { const g = a.goal; if (g >= 0) c.set(g, (c.get(g) ?? 0) + 1); } let b = -1, n = 0; for (const [k, m] of c) if (m > n) { n = m; b = k; } return { tile: b, n }; });
+  console.log('goal', JSON.stringify(gt));
+  if (gt.tile >= 0) { await page.evaluate(t => { const v = window.__sumu.view; v.focus(t, 55); v.pitch = 1.2; v.yaw = 0.4; v.want.pitch = 1.2; v.want.yaw = 0.4; v.target.x = v.want.x; v.target.z = v.want.z; v.dist = 55; }, gt.tile); await sim(4); await shoot('goal-8am'); }
+}
 if (WHAT.includes('veil')) {
   await at(10.5, info.c, 2600, 0.95, 0.7); await shoot('veil-zenkei');
   await at(10.5, info.c, 1100, 0.7, 2.6); await shoot('veil-mid'); // 斜めから、編入前の区域の暗幕と黄色い柵
