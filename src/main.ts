@@ -54,7 +54,7 @@ function start(data: { save?: string; terrain?: string; contest?: number } = {})
   (document as any).fonts?.ready?.then(() => view.redrawSigns());
   // 公開ページが更新されても街を引き継ぐ
   try { window.claude?.hot?.snapshot?.(() => ({ save: game.exportText(), mapId: MAP_ID })); } catch (e) { console.warn('snapshot', e); }
-  let last = performance.now(), slowT = 0; const seenErr = new Set<string>();
+  let last = performance.now(), slowT = 0, slowN = 0, fastN = 0, upN = 0; const seenErr = new Set<string>();
   const loopErr = (w: string, e: unknown) => { const m = `${w}: ${(e as Error)?.message ?? e}`; if (seenErr.has(m)) return; seenErr.add(m); console.error(m, e); };
   const loop = (now: number) => {
     // スマホの軽量表示は 1 秒 30 コマにして、電池と発熱を抑える（見た目の滑らかさはほぼ変わらない）
@@ -66,8 +66,12 @@ function start(data: { save?: string; terrain?: string; contest?: number } = {})
     try { ui.tick(); } catch (e) { loopErr('ui', e); }
     try { if (sound.ctx) sound.tick(dt, game.view, view.audioInfo()); } catch (e) { console.warn('sound', e); }
     // 動きが重い端末では、描画の品質を自動で下げる
+    // v102：2.5 秒ごとに見て、2 回続けて fps 22 未満なら下げる（5 秒以内）。fps 55 以上が 8 回（20 秒）続けば 1 段上げる（利用者が設定で選んだ後は上げない）
     slowT += dt;
-    if (slowT > 5) { slowT = 0; const f = view.stats.fps; if (f > 0 && f < 24 && view.quality !== 'low' && !document.hidden && !window.__sumu?.fixedQuality) { view.setQuality(view.quality === 'high' ? 'mid' : 'low'); ui.toast(`動きが重いため、描画の品質を「${view.quality === 'mid' ? '中' : '低'}」に下げました（保存・設定で変えられます）`); } }
+    if (slowT > 2.5) { slowT = 0; const f = view.stats.fps, auto = !document.hidden && !window.__sumu?.fixedQuality;
+      slowN = f > 0 && f < 22 ? slowN + 1 : 0; fastN = f >= 55 ? fastN + 1 : 0;
+      if (auto && slowN >= 2 && view.quality !== 'low') { slowN = 0; fastN = 0; view.setQuality(view.quality === 'high' ? 'mid' : 'low'); ui.toast(`動きが重いため、描画の品質を「${view.quality === 'mid' ? '中' : '低'}」に下げました（保存・設定で変えられます）`); }
+      else if (auto && view.autoQ && fastN >= 8 && view.quality !== 'high' && upN < 2) { fastN = 0; upN++; view.setQuality(view.quality === 'low' ? 'mid' : 'high'); } }
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);

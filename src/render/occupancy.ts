@@ -94,22 +94,22 @@ export function crowdPlan(s: GameState, b: Building, hour: number, P: { x: numbe
   if (occ.group === 'school') {
     // 校庭（小学校の模型：x -38〜14, z 0〜22。中学・高校は狭い）・門（手前の中央）・教室の窓（z -15.75、3 階）
     const jhs = fam(b.kind) === 'jhs', fx0 = jhs ? -18 : -38, fx1 = 14, big = b.w >= 3, over = Math.max(0, occ.ratio - 1);
-    const per = 9 / Math.max(0.35, qk), stu = occ.present / per; // 1 人の姿で何人を表すか（品質で変える）
+    const per = 1, stu = occ.present / per, excess = occ.ratio > 1 ? occ.present * (1 - 1 / occ.ratio) : 0; // v102：1 人を 1 人で（精細か簡略かは scene が距離で決める）。excess：定員を超えた人数
     if (!big) { // 小さな敷地の学校（模型の形がわからない）：手前の広場と門
       if (ph === 'b' || ph === 'b2' || ph === 'l') scatter(N(stu * 0.6), -hx * 0.6, hx * 0.6, 0, hz * 0.6, kidT, 1.5, 0.35);
       if (over > 0 && ph !== 'n' && ph !== 'n2') queue(N(10 * over + 3), 0, kidT);
     } else {
       if (ph === 'a') { scatter(N(stu * 0.35), fx0 + 10, fx1, 2, 24, kidT, 1.2, 0.5); queue(N(stu * 0.25 + 8 * over), -10, kidT, 0.7); }                                  // 登校：校門に集まり、校庭を昇降口へ
       else if (ph === 'b' || ph === 'b2') scatter(N(stu * (0.7 + 0.3 * Math.min(1, over * 2))), fx0 + 1, fx1 - 1, 1, 21 + Math.min(5, over * 10), kidT, 2.2, 0.6); // 休み時間：校庭いっぱい
-      else if (ph === 'c' || ph === 'c2' || ph === 'c3') scatter(N(Math.min(28, stu * 0.08 + 6)), fx0 + 8, fx0 + 30, 6, 18, kidT, 3, 0.5);                       // 授業中：体育の 1 クラスだけ
+      else if (ph === 'c' || ph === 'c2' || ph === 'c3') scatter(N(Math.min(35, stu * 0.06 + 6)), fx0 + 8, fx0 + 30, 6, 18, kidT, 3, 0.5);                       // 授業中：体育の 1 クラスだけ
       else if (ph === 'l') { scatter(N(stu * 0.25), fx0 + 4, fx1, 2, 22, kidT, 1.5, 0.4); queue(N(stu * 0.15), -10, kidT, 0.8); }                                         // 下校
       // 定員超過：門の外まで子どもと見守りの大人があふれる
-      if (over > 0 && ph !== 'n' && ph !== 'n2' && ph !== 'e') { queue(N(16 * over + 4), 14, kidT, 0.6); queue(N(3 + 4 * over), -30, () => 'parent', 1.6); }
+      if (over > 0 && ph !== 'n' && ph !== 'n2' && ph !== 'e') { queue(N(Math.min(400, excess * 0.35) + 4), 14, kidT, 0.6); queue(N(3 + excess * 0.03), -30, () => 'parent', 1.6); } // v102：あふれは超えた人数に比例
       // 教室の窓の人影（授業中・休み時間）：定員に対する人数で、窓 1 枚に 1〜3 人
       if (occ.present > 0 && ph !== 'l' && ph !== 'e') { const fill = Math.min(1.6, occ.ratio), bx = -10, w = 58, fz = -21 + 10.5 / 2;
         props.push((g) => { for (let f = 0; f < 3; f++) for (let k = 0; k < 18; k++) {
-          const lx = k < 9 ? bx - w / 2 + 1 + (k + 0.5) * (w / 2 - 5) / 9 : bx + 4 + (k - 8.5) * (w / 2 - 5) / 9, nIn = Math.floor(fill * 2 + hash(b.id + f * 31, k, 7)); // 窓 1 枚の人数
-          for (let p = 0; p < Math.min(3, nIn); p++) { const ox = (p - (Math.min(3, nIn) - 1) / 2) * 0.55;
+          const lx = k < 9 ? bx - w / 2 + 1 + (k + 0.5) * (w / 2 - 5) / 9 : bx + 4 + (k - 8.5) * (w / 2 - 5) / 9, nIn = Math.floor(Math.min(4, (occ.present * 0.9) / (54 * 3.5)) + hash(b.id + f * 31, k, 7)); void fill; // 窓 1 枚の人数（v102：在籍＝いま教室にいる人数に比例。1 枚に 0〜4 人）
+          for (let p = 0; p < Math.min(4, nIn); p++) { const ox = (p - (Math.min(4, nIn) - 1) / 2) * 0.5;
             g.at(P.x, P.y, P.z, P.rot); g.box(lx + ox, f * 3.6 + 1.25, fz + 0.12, 0.42, 0.55, 0.04, 0x39414c); g.box(lx + ox, f * 3.6 + 1.82, fz + 0.12, 0.24, 0.26, 0.04, 0x39414c); } }
           g.at(0, 0, 0); });
       }
@@ -123,7 +123,7 @@ export function crowdPlan(s: GameState, b: Building, hour: number, P: { x: numbe
     }
   } else if (occ.group === 'care') {
     // 保育園（1 区画の模型：園庭 x -12〜4, z 3〜11、門 x 8.5）
-    const kids = occ.present / (4 / Math.max(0.35, qk));
+    const kids = occ.present; // v102：1 人を 1 人で
     if ((hour >= 9.5 && hour < 11.5) || (hour >= 15 && hour < 16.5)) scatter(N(kids * 0.7), -12, 3, 3.5, 11.5, () => 'student', 1.2, 0.5, true);
     else if (hour >= 7 && hour < 19) scatter(N(kids * 0.15), -10, 2, 4, 10, () => 'student', 0.6, 0.3, true);
     const rush = (hour >= 7.3 && hour < 9) || (hour >= 16.5 && hour < 19); // 送り迎え
@@ -132,18 +132,18 @@ export function crowdPlan(s: GameState, b: Building, hour: number, P: { x: numbe
     const wl = N(Math.min(40, occ.wait / 2)); for (let k = 0; k < wl; k++) { put(8.5 - k * 0.9, hz + 2.4, 'parent', 0.05, 0.04); if (k % 2 === 0) put(8.5 - k * 0.9 + 0.3, hz + 2.9, 'student', 0.05, 0.04, true); }
   } else if (occ.group === 'health') {
     // 病院・診療所：入口のまわりと待合の窓。超過なら入口の外に列、病院は救急車が並ぶ
-    const n = N(Math.min(40, occ.present / 2)); scatter(n, -hx * 0.3, hx * 0.3, hz - 6, hz - 2, () => (rnd() < 0.5 ? 'elderly' : rnd() < 0.5 ? 'parent' : 'worker'), 0.4, 0.12);
+    const n = N(Math.min(300, occ.present * 0.3)); scatter(n, -hx * 0.3, hx * 0.3, hz - 6, hz - 2, () => (rnd() < 0.5 ? 'elderly' : rnd() < 0.5 ? 'parent' : 'worker'), 0.4, 0.12);
     const wq = N(Math.min(48, occ.wait / 1.5)); queue(wq, -2, () => (rnd() < 0.55 ? 'elderly' : rnd() < 0.2 ? 'wheel' : 'worker'), 0.8);
     const hosp = b.w >= 2 || b.kind === 'hospital'; if (hosp) vehicles(Math.min(4, 1 + Math.floor(Math.max(0, occ.ratio - 0.9) * 6)), 'amb', hx - 6);
   } else if (occ.group === 'park') {
-    scatter(N(Math.min(90, occ.present / 2)), -hx * 0.8, hx * 0.8, -hz * 0.8, hz * 0.8, () => { const r = rnd(); return r < 0.25 ? 'parent' : r < 0.45 ? 'elderly' : r < 0.6 ? 'dog' : r < 0.75 ? 'jogger' : r < 0.9 ? 'student' : 'teen'; }, 2.5, 0.35);
+    scatter(N(Math.min(2000, occ.present)), -hx * 0.8, hx * 0.8, -hz * 0.8, hz * 0.8, () => { const r = rnd(); return r < 0.25 ? 'parent' : r < 0.45 ? 'elderly' : r < 0.6 ? 'dog' : r < 0.75 ? 'jogger' : r < 0.9 ? 'student' : 'teen'; }, 2.5, 0.35);
   } else if (occ.group === 'shop' || occ.group === 'leisure') {
-    const n = N(Math.min(occ.group === 'leisure' ? 80 : 40, occ.present / 3));
+    const n = N(occ.group === 'leisure' ? Math.min(1500, occ.present * 0.7) : Math.min(300, occ.present * 0.3)); // v102：外に見える人（行楽地は 7 割、店は 3 割）
     scatter(Math.round(n * 0.6), -hx * 0.7, hx * 0.7, hz - 8, hz - 1, () => (occ.group === 'leisure' ? (rnd() < 0.4 ? 'tourist' : rnd() < 0.5 ? 'parent' : 'teen') : rnd() < 0.6 ? 'shopper' : 'elderly'), 1.2, 0.3);
     scatter(n - Math.round(n * 0.6), -hx * 0.9, hx * 0.9, hz + 1.5, hz + 3.5, () => (occ.group === 'leisure' ? 'tourist' : 'shopper'), 1.5, 0.35); // 前の歩道
     if (occ.group === 'leisure' && occ.present > 60 && (occDay.holiday || holidayK(s) >= 0.6)) queue(N(Math.min(30, occ.present / 8)), -hx * 0.3, () => (rnd() < 0.5 ? 'tourist' : 'parent'), 0.8); // 休日の入場待ち
   } else if (occ.group === 'gov') {
-    scatter(N(Math.min(30, occ.present / 2)), -hx * 0.4, hx * 0.4, hz - 6, hz - 1, () => (rnd() < 0.4 ? 'elderly' : rnd() < 0.5 ? 'parent' : 'worker'), 0.8, 0.2);
+    scatter(N(Math.min(200, occ.present * 0.3)), -hx * 0.4, hx * 0.4, hz - 6, hz - 1, () => (rnd() < 0.4 ? 'elderly' : rnd() < 0.5 ? 'parent' : 'worker'), 0.8, 0.2);
   } else if (occ.group === 'waste') {
     if (occ.wait > 0) vehicles(Math.min(6, Math.round(occ.wait)), 'pack', hx - 4); // 搬入を待つごみ収集車の列
   }

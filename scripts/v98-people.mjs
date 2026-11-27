@@ -24,7 +24,7 @@ const sim = sec => page.evaluate(sec => { const v = window.__sumu.view, s = wind
 const at = (hour, hol, tile, d = 260) => page.evaluate(([h, hol, t, d]) => { const v = window.__sumu.view; v.hour = h; v.holiday = hol; v.applyTime?.(); v.focus(t, d); v.pitch = 0.62; v.yaw = 0.7; v.target.x = v.want.x; v.target.z = v.want.z; v.agentSpawnAt.x = -1e9; v.spawnAgents(); }, [hour, hol, tile, d]);
 const report = (label) => page.evaluate(label => { const v = window.__sumu.view, r = v.resInfo, ped = v.peds.find(a => a.rt), car = v.cars.find(a => a.rt && a.rt.mode === 4), bike = v.cars.find(a => a.rt && a.rt.mode === 1);
   const whys = {}; for (const a of [...v.peds, ...v.cars]) if (a.rt) whys[a.rt.why] = (whys[a.rt.why] ?? 0) + 1;
-  return { label, visible: r.visible, drawn: r.drawn, total: r.total, holiday: r.holiday, spawnMs: r.ms, tickMs: r.tickMs, cars: v.cars.length, peds: v.peds.length, whys,
+  return { label, visible: r.visible, drawn: r.drawn, far: r.far, farBy: r.farBy, total: r.total, holiday: r.holiday, spawnMs: r.ms, tickMs: r.tickMs, cars: v.cars.length, peds: v.peds.length, whys,
     ped: ped ? v.whoIs(ped, true) : null, car: car ? v.whoIs(car, false) : null, bike: bike ? v.whoIs(bike, false) : null }; }, label);
 if (WHAT.includes('people')) {
   for (const [h, hol, name] of [[8, false, 'am'], [12.5, false, 'noon'], [11, true, 'holiday'], [17.8, false, 'pm'], [22.5, false, 'night']]) {
