@@ -134,6 +134,7 @@ const extLook = (m: MapDef, x: number, y: number): number => (!REAL && m.deco &&
 import { DISTRICTS } from '../sim/types';
 import { residentPlan, profileOf, shortWho, stationFlow, isHoliday, RM_WALK, RM_BIKE, RM_BUS, RM_CAR, type Plan, type RTrip } from './residents'; // v98
 import { LowSet, FarFlow, lowPersonGeo, lowCarGeo, tripTile, type FarEnv } from './lodcrowd'; // v102
+import { roadGeom, lanePos, type PathEnv } from './farpath'; // v103
 import { incInterval, hourRate, pickInc, incSeverity, incUnits, incText, incFollowText, IncidentFeed, FATAL_P, POLICE_BASE, KOBAN, FIRE_BASE, FUNERAL, type IncidentEvent, type IncKind, type IncSub, type Unit } from './incidents';
 import { emPlan, roadRoute, roadNear, emSite, nearestBase, jamLook, stationLook, isRightTurn, EM_VM, EM_BASE, HOSPITALS, type EmKind } from './traffic';
 
@@ -3044,38 +3045,15 @@ export class View {
   private wideSet = new Set<number>();
   private laneOff(s: GameState, i: number, lane: number): number { const t = s.road[i]; return t === 3 || (t === 2 && this.wideSet.has(i)) ? (lane ? 1.9 : 5.6) : t === 2 ? 2.5 : 1.25; }
   private lp = { x: 0, z: 0, dx: 0, dz: 1 };
-  /** prev→cur→next→nn と進む車の、cur→next の t（0〜1）での位置と向き。結果は this.lp */
+  /** v103：道の形の問い合わせ（車線・歩道の位置。src/render/farpath.ts）。道路・拡幅・高架は参照で見るので、街ごとに 1 つ */
+  private pathE: PathEnv | null = null; private pathS: GameState | null = null;
+  private pathEnv(s: GameState): PathEnv {
+    if (this.pathE && this.pathS === s) return this.pathE;
+    this.pathS = s; return this.pathE = roadGeom(s.road, W, H, TILE, { has: i => this.wideSet.has(i) }, { has: i => this.deckH.has(i) }, GATEWAYS);
+  }
+  /** prev→cur→next→nn と進む車の、cur→next の t（0〜1）での位置と向き。結果は this.lp（v103：src/render/farpath.ts の lanePos。曲がり角の区画は円弧の車線） */
   private lanePath(s: GameState, prev: number, cur: number, next: number, nn: number, t: number, lane: number): { x: number; z: number; dx: number; dz: number } {
-    const o = this.lp, cxOf = (i: number) => (i % W + 0.5) * TILE, czOf = (i: number) => (((i / W) | 0) + 0.5) * TILE;
-    if (cur === next) { o.x = cxOf(cur); o.z = czOf(cur); return o; }
-    const dir = (a: number, b: number): [number, number] => [Math.sign(b % W - a % W), Math.sign(((b / W) | 0) - ((a / W) | 0))];
-    const dm = dir(cur, next); let c: number, d0: [number, number], d1: [number, number], sl: number, back: number, fwd: number;
-    if (t < 0.5) { c = cur; d1 = dm; d0 = prev >= 0 && prev !== cur ? dir(prev, cur) : dm; sl = t * TILE; back = prev >= 0 ? prev : -1; fwd = next; }
-    else { c = next; d0 = dm; d1 = nn !== undefined && nn >= 0 && nn !== next ? dir(next, nn) : dm; sl = (t - 1) * TILE; back = cur; fwd = nn >= 0 ? nn : -1; }
-    const cx = cxOf(c), cz = czOf(c), off = this.laneOff(s, c, lane);
-    // 区画の境い目では、となりの区画の車線の位置へなめらかに寄せる（道幅が変わる所で横に飛ばない）
-    const nb = sl < 0 ? back : fwd, offN = nb >= 0 && s.road[nb] ? this.laneOff(s, nb, lane) : off, w = Math.max(0, Math.min(1, (Math.abs(sl) - (TILE / 2 - 6)) / 6)) * 0.5, offE = off + (offN - off) * w;
-    const l0x = d0[1], l0z = -d0[0], l1x = d1[1], l1z = -d1[0]; // 進む向きの左
-    const P0 = (q: number, f: number) => { o.x = cx + d0[0] * q + l0x * f; o.z = cz + d0[1] * q + l0z * f; o.dx = d0[0]; o.dz = d0[1]; };
-    const P1 = (q: number, f: number) => { o.x = cx + d1[0] * q + l1x * f; o.z = cz + d1[1] * q + l1z * f; o.dx = d1[0]; o.dz = d1[1]; };
-    const dot = d0[0] * d1[0] + d0[1] * d1[1];
-    if (dot > 0.5) { P1(sl, offE); return o; }
-    if (dot < -0.5) { // 行き止まりの折り返し：手前で右回りに半円を描いて、反対向きの車線へ
-      const r = off + 1;
-      if (sl <= -r) P0(sl, offE); else if (sl >= r) P1(sl, offE);
-      else { const th = Math.PI * (sl + r) / (2 * r), cs = Math.cos(th), sn = Math.sin(th), ax = cx - d0[0] * r, az = cz - d0[1] * r;
-        o.x = ax + l0x * off * cs + d0[0] * off * sn; o.z = az + l0z * off * cs + d0[1] * off * sn; o.dx = -l0x * sn + d0[0] * cs; o.dz = -l0z * sn + d0[1] * cs; }
-      return o;
-    }
-    // 右左折：車線どうしの交わる点 K を角にして、手前 A から先 B へ丸く曲がる（左折は小回り、右折は大回り）
-    const left = d1[0] * l0x + d1[1] * l0z > 0, Wd = left ? off + 3 : 7;
-    if (sl <= -Wd) { P0(sl, offE); return o; } if (sl >= Wd) { P1(sl, offE); return o; }
-    const kx = cx + l0x * off + l1x * off, kz = cz + l0z * off + l1z * off;
-    const ax = cx + d0[0] * -Wd + l0x * off, az = cz + d0[1] * -Wd + l0z * off, bx = cx + d1[0] * Wd + l1x * off, bz = cz + d1[1] * Wd + l1z * off;
-    const u = (sl + Wd) / (2 * Wd), v = 1 - u;
-    o.x = v * v * ax + 2 * v * u * kx + u * u * bx; o.z = v * v * az + 2 * v * u * kz + u * u * bz;
-    const tx = v * (kx - ax) + u * (bx - kx), tz = v * (kz - az) + u * (bz - kz), tl = Math.hypot(tx, tz) || 1; o.dx = tx / tl; o.dz = tz / tl;
-    return o;
+    return lanePos(this.lp, this.pathEnv(s), prev, cur, next, nn, t, lane);
   }
   private nextTile(s: GameState, cur: number, prev: number, ped: boolean): number {
     const x = cur % W, y = (cur / W) | 0, opts: number[] = [];
@@ -3238,7 +3216,8 @@ export class View {
   /** v102：遠くを動く住民の動かし方に要る街の情報 */
   private farEnv(s: GameState): FarEnv {
     const jam = this.flow().jam, ty = this.target.y;
-    return { road: s.road, W, H, TILE, surfY: (x, z) => this.surfY(x, z), laneOff: i => this.laneOff(s, i, 0), walkOff: i => this.pedHW(s, i) + 1.2,
+    const pe = this.pathEnv(s);
+    return { ...pe, road: s.road, H, surfY: (x, z) => this.surfY(x, z),
       slow: i => { const v = (s.vc[i] || 0) * jam; return v < 0.8 ? 1 : 1 / (1 + (v - 0.8) * 4); },
       seen: (x, z) => { this.frusS.center.set(x, ty, z); return this.frus.intersectsSphere(this.frusS); } };
   }

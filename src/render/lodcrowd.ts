@@ -2,6 +2,7 @@
 // 近くは今までの精細な人（people.ts、1 人 約 900 三角形）と車（vehgen.ts）、上限を超えた分と遠くの分はここで描く。
 // 人は 6 角の柱と頭（22 三角形）、車は車体と屋根の 2 つの箱（20 三角形）。影は落とさない。押したときの紹介（v98）は近くの精細な人・車だけ。
 import * as THREE from 'three';
+import { lanePos, walkPos, type PathEnv, type PathOut } from './farpath';
 
 /** 簡略な人：足元 y=0、背丈 1.65m。体は白（インスタンスの色＝服の色を掛ける）、頭は暗い（髪） */
 export function lowPersonGeo(): THREE.BufferGeometry {
@@ -61,13 +62,11 @@ export class LowSet {
 // ---------------------------------------------------------------- 遠くを動く住民（精細な人・車の上限を超えた分）
 /** 住民 1 人の移動（residents.ts の RTrip の、描くのに要る分だけ） */
 export interface FarTrip { person: number; mode: number; role: number; from: number; to: number; prog: number; path?: number[] }
-export interface FarMover { person: number; mode: number; from: number; path?: number[]; pi: number; cur: number; next: number; prev: number; goal: number; u: number; sp: number; col: number; side: number; y0: number; y1: number }
-/** 動かすのに要る街の情報（scene が渡す） */
-export interface FarEnv {
-  road: ArrayLike<number>; W: number; H: number; TILE: number;
+export interface FarMover { person: number; mode: number; from: number; path?: number[]; pi: number; prev: number; cur: number; next: number; nn: number; goal: number; u: number; sp: number; col: number; side: number; y0: number; y1: number }
+/** 動かすのに要る街の情報（scene が渡す）。車線・歩道の位置は道の形（PathEnv、src/render/farpath.ts）から */
+export interface FarEnv extends PathEnv {
+  road: ArrayLike<number>; H: number;
   surfY(x: number, z: number): number;
-  /** 車の、道の中心から左の車線までの距離・歩道の位置（道の中心から） */
-  laneOff(i: number): number; walkOff(i: number): number;
   /** 区画の流れの速さの倍率（渋滞で 1 より小さい） */
   slow(i: number): number;
   /** 見えるか（視錐台の中か）。見えない物は動かすだけで描かない */
@@ -103,47 +102,54 @@ export class FarFlow {
     if (!ok(cur)) { cur = -1; const x0 = tripTile(t, W) % W, y0 = (tripTile(t, W) / W) | 0; for (let r = 1; r <= 3 && cur < 0; r++) for (let dy = -r; dy <= r && cur < 0; dy++) for (let dx = -r; dx <= r; dx++) { const x = x0 + dx, y = y0 + dy; if (x < 0 || y < 0 || x >= W || y >= env.H) continue; if (ok(y * W + x)) { cur = y * W + x; break; } } }
     if (cur < 0) return null;
     const r = h1(t.person), pal = ped ? PED_COL[Math.min(5, t.role)] : CAR_COL, col = pal[Math.floor(h1(t.person * 7 + 3) * pal.length)];
-    const m: FarMover = { person: t.person, mode: t.mode, from: ok(t.from) ? t.from : cur, path: t.path, pi, cur, next: cur, prev: -1, goal: t.to, u: r, sp: ped ? 1.15 + r * 0.35 : t.mode === RM_BIKE ? 3.5 + r : 8 + r * 3, col, side: r < 0.5 ? 1 : -1, y0: 0, y1: 0 };
+    const m: FarMover = { person: t.person, mode: t.mode, from: ok(t.from) ? t.from : cur, path: t.path, pi, cur, next: cur, nn: cur, prev: -1, goal: t.to, u: r, sp: ped ? 1.15 + r * 0.35 : t.mode === RM_BIKE ? 3.5 + r : 8 + r * 3, col, side: r < 0.5 ? 1 : -1, y0: 0, y1: 0 };
     this.advance(m, env, true); return m;
   }
-  /** 次の区画を決める（経路があれば経路どおり、なければ行き先へ近づく向き。来た道へは戻らない） */
+  /** at の次の区画（経路があれば経路どおり、なければ行き先へ近づく向き。来た道 back へはなるべく戻らない）。k：経路の上での at の番号の目安 */
+  private choose(m: FarMover, env: FarEnv, at: number, back: number, k0: number): number {
+    const W = env.W, ped = m.mode === RM_WALK, road = env.road, okJ = (j: number) => j >= 0 && j < road.length && !!road[j] && !(ped && road[j] === 3);
+    if (m.path && k0 >= 0) { // 経路の次の区画（隣でなければ経路を外れて近づく向きへ）
+      const k = m.path.indexOf(at, Math.max(0, k0 - 1)); if (k >= 0) { const c = m.path[k + 1]; if (c !== undefined && okJ(c) && (Math.abs(c - at) === 1 || Math.abs(c - at) === W)) return c; }
+    }
+    const x = at % W, gx = m.goal % W, gy = (m.goal / W) | 0; let bv = 1e9, nx = -1;
+    for (const j of [at + 1, at - 1, at + W, at - W]) {
+      if (!okJ(j) || Math.abs((j % W) - x) > 1) continue;
+      let v = Math.abs(j % W - gx) + Math.abs(((j / W) | 0) - gy) + h1(j + m.person) * 0.8; if (j === back) v += 6;
+      if (v < bv) { bv = v; nx = j; }
+    }
+    return nx >= 0 ? nx : back >= 0 ? back : at; // 行き止まり：戻る
+  }
+  /** 次の区間へ進む（prev←cur←next←nn と送り、新しい nn を決める）。first：作った直後（next・nn を決めるだけ） */
   private advance(m: FarMover, env: FarEnv, first = false): void {
-    const W = env.W, ped = m.mode === RM_WALK, road = env.road;
-    if (!first) { m.prev = m.cur; m.cur = m.next; }
-    let nx = -1;
-    if (m.path && m.pi >= 0) { // 経路の次の区画（隣でなければ経路を外れて近づく向きへ）
-      const k = m.path.indexOf(m.cur, Math.max(0, m.pi - 1)); if (k >= 0) { m.pi = k; const c = m.path[k + 1]; if (c !== undefined && road[c] && (Math.abs(c - m.cur) === 1 || Math.abs(c - m.cur) === W) && !(ped && road[c] === 3)) nx = c; }
-    }
-    if (nx < 0) {
-      const x = m.cur % W, y = (m.cur / W) | 0, gx = m.goal % W, gy = (m.goal / W) | 0; let bv = 1e9;
-      for (const j of [m.cur + 1, m.cur - 1, m.cur + W, m.cur - W]) {
-        if (j < 0 || j >= road.length || !road[j] || (ped && road[j] === 3) || (Math.abs((j % W) - x) > 1)) continue;
-        let v = Math.abs(j % W - gx) + Math.abs(((j / W) | 0) - gy) + h1(j + m.person) * 0.8; if (j === m.prev) v += 6; void y;
-        if (v < bv) { bv = v; nx = j; }
+    const road = env.road, W = env.W;
+    if (first) { m.next = this.choose(m, env, m.cur, -1, m.pi); m.nn = this.choose(m, env, m.next, m.cur, m.pi + 1); }
+    else {
+      m.prev = m.cur; m.cur = m.next; m.next = m.nn;
+      if (m.path && m.pi >= 0) { const k = m.path.indexOf(m.cur, Math.max(0, m.pi - 1)); if (k >= 0) m.pi = k; }
+      if (m.cur === m.goal) { // 着いた：出発の所から出直す（同じ時間帯に同じ道を通る別の住民の代わり。見えている住民の数を保つ。5 秒ごとに一覧が合わせ直される）
+        m.prev = -1; if (m.path && m.path.length > 1 && road[m.path[0]]) { m.pi = 0; m.cur = m.path[0]; } else m.cur = m.from;
+        m.next = this.choose(m, env, m.cur, -1, m.pi);
       }
+      m.nn = this.choose(m, env, m.next, m.cur, m.pi + 1);
+      if (m.mode === RM_WALK && m.prev >= 0 && m.next === m.prev) m.side = -m.side; // 折り返し：同じ側の歩道のまま向きを変える（進む向きの左右が入れかわる）
     }
-    if (m.cur === m.goal) { // 着いた：出発の所から出直す（同じ時間帯に同じ道を通る別の住民の代わり。見えている住民の数を保つ。5 秒ごとに一覧が合わせ直される）
-      m.prev = -1; if (m.path && m.path.length > 1) { m.pi = 0; m.cur = m.path[0]; nx = m.path[1]; } else { m.cur = m.from; nx = -1; }
-      if (nx < 0 || !road[nx]) { nx = m.cur; for (const j of [m.cur + 1, m.cur - 1, m.cur + W, m.cur - W]) if (j >= 0 && j < road.length && road[j] && !(ped && road[j] === 3) && Math.abs((j % W) - (m.cur % W)) <= 1) { nx = j; break; } }
-    } else if (nx < 0) nx = m.prev >= 0 ? m.prev : m.cur; // 行き止まり：戻る
-    m.next = nx;
     const T = env.TILE, c = (i: number): [number, number] => [(i % W + 0.5) * T, (((i / W) | 0) + 0.5) * T];
     const [ax, az] = c(m.cur), [bx, bz] = c(m.next); m.y0 = env.surfY(ax, az); m.y1 = env.surfY(bx, bz);
   }
+  private po: PathOut = { x: 0, z: 0, dx: 0, dz: 1 };
   /** 動かして描く。cam から near より内側は精細な人・車がいるので描かない（重なり防止） */
   step(dt: number, env: FarEnv, camX: number, camZ: number, near: number, far: number): void {
-    const W = env.W, T = env.TILE, n2 = near * near, f2 = far * far;
+    const T = env.TILE, n2 = near * near, f2 = far * far, o = this.po;
     for (const m of this.movers) {
       const ped = m.mode === RM_WALK;
       m.u += dt * m.sp * (ped ? 1 : env.slow(m.cur)) / T;
       let g = 0; while (m.u >= 1 && g++ < 3) { m.u -= 1; this.advance(m, env); }
-      const ax = (m.cur % W + 0.5) * T, az = (((m.cur / W) | 0) + 0.5) * T, bx = (m.next % W + 0.5) * T, bz = (((m.next / W) | 0) + 0.5) * T;
-      let dx = bx - ax, dz = bz - az; const L = Math.hypot(dx, dz);
-      if (L > 0) { dx /= L; dz /= L; } else { dx = 0; dz = 1; }
-      const off = ped ? env.walkOff(m.cur) * m.side : env.laneOff(m.cur);
-      const x = ax + (bx - ax) * m.u + dz * off, z = az + (bz - az) * m.u - dx * off;
+      if (m.u >= 1) m.u = 0.999;
+      // v103：歩道・車線の上の位置（区画ごとの道の形に合わせる。曲がり角・交差点・幅の変わる所も。src/render/farpath.ts）
+      if (ped) walkPos(o, env, m.prev, m.cur, m.next, m.nn, m.u, m.side); else lanePos(o, env, m.prev, m.cur, m.next, m.nn, m.u, 0);
+      const x = o.x, z = o.z;
       const d2 = (x - camX) ** 2 + (z - camZ) ** 2; if (d2 < n2 || d2 > f2 || !env.seen(x, z)) continue;
-      const y = m.y0 + (m.y1 - m.y0) * m.u, yaw = Math.atan2(dx, dz);
+      const y = m.y0 + (m.y1 - m.y0) * m.u, yaw = Math.atan2(o.dx, o.dz);
       if (ped) this.peds.put(x, y + 0.1, z, yaw, 1, 1, 1, m.col);
       else if (m.mode === RM_BIKE) this.cars.put(x, y, z, yaw, 0.55, 1.75, 1.75, m.col);
       else if (m.mode === RM_BUS) this.cars.put(x, y, z, yaw, 2.5, 3.1, 10.5, 0xf2f2ee);
