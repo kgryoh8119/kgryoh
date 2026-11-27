@@ -12,9 +12,6 @@ await page.evaluate(() => { const S = window.__sumu, g = S.game, s = g.state; s.
   // 区間ごとの時間を測るため、主な処理を包む
   const T = v.__t = {}; const wrap = (o, k, name) => { const f = o[k]; if (typeof f !== 'function') return; o[k] = function (...a) { const t = performance.now(); try { return f.apply(this, a); } finally { T[name] = (T[name] ?? 0) + performance.now() - t; } }; };
   for (const k of ['moveAgents', 'rebuildTown', 'rebuildRoads', 'rebuildSites', 'decorate', 'rebuildOverlay', 'updateLod', 'moveBuses', 'dramatize', 'updatePaddy', 'spawnAgents']) wrap(v, k, k);
-  wrap(v.renderer, 'render', 'render');
-  // 影の描画だけの時間：three の shadowMap.render を包む
-  wrap(v.renderer.shadowMap, 'render', 'shadow');
 });
 const info = await page.evaluate(() => { const S = window.__sumu, s = S.game.state, W = S.W; let x = 0, y = 0, n = 0, best = null, bv = -1e9;
   for (const b of s.buildings) if (b.hh) { const h = b.hh.reduce((a, c) => a + c, 0); x += b.x * h; y += b.y * h; n += h; }
@@ -31,21 +28,21 @@ for (const q of QS) {
       v.target.x = v.want.x; v.target.z = v.want.z; v.dist = v.want.dist; if (mode === 'ground') v.setMode('ground');
       v.agentSpawnAt && (v.agentSpawnAt.x = -1e9); v.spawnAgents();
       for (let k = 0; k < 4; k++) v.__frame.call(v, 0.1); // 作り直し・LOD を済ませる
-      const gl = v.renderer.getContext(); gl.finish();
+      const gl = v.renderer.getContext(), px = new Uint8Array(4), sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); sync(); // 1 画素を読んで描画の終わりを待つ（GPU の分も含めた時間）
       const T = v.__t; for (const k in T) delete T[k];
-      let js = 0, tot = 0; for (let k = 0; k < N; k++) { const t0 = performance.now(); v.__frame.call(v, 0.1); const t1 = performance.now(); gl.finish(); const t2 = performance.now(); js += t1 - t0; tot += t2 - t0; }
+      let js = 0, tot = 0; for (let k = 0; k < N; k++) { const t0 = performance.now(); v.__frame.call(v, 0.1); const t1 = performance.now(); sync(); const t2 = performance.now(); js += t1 - t0; tot += t2 - t0; }
       const inf = v.renderer.info.render, all = { tris: inf.triangles, calls: inf.calls };
       // 影だけの三角形・draw call：影を切って描いた差
       const cs = v.sun.castShadow; v.sun.castShadow = false; v.__frame.call(v, 0.1); const ns = { tris: v.renderer.info.render.triangles, calls: v.renderer.info.render.calls }; v.sun.castShadow = cs; v.__frame.call(v, 0.1);
       const per = {}; for (const k in T) per[k] = +(T[k] / N).toFixed(1);
       const ri = v.resInfo ?? {};
       return { q, scene: mode === 'ground' ? '地上' : null, tris: all.tris, calls: all.calls, shadowTris: all.tris - ns.tris, shadowCalls: all.calls - ns.calls,
-        jsMs: +(js / N).toFixed(1), totalMs: +(tot / N).toFixed(1), per, cars: v.cars.length, peds: v.peds.length, visible: ri.visible, drawn: ri.drawn }; }, [q, info[at], d, pitch, mode, N]);
+        jsMs: +(js / N).toFixed(1), totalMs: +(tot / N).toFixed(1), per, cars: v.cars.length, peds: v.peds.length, visible: ri.visible, drawn: ri.drawn, far: ri.far };  }, [q, info[at], d, pitch, mode, N]);
     r.scene = name; res.push(r); console.log(JSON.stringify(r));
   }
 }
 fs.writeFileSync(OUT, JSON.stringify(res, null, 1));
 // 表（Markdown）
-console.log('| 品質 | 場面 | 三角形（万） | うち影 | draw call | うち影 | JS ms | 合計 ms | 描画 | 影 | 車・人の更新 | 車/人 |');
-for (const r of res) console.log(`| ${r.q} | ${r.scene} | ${(r.tris / 1e4).toFixed(0)} | ${(r.shadowTris / 1e4).toFixed(0)} | ${r.calls} | ${r.shadowCalls} | ${r.jsMs} | ${r.totalMs} | ${r.per.render ?? '-'} | ${r.per.shadow ?? '-'} | ${r.per.moveAgents ?? '-'} | ${r.cars}/${r.peds} |`);
+console.log('| 品質 | 場面 | 三角形（万） | うち影 | draw call | うち影 | JS ms | 描き終わりまで ms | 車・人の更新 ms | LOD・作り直し ms | 精細な車/人 |');
+for (const r of res) console.log(`| ${r.q} | ${r.scene} | ${(r.tris / 1e4).toFixed(0)} | ${(r.shadowTris / 1e4).toFixed(0)} | ${r.calls} | ${r.shadowCalls} | ${r.jsMs} | ${r.totalMs} | ${r.per.moveAgents ?? '-'} | ${((r.per.updateLod ?? 0) + (r.per.rebuildTown ?? 0) + (r.per.rebuildSites ?? 0) + (r.per.updatePaddy ?? 0)).toFixed(1)} | ${r.cars}/${r.peds} |`);
 console.log('errors', errors.filter(e => !e.includes('TUNNEL')).slice(0, 5)); await browser.close();

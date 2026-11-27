@@ -61,7 +61,7 @@ export class LowSet {
 // ---------------------------------------------------------------- 遠くを動く住民（精細な人・車の上限を超えた分）
 /** 住民 1 人の移動（residents.ts の RTrip の、描くのに要る分だけ） */
 export interface FarTrip { person: number; mode: number; role: number; from: number; to: number; prog: number; path?: number[] }
-export interface FarMover { person: number; mode: number; path?: number[]; pi: number; cur: number; next: number; prev: number; goal: number; u: number; sp: number; col: number; side: number; y0: number; y1: number }
+export interface FarMover { person: number; mode: number; from: number; path?: number[]; pi: number; cur: number; next: number; prev: number; goal: number; u: number; sp: number; col: number; side: number; y0: number; y1: number }
 /** 動かすのに要る街の情報（scene が渡す） */
 export interface FarEnv {
   road: ArrayLike<number>; W: number; H: number; TILE: number;
@@ -74,7 +74,7 @@ export interface FarEnv {
   seen(x: number, z: number): boolean;
 }
 const CAR_COL = [0xf4f4f2, 0xf4f4f2, 0xf4f4f2, 0xc8ccd0, 0xc8ccd0, 0x24262a, 0x24262a, 0x3a4a6a, 0x8a2a2a, 0x6a6e72, 0xe8e2d0, 0x2f5a3a];
-const PED_COL = [[0x2b3140, 0x3a3f4a, 0xe8e8e8, 0x2a2c33], [0x1e2a4a, 0xf2f2f2, 0x24305a], [0x1e2a4a, 0x2a2c33, 0xf2f2f2], [0x2b3140, 0x3a3f4a, 0xd8dce2, 0x5a6470], [0x8a7a6a, 0xb8a890, 0x6a7a8a], [0x9a8a7a, 0x6a6a72, 0xc8b8a0]];
+const PED_COL = [[0x4a5468, 0x5a6070, 0xeeeeee, 0x8a6a5a], [0x2a3a6a, 0xf2f2f2, 0xe8c840, 0xd86a5a], [0x2a3a6a, 0x3a3f4a, 0xf2f2f2, 0x6a8ac8], [0x4a5468, 0x5a6070, 0xe2e6ea, 0x7a8698], [0xb8a088, 0xd8c8a8, 0x7a9aba, 0xc87a6a], [0xa8988a, 0x8a8a92, 0xd8c8a8, 0x9aaa8a]]; // 役割ごとの服の色（遠くでも黒い棒に見えないよう、中くらいの明るさ）
 const RM_WALK = 0, RM_BIKE = 1, RM_BUS = 2;
 function h1(a: number): number { let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16; return (h >>> 0) / 4294967296; }
 /** 住民の移動のいまの区画（経路があれば進み具合の所、なければ家と行き先の間） */
@@ -103,7 +103,7 @@ export class FarFlow {
     if (!ok(cur)) { cur = -1; const x0 = tripTile(t, W) % W, y0 = (tripTile(t, W) / W) | 0; for (let r = 1; r <= 3 && cur < 0; r++) for (let dy = -r; dy <= r && cur < 0; dy++) for (let dx = -r; dx <= r; dx++) { const x = x0 + dx, y = y0 + dy; if (x < 0 || y < 0 || x >= W || y >= env.H) continue; if (ok(y * W + x)) { cur = y * W + x; break; } } }
     if (cur < 0) return null;
     const r = h1(t.person), pal = ped ? PED_COL[Math.min(5, t.role)] : CAR_COL, col = pal[Math.floor(h1(t.person * 7 + 3) * pal.length)];
-    const m: FarMover = { person: t.person, mode: t.mode, path: t.path, pi, cur, next: cur, prev: -1, goal: t.to, u: r, sp: ped ? 1.15 + r * 0.35 : t.mode === RM_BIKE ? 3.5 + r : 8 + r * 3, col, side: r < 0.5 ? 1 : -1, y0: 0, y1: 0 };
+    const m: FarMover = { person: t.person, mode: t.mode, from: ok(t.from) ? t.from : cur, path: t.path, pi, cur, next: cur, prev: -1, goal: t.to, u: r, sp: ped ? 1.15 + r * 0.35 : t.mode === RM_BIKE ? 3.5 + r : 8 + r * 3, col, side: r < 0.5 ? 1 : -1, y0: 0, y1: 0 };
     this.advance(m, env, true); return m;
   }
   /** 次の区画を決める（経路があれば経路どおり、なければ行き先へ近づく向き。来た道へは戻らない） */
@@ -122,10 +122,10 @@ export class FarFlow {
         if (v < bv) { bv = v; nx = j; }
       }
     }
-    if (nx < 0 || m.cur === m.goal) { // 着いた・行き止まり：経路の初めから（見えている住民の数を保つ。5 秒ごとに一覧が合わせ直される）
-      nx = m.prev >= 0 ? m.prev : m.cur;
-      if (m.path && m.path.length > 1 && m.cur === m.goal) { m.pi = 0; m.prev = -1; m.cur = m.path[0]; nx = m.path[1]; if (!road[m.cur] || !road[nx]) nx = m.cur; }
-    }
+    if (m.cur === m.goal) { // 着いた：出発の所から出直す（同じ時間帯に同じ道を通る別の住民の代わり。見えている住民の数を保つ。5 秒ごとに一覧が合わせ直される）
+      m.prev = -1; if (m.path && m.path.length > 1) { m.pi = 0; m.cur = m.path[0]; nx = m.path[1]; } else { m.cur = m.from; nx = -1; }
+      if (nx < 0 || !road[nx]) { nx = m.cur; for (const j of [m.cur + 1, m.cur - 1, m.cur + W, m.cur - W]) if (j >= 0 && j < road.length && road[j] && !(ped && road[j] === 3) && Math.abs((j % W) - (m.cur % W)) <= 1) { nx = j; break; } }
+    } else if (nx < 0) nx = m.prev >= 0 ? m.prev : m.cur; // 行き止まり：戻る
     m.next = nx;
     const T = env.TILE, c = (i: number): [number, number] => [(i % W + 0.5) * T, (((i / W) | 0) + 0.5) * T];
     const [ax, az] = c(m.cur), [bx, bz] = c(m.next); m.y0 = env.surfY(ax, az); m.y1 = env.surfY(bx, bz);

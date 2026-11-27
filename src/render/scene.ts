@@ -2735,7 +2735,7 @@ export class View {
   incInfo(): { sub: string; tile: number; age: number; cars: number; fire: number; open: number }[] { return this.incs.map(q => ({ sub: q.sub, tile: q.tile, age: Math.round(q.age), cars: q.cars.length, fire: Math.round(q.fire), open: q.open })); }
   /** 車（形 vm・色 vc）を今の行列 tmpM で置く */
   /** v102：精細な車で描く、カメラからの距離（m）。これより遠い車は簡略な車（lodcrowd.ts、20 三角形） */
-  private cLod(): number { return this.mode === 'ground' ? 160 : (this.quality === 'high' ? 420 : this.quality === 'mid' ? 300 : 170) * (this.lite ? 0.7 : 1); }
+  private cLod(): number { return this.mode === 'ground' ? 160 : ((this.quality === 'high' ? 420 : this.quality === 'mid' ? 300 : 170) + this.dist * 1.1) * (this.lite ? 0.7 : 1); }
   private placeVeh(a: { vm?: number; vc?: number; yaw?: number }): void {
     { const e = this.tmpM.elements, cp = this.camera.position, x = e[12], y = e[13], z = e[14];
       if ((x - cp.x) ** 2 + (z - cp.z) ** 2 + (y - cp.y) ** 2 > this.cLod() ** 2) { const hl = VT_HL[a.vm ?? 0] || 2, w = Math.max(0.55, Math.min(2.5, hl * 0.82)); this.frusS.center.set(x, y, z); if (this.frus.intersectsSphere(this.frusS)) this.lowCar.put(x, y, z, a.yaw ?? 0, w, hl > 3.2 ? 3 : hl < 1.2 ? 1.7 : 1.55, hl * 2, a.vc ?? 0xf4f4f2); return; } }
@@ -3160,7 +3160,7 @@ export class View {
   /** v102：精細な人の詰めた番号ごとの見た目（変わったときだけ書き直す）・このコマの数 */
   private pedSlotL: (Look | null)[] = new Array(420).fill(null); private pedN = 0; private pedLookDirty = false;
   /** v102：精細な人で描く、カメラからの距離（m）。これより遠い人は簡略な人（lodcrowd.ts） */
-  private pLod(): number { return this.mode === 'ground' ? 70 : (this.quality === 'high' ? 170 : this.quality === 'mid' ? 120 : 75) * (this.lite ? 0.7 : 1); }
+  private pLod(): number { return this.mode === 'ground' ? 70 : ((this.quality === 'high' ? 170 : this.quality === 'mid' ? 120 : 75) + this.dist * 1.1) * (this.lite ? 0.7 : 1); } // 見ている所（注視点のまわり）は精細に
   /** 歩きの位相・振り・行列を書く（足元の位置 px,py,pz と向き yaw） */
   private poseWalker(a: Walk, i: number, px: number, py: number, pz: number, yaw: number, v: number, dt: number): void {
     const L = a.L!, want = a.wait ? 0 : 1;
