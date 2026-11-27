@@ -175,14 +175,17 @@ export function flyMedianTiles(s: GameState, sp: FlySpan): number[] { return fly
 export function flyDeckH(a: number, a0: number, a1: number, Hh = FLY_H): number {
   const L = FLY_RAMP * 30, d = a < a0 - 15 ? a0 - 15 - a : a > a1 + 15 ? a - a1 - 15 : 0, t = Math.max(0, 1 - d / L); return t * t * (3 - 2 * t) * Hh;
 }
-/** v100：高架の桁の厚さ・1 径間の上限（m）・下の道路の半幅（m）。立体交差の前後の幹線は 6 車線（車道の半幅 7.5m）＋歩道 2.5m */
-export const FLY_TH = 1.3, FLY_MAXSPAN = 40, FLY_ROAD_HALF = 7.5, FLY_WALK = 2.5, FLY_MEDIAN = 3.2;
+/** v100：高架の桁の厚さ・1 径間の上限（m）・下の道路の半幅（m）。立体交差の前後の幹線は 6 車線（車道の半幅 7.5m）＋歩道。
+ *  v101：歩道は幹線の幅 3.5m（render/roadbase.ts の walkW(7.5) と同じ。tests/v101_road.test.ts で確かめる） */
+export const FLY_TH = 1.3, FLY_MAXSPAN = 40, FLY_ROAD_HALF = 7.5, FLY_WALK = 3.5, FLY_MEDIAN = 3.2;
 /** 坂の低い所（桁下がこれより低い所）は、桁の下を擁壁で囲んだ盛土にする（地面まで中身の詰まった坂） */
 export const FLY_FILL_CLR = 2.0;
 /** v100：高架の支え。a＝道の向きの座標（m）。median＝中央分離帯の橋脚（柱 1 本）、portal＝門形の橋脚（下の道路の歩道の外側に 2 本の柱と梁）、
  *  abut＝坂の盛土（擁壁）の端（そこから先は地面まで詰まっている）。portal の lat＝柱の中心の横の位置（道の中心から、m） */
 export interface FlySupport { a: number; kind: 'median' | 'portal' | 'abut'; lat?: number }
 const HWs = [0, 2.5, 5, 7.5];
+/** v101：道の半幅から歩道の幅（render/roadbase.ts の walkW と同じ。sim から描画を読まないので写しを置き、テストで一致を確かめる） */
+export const walkOf = (h: number) => (h >= 7 ? 3.5 : h >= 4.5 ? 3.0 : 2.5);
 /** v100：高架の支えの位置を決める（描画とテストが同じ答えを使う）。
  *  ・中央分離帯の橋脚は、交差点（横断歩道を含む）・脇道の区画の外の、区画の中心にだけ立てる（v95）。
  *  ・その間が FLY_MAXSPAN（40m）を超える所（交差点をまたぐ所・交差点が続く所）は、交差点の区画の角（交わる道路の歩道の外、
@@ -200,7 +203,7 @@ export function flySupports(s: GameState, sp: FlySpan): FlySupport[] {
     const ti = T(sp.ew, sp.line, t); if (ti < 0 || !s.road[ti] || !(isJunction(s, ti) || sideRoad(s, ti, sp.ew))) continue;
     const x = ti % W, y = (ti / W) | 0; let ch = 0;
     for (const [dx, dy] of sp.ew ? [[0, 1], [0, -1]] : [[1, 0], [-1, 0]]) { const xx = x + dx, yy = y + dy; if (!inM(xx, yy)) continue; const k = ix(xx, yy), r = s.road[k]; if (!r) continue; ch = Math.max(ch, has(s.wide, k) && r === 2 ? 7.5 : HWs[r] ?? 7.5); }
-    const d = ch + FLY_WALK + 1.4, c = (t + 0.5) * 30;
+    const d = ch + walkOf(ch) + 1.4, c = (t + 0.5) * 30;
     for (const q of [c - d, c + d]) if (q > lo + 3 && q < hi - 3) cand.push(q);
   }
   cand.sort((p, q) => p - q);

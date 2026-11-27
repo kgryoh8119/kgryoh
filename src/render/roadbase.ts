@@ -3,21 +3,65 @@ import type { Geo, V3 } from './geo';
 import { hash } from '../sim/index';
 
 const mixHex = (a: number, b: number, t: number) => { const f = (k: number) => Math.round(((a >> k) & 255) * (1 - t) + ((b >> k) & 255) * t); return (f(16) << 16) | (f(8) << 8) | f(0); };
-/** 歩道の幅（m）。道路の等級によらず、縁石（車道の端）から外へ一定（v95 以前の scene の SW と同じ値） */
+/** 歩道の幅の最小（m）。生活道路の路側帯と同じ（v95 以前の scene の SW と同じ値） */
 export const SIDEWALK_W = 2.5;
-/** 交差点の角の隅切り（縁石の円弧）の半径（m） */
-export const CORNER_R = 3;
+/** v101：歩道の幅（m）を車道の半幅 ah（等級）から決める。道路構造令の目安（歩行者の多い道 3.5m 以上、その他 2m 以上）に合わせ、
+ *  幹線（4 車線・立体交差の前後の 6 車線の幅：半幅 7.5m）は 3.5m、2 車線（半幅 5m）は 3.0m、生活道路（半幅 2.5m、路側帯）は 2.5m。
+ *  区画ごとではなく等級ごとに一定なので、同じ通りの区画の境で段違いにならない。歩行者の歩く位置・橋脚の位置・バス停もここから出す */
+export function walkW(ah: number): number { return ah >= 7 ? 3.5 : ah >= 4.5 ? 3.0 : SIDEWALK_W; }
+/** 交差点の角の隅切り（縁石の円弧）の半径（m）。v101：3→4m。どの等級の歩道（〜3.5m）より大きくし、歩道の外の端も同じ中心の円弧で回す（角でも歩道の幅が一定） */
+export const CORNER_R = 4;
 /** 歩道の天端の高さ（路面 0.1 から 10cm 上）。切り下げ（横断歩道の端）は 0.115 */
 export const WALK_Y = 0.2;
+/** v101：横断歩道の幅（m。歩く向きと直角の長さ）。標識令の目安は 4m 以上（やむを得ない所は 3m）。生活道路は 3m */
+export function xwWidth(ah: number): number { return ah >= 4.5 ? 4 : 3; }
+/** v101：横断歩道の縞（幅 0.45m・間隔 0.45m）と、横断歩道の手前の停止線までの間（標示の運用の目安 1〜2m） */
+export const XW_STRIPE = 0.45, XW_GAP = 0.45, STOP_GAP = 1.5, STOP_W = 0.45;
+/** 横断歩道を交差する道の縁石から離す距離（隅切りの円弧の途中の切り下げから始める） */
+const XW_SET = 1.0;
 /** 交差点の横断歩道の範囲（区画の中心から腕の向きの距離 [x0, x1]）。perp：横切る道（直交する腕）の半幅の大きい方。ah：この腕の車道の半幅。
- *  横断歩道は隅切りの円弧の途中（歩道の切り下げ）から始まり、停止線はその先 1.2m */
-export function xwRange(ah: number, perp: number): [number, number] { const x0 = perp + CORNER_R * 0.5; return [x0, x0 + (ah >= 7 ? 4 : 3)]; }
+ *  横断歩道は隅切りの円弧の途中（歩道の切り下げ）から始まる。v101：幹線どうし（perp 7.5m）でも停止線まで区画の半分（15m）に収まる */
+export function xwRange(ah: number, perp: number): [number, number] { const x0 = perp + XW_SET; return [x0, x0 + xwWidth(ah)]; }
+/** v101：交差点の 1 本の腕の標示の配置（純粋な関数。描画とテストで同じ答え）。
+ *  xw：横断歩道の範囲、stop：停止線の範囲（横断歩道の外の端から STOP_GAP 手前）、stripes：縞の横の範囲（車道の端から端まで）。
+ *  どれも区画の中心から 15m（隣の区画との境）の内に収まるので、隣り合う交差点の標示と重ならない */
+export function crosswalkLayout(ah: number, perp: number): { xw: [number, number]; stop: [number, number]; stripes: [number, number][] } {
+  const xw = xwRange(ah, perp), s0 = xw[1] + STOP_GAP, stripes: [number, number][] = [];
+  for (let k = -ah + 0.5; k + XW_STRIPE <= ah - 0.3 + 1e-6; k += XW_STRIPE + XW_GAP) stripes.push([k, k + XW_STRIPE]);
+  return { xw, stop: [s0, s0 + STOP_W], stripes };
+}
 /** 交差点に横断歩道を引くか（roadTile と roadBase で同じ答え） */
 export function hasXw(t: number, stone: boolean, x: number, y: number, nConn: number): boolean { return nConn >= 3 && !stone && (t >= 2 || hash(x, y, 43) < 0.35); }
-/** 交差点の角の歩道の中ほど（象限の座標 |u|, |v|）。b：南北の腕の半幅、a：東西の腕の半幅（0 は無い腕）。信号機・標識の柱の位置 */
+/** 交差点の角の歩道の中ほど（象限の座標 |u|, |v|）。b：南北の腕の半幅、a：東西の腕の半幅（0 は無い腕）。信号機・標識の柱の位置。
+ *  v101：歩道の幅は腕の等級ごと（walkW）。角は隅切りの円弧の中心から、歩道の幅の半分だけ内 */
 export function cornerSpot(a: number, b: number, hw: number): [number, number] {
-  if (a && b) { const k = (CORNER_R - SIDEWALK_W * 0.5) / Math.SQRT2; return [b + CORNER_R - k, a + CORNER_R - k]; }
-  return [(b || hw) + 1.75, (a || hw) + 1.75];
+  const wa = walkW(a || hw), wb = walkW(b || hw);
+  if (a && b) { const k = (CORNER_R - (wa + wb) * 0.25) / Math.SQRT2; return [b + CORNER_R - k, a + CORNER_R - k]; }
+  return [(b || hw) + wb * 0.7, (a || hw) + wa * 0.7];
+}
+/** v101：信号機を置く交差点（純粋な関数。v86 の車・人の信号停止と v89 の灯の切り替えは、scene の signals() を通してこの答えだけを使う）。
+ *  ・3 方向以上に道路がつながり、東西の道と南北の道がどちらも 2 車線以上（幹線どうし）の交差点だけ。生活道路との交差点は一時停止（止まれ）
+ *  ・信号機設置の指針の目安（隣の信号と 150m 以上）に合わせ、同じ通りで 5 区画（150m）未満に並ぶ候補は、交わる道の広い方（同じなら番号の小さい方）を残す
+ *  返り値：1＝信号あり */
+export function sigPlan(road: ArrayLike<number>, W: number, H: number, wide?: { has(i: number): boolean }): Uint8Array {
+  const N = W * H, out = new Uint8Array(N), cls = (i: number) => (road[i] === 2 && wide?.has(i) ? 3 : road[i]);
+  const at = (x: number, y: number) => (x >= 0 && y >= 0 && x < W && y < H ? cls(y * W + x) : 0);
+  const cand: [number, number][] = [];
+  for (let i = 0; i < N; i++) {
+    if (!road[i]) continue;
+    const x = i % W, y = (i / W) | 0, e = at(x + 1, y), w = at(x - 1, y), so = at(x, y + 1), no = at(x, y - 1);
+    const n = (e ? 1 : 0) + (w ? 1 : 0) + (so ? 1 : 0) + (no ? 1 : 0), ew = Math.max(e, w), ns = Math.max(so, no);
+    // 東西の道・南北の道のどちらも 2 車線以上（T 字は突き当たる道も 2 車線以上）
+    if (n >= 3 && Math.min(ew, ns) >= 2) cand.push([i, ew + ns]);
+  }
+  cand.sort((p, q) => q[1] - p[1] || p[0] - q[0]);
+  const SPACE = 5;
+  for (const [i] of cand) {
+    const x = i % W, y = (i / W) | 0; let ok = true;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { for (let k = 1; k < SPACE && ok; k++) { const xx = x + dx * k, yy = y + dy * k; if (!at(xx, yy)) break; if (out[yy * W + xx]) ok = false; } if (!ok) break; }
+    if (ok) out[i] = 1;
+  }
+  return out;
 }
 export interface RoadBaseArgs {
   g: Geo; cx: number; cz: number; hw: number; aE: number; aW: number; aS: number; aN: number; nConn: number;
@@ -42,13 +86,15 @@ const upQ = (g: Geo, pts: V3[], col: number, sh: number) => { // 上を向く順
  *  歩道はその折れ線から外へ SIDEWALK_W の帯（区画ごとにずれない）。路面は象限の中心からの扇で塗る */
 export function roadBase(o: RoadBaseArgs): void {
   if (o.bend) { bendBase(o); return; }
-  const { g, cx, cz, hw, hA, kerbless, fine } = o, SWd = SIDEWALK_W, R = CORNER_R, junction = o.nConn >= 3;
+  const { g, cx, cz, hw, hA, kerbless, fine } = o, R = CORNER_R, junction = o.nConn >= 3;
   const midV = junction ? Math.max(o.aE, o.aW) : hw, midU = junction ? Math.max(o.aS, o.aN) : hw;
   const xwE = o.xw && junction ? xwRange(Math.max(o.aE, o.aW), Math.max(o.aN, o.aS)) : null, xwN = o.xw && junction ? xwRange(Math.max(o.aN, o.aS), Math.max(o.aE, o.aW)) : null;
   const pieceN = fine ? 8 : 4, ramp = (d: number, d0: number) => Math.max(0, Math.min(1, (d - d0) / Math.max(1, 15 - d0)));
   const road = o.stone ? (hw <= 2.5 ? 0x8d877c : 0x55524c) : o.asph;
   for (const su of [1, -1]) for (const sv of [1, -1]) {
     const a = su > 0 ? o.aE : o.aW, b = sv > 0 ? o.aS : o.aN, aO = su > 0 ? o.aW : o.aE, bO = sv > 0 ? o.aN : o.aS;
+    // v101：歩道の幅は腕の等級ごと（東西の腕 wa、南北の腕 wb）。直線の区画で両端の幅が違うときは、区画の中でなめらかに変える
+    const wa = walkW(a || midV), wb = walkW(b || midU), SWd = Math.max(wa, wb);
     const P: P2[] = [], Q: P2[] = [];
     /** 内（縁石）A→B と外（歩道の外の端）C→D の直線を、3m ごとと横断歩道の端で切って並べる */
     const seg = (A: P2, B: P2, C: P2, D: P2, cuts: number[], axis: 0 | 1) => {
@@ -63,13 +109,13 @@ export function roadBase(o: RoadBaseArgs): void {
       for (let k = 1; k <= pieceN; k++) { const t = t0 + (t1 - t0) * k / pieceN, c = Math.cos(t), s2 = Math.sin(t); P.push([ci[0] + c * ri, ci[1] + s2 * ri]); Q.push([co[0] + c * ro, co[1] + s2 * ro]); }
     };
     const cE = xwE ? [xwE[0], xwE[1]] : [], cN = xwN ? [xwN[0], xwN[1]] : [];
-    if (a && b) { // 隅切りの角
-      const ci: P2 = [b + R, a + R], Rw = Math.max(R, SWd), co: P2 = [b + Rw, a + Rw], ro = Math.max(0, R - SWd);
-      seg([15, a], [b + R, a], [15, a + SWd], [co[0], a + SWd], cE, 0);
-      arc(ci, R, co, ro, -Math.PI / 2, -Math.PI);
-      seg([b, a + R], [b, 15], [b + SWd, co[1]], [b + SWd, 15], cN, 1);
-    } else if (a) seg([15, a], [0, midV], [15, a + SWd], [0, midV + SWd], cE, 0);       // 東西の腕だけ（直線・T 字の突き当たりの側）
-    else if (b) seg([midU, 0], [b, 15], [midU + SWd, 0], [b + SWd, 15], cN, 1);         // 南北の腕だけ
+    if (a && b) { // 隅切りの角：歩道の外の端は縁石の円弧と同じ中心の円弧（半径 R − 歩道の幅）。両方の腕の歩道の幅が違うときは円弧の中で移す
+      const ci: P2 = [b + R, a + R];
+      seg([15, a], [b + R, a], [15, a + wa], [b + R, a + wa], cE, 0);
+      for (let k = 1; k <= pieceN; k++) { const t = -Math.PI / 2 - Math.PI / 2 * k / pieceN, c = Math.cos(t), s2 = Math.sin(t), w = wa + (wb - wa) * k / pieceN; P.push([ci[0] + c * R, ci[1] + s2 * R]); Q.push([ci[0] + c * (R - w), ci[1] + s2 * (R - w)]); }
+      seg([b, a + R], [b, 15], [b + wb, a + R], [b + wb, 15], cN, 1);
+    } else if (a) seg([15, a], [0, midV], [15, a + walkW(a)], [0, midV + walkW(midV)], cE, 0);       // 東西の腕だけ（直線・T 字の突き当たりの側）
+    else if (b) seg([midU, 0], [b, 15], [midU + walkW(midU), 0], [b + walkW(b), 15], cN, 1);         // 南北の腕だけ
     else { // 腕の無い角（行き止まりの端・孤立した区画）：丸めた端
       const X = bO ? midU : hw, Y = aO ? midV : hw, r = Math.min(X, Y) * 0.7;
       seg([X, 0], [X, Y - r], [X + SWd, 0], [X + SWd, Y - r], [], 1);
@@ -86,7 +132,7 @@ export function roadBase(o: RoadBaseArgs): void {
     const lowE = !kerbless && !!a && o.lowArm(su, 0), lowN = !kerbless && !!b && o.lowArm(0, sv);
     const info = P.map((p, k) => { // 切り下げ（横断歩道の端）と、段差の無い道へ下りる割合
       const q = Q[k], cutE = !!xwE && a > 0 && p[1] <= a + 1.2 && p[0] >= xwE[0] - 0.05 && p[0] <= xwE[1] + 0.05, cutN = !!xwN && b > 0 && p[0] <= b + 1.2 && p[1] >= xwN[0] - 0.05 && p[1] <= xwN[1] + 0.05;
-      const lo = Math.max(lowE && p[1] <= a + SWd + 0.01 ? ramp(Math.min(p[0], q[0]), b ? b + R : midU) : 0, lowN && p[0] <= b + SWd + 0.01 ? ramp(Math.min(p[1], q[1]), a ? a + R : midV) : 0);
+      const lo = Math.max(lowE && p[1] <= a + wa + 0.01 ? ramp(Math.min(p[0], q[0]), b ? b + R : midU) : 0, lowN && p[0] <= b + wb + 0.01 ? ramp(Math.min(p[1], q[1]), a ? a + R : midV) : 0);
       return { cut: !kerbless && (cutE || cutN), lo };
     });
     const yIn = (k: number) => kerbless ? 0.1 : info[k].cut ? 0.115 : WALK_Y - 0.1 * info[k].lo, yOut = (k: number) => kerbless ? 0.1 : WALK_Y - 0.1 * info[k].lo;
@@ -117,7 +163,7 @@ export function roadBase(o: RoadBaseArgs): void {
 }
 /** 曲がり角（円弧の道）：路面・両側の歩道（路側帯）・縁石・側溝 */
 function bendBase(o: RoadBaseArgs): void {
-  const { g, cx, cz, hA, kerbless, fine } = o, [bx, bz] = o.bend!, A = o.bendA ?? o.hw, SWd = SIDEWALK_W, n = fine ? 12 : 6;
+  const { g, cx, cz, hA, kerbless, fine } = o, [bx, bz] = o.bend!, A = o.bendA ?? o.hw, SWd = walkW(A), n = fine ? 12 : 6;
   const kx = cx + bx * 15, kz = cz + bz * 15; // 円弧の中心（区画の角）
   const at = (t: number, r: number, off: number): V3 => { const wx = kx - bx * Math.cos(t) * r, wz = kz - bz * Math.sin(t) * r; return [wx, hA(wx, wz) + off, wz]; };
   const band = (r0: number, r1: number, off0: number, col: (k: number) => number, sh: number) => { for (let k = 0; k < n; k++) { const t0 = k / n * Math.PI / 2, t1 = (k + 1) / n * Math.PI / 2;
