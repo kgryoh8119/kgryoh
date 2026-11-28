@@ -1,0 +1,458 @@
+[
+ {
+  "q": "low",
+  "scene": "全景",
+  "tris": 1700556,
+  "calls": 262,
+  "shadowTris": -4,
+  "shadowCalls": 0,
+  "jsMs": 13.4,
+  "totalMs": 3042.7,
+  "per": {
+   "moveBuses": 0,
+   "updateLod": 0,
+   "dramatize": 0,
+   "updatePaddy": 0,
+   "moveAgents": 23.1
+  },
+  "cars": 124,
+  "peds": 181,
+  "visible": [
+   182,
+   12,
+   0,
+   0,
+   841
+  ],
+  "drawn": [
+   181,
+   12,
+   0,
+   0,
+   98
+  ],
+  "far": [
+   743,
+   1074,
+   866
+  ]
+ },
+ {
+  "q": "low",
+  "scene": "近景",
+  "tris": 3145014,
+  "calls": 133,
+  "shadowTris": -10,
+  "shadowCalls": 0,
+  "jsMs": 185.9,
+  "totalMs": 5592.2,
+  "per": {
+   "moveBuses": 0,
+   "updateLod": 2.2,
+   "dramatize": 0,
+   "updatePaddy": 159.6,
+   "moveAgents": 6.2
+  },
+  "cars": 124,
+  "peds": 180,
+  "visible": [
+   182,
+   12,
+   0,
+   0,
+   841
+  ],
+  "drawn": [
+   180,
+   12,
+   0,
+   0,
+   98
+  ],
+  "far": [
+   743,
+   443,
+   114
+  ]
+ },
+ {
+  "q": "low",
+  "scene": "駅前",
+  "tris": 3714310,
+  "calls": 86,
+  "shadowTris": -24,
+  "shadowCalls": -1,
+  "jsMs": 9.2,
+  "totalMs": 4538.2,
+  "per": {
+   "moveBuses": 0,
+   "updateLod": 1.2,
+   "dramatize": 0,
+   "updatePaddy": 0,
+   "moveAgents": 4.3
+  },
+  "cars": 122,
+  "peds": 181,
+  "visible": [
+   181,
+   10,
+   0,
+   0,
+   814
+  ],
+  "drawn": [
+   181,
+   10,
+   0,
+   0,
+   98
+  ],
+  "far": [
+   716,
+   32,
+   1
+  ]
+ },
+ {
+  "q": "low",
+  "scene": "地上",
+  "tris": 2318103,
+  "calls": 75,
+  "shadowTris": 0,
+  "shadowCalls": 0,
+  "jsMs": 8.2,
+  "totalMs": 2549.9,
+  "per": {
+   "moveBuses": 0,
+   "updateLod": 0.1,
+   "dramatize": 0,
+   "updatePaddy": 0,
+   "moveAgents": 2.9
+  },
+  "cars": 122,
+  "peds": 181,
+  "visible": [
+   181,
+   10,
+   0,
+   0,
+   814
+  ],
+  "drawn": [
+   181,
+   10,
+   0,
+   0,
+   98
+  ],
+  "far": [
+   716,
+   141,
+   0
+  ]
+ },
+ {
+  "q": "mid",
+  "scene": "全景",
+  "tris": 1898919,
+  "calls": 336,
+  "shadowTris": 110826,
+  "shadowCalls": 108,
+  "jsMs": 18.1,
+  "totalMs": 4142.3,
+  "per": {
+   "moveBuses": 0,
+   "updateLod": 8.4,
+   "dramatize": 0,
+   "updatePaddy": 0.1,
+   "moveAgents": 4.5
+  },
+  "cars": 208,
+  "peds": 182,
+  "visible": [
+   182,
+   12,
+   0,
+   0,
+   841
+  ],
+  "drawn": [
+   182,
+   12,
+   0,
+   0,
+   173
+  ],
+  "far": [
+   668,
+   1082,
+   875
+  ]
+ },
+ {
+  "q": "mid",
+  "scene": "近景",
+  "tris": 9469927,
+  "calls": 245,
+  "shadowTris": 3845690,
+  "shadowCalls": 98,
+  "jsMs": 36,
+  "totalMs": 15389.1,
+  "per": {
+   "moveBuses": 0,
+   "updateLod": 15,
+   "dramatize": 0,
+   "updatePaddy": 0,
+   "moveAgents": 6.6
+  },
+  "cars": 208,
+  "peds": 182,
+  "visible": [
+   182,
+   12,
+   0,
+   0,
+   841
+  ],
+  "drawn": [
+   182,
+   12,
+   0,
+   0,
+   173
+  ],
+  "far": [
+   668,
+   410,
+   81
+  ]
+ },
+ {
+  "q": "mid",
+  "scene": "駅前",
+  "tris": 7149776,
+  "calls": 164,
+  "shadowTris": 2865161,
+  "shadowCalls": 69,
+  "jsMs": 17.4,
+  "totalMs": 11709,
+  "per": {
+   "moveBuses": 0,
+   "updateLod": 4.3,
+   "dramatize": 0,
+   "updatePaddy": 0,
+   "moveAgents": 6.5
+  },
+  "cars": 206,
+  "peds": 181,
+  "visible": [
+   181,
+   10,
+   0,
+   0,
+   814
+  ],
+  "drawn": [
+   181,
+   10,
+   0,
+   0,
+   173
+  ],
+  "far": [
+   641,
+   21,
+   1
+  ]
+ },
+ {
+  "q": "mid",
+  "scene": "地上",
+  "tris": 3965300,
+  "calls": 129,
+  "shadowTris": 1299629,
+  "shadowCalls": 48,
+  "jsMs": 17.6,
+  "totalMs": 6924.9,
+  "per": {
+   "moveBuses": 0,
+   "updateLod": 0.1,
+   "dramatize": 0,
+   "updatePaddy": 0,
+   "moveAgents": 5.3
+  },
+  "cars": 206,
+  "peds": 181,
+  "visible": [
+   181,
+   10,
+   0,
+   0,
+   814
+  ],
+  "drawn": [
+   181,
+   10,
+   0,
+   0,
+   173
+  ],
+  "far": [
+   641,
+   146,
+   0
+  ]
+ },
+ {
+  "q": "high",
+  "scene": "全景",
+  "tris": 4824754,
+  "calls": 807,
+  "shadowTris": 292796,
+  "shadowCalls": 422,
+  "jsMs": 35.3,
+  "totalMs": 8235.8,
+  "per": {
+   "moveBuses": 0,
+   "updateLod": 10.5,
+   "dramatize": 0,
+   "updatePaddy": 0,
+   "moveAgents": 8.9
+  },
+  "cars": 305,
+  "peds": 182,
+  "visible": [
+   182,
+   12,
+   0,
+   0,
+   841
+  ],
+  "drawn": [
+   182,
+   12,
+   0,
+   0,
+   260
+  ],
+  "far": [
+   581,
+   1082,
+   885
+  ]
+ },
+ {
+  "q": "high",
+  "scene": "近景",
+  "tris": 15690414,
+  "calls": 479,
+  "shadowTris": 6156456,
+  "shadowCalls": 176,
+  "jsMs": 34.8,
+  "totalMs": 23252.5,
+  "per": {
+   "moveBuses": 0,
+   "updateLod": 5,
+   "dramatize": 0,
+   "updatePaddy": 0.1,
+   "moveAgents": 10.4
+  },
+  "cars": 305,
+  "peds": 182,
+  "visible": [
+   182,
+   12,
+   0,
+   0,
+   841
+  ],
+  "drawn": [
+   182,
+   12,
+   0,
+   0,
+   260
+  ],
+  "far": [
+   581,
+   333,
+   90
+  ]
+ },
+ {
+  "q": "high",
+  "scene": "駅前",
+  "tris": 12348678,
+  "calls": 349,
+  "shadowTris": 4781732,
+  "shadowCalls": 145,
+  "jsMs": 22.2,
+  "totalMs": 17237.8,
+  "per": {
+   "moveBuses": 0,
+   "updateLod": 0.1,
+   "dramatize": 0,
+   "updatePaddy": 0,
+   "moveAgents": 9.7
+  },
+  "cars": 303,
+  "peds": 181,
+  "visible": [
+   181,
+   10,
+   0,
+   0,
+   814
+  ],
+  "drawn": [
+   181,
+   10,
+   0,
+   0,
+   260
+  ],
+  "far": [
+   554,
+   16,
+   6
+  ]
+ },
+ {
+  "q": "high",
+  "scene": "地上",
+  "tris": 6662324,
+  "calls": 285,
+  "shadowTris": 1790054,
+  "shadowCalls": 104,
+  "jsMs": 15.3,
+  "totalMs": 10732.1,
+  "per": {
+   "moveBuses": 0,
+   "updateLod": 0.5,
+   "dramatize": 0,
+   "updatePaddy": 0.1,
+   "moveAgents": 4.2
+  },
+  "cars": 303,
+  "peds": 181,
+  "visible": [
+   181,
+   10,
+   0,
+   0,
+   814
+  ],
+  "drawn": [
+   181,
+   10,
+   0,
+   0,
+   260
+  ],
+  "far": [
+   554,
+   146,
+   1
+  ]
+ }
+]
