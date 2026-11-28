@@ -3,7 +3,7 @@
 // node scripts/v102-perf.mjs（先に npx vite build）。OUT=docs/v102-perf-after.json  QS=low,mid,high  N=6（測るコマ数）
 import { open } from './shot.mjs';
 import fs from 'fs';
-const OUT = process.env.OUT ?? 'docs/v102-perf.json', QS = (process.env.QS ?? 'low,mid,high').split(','), N = Number(process.env.N ?? 6);
+const OUT = process.env.OUT ?? 'docs/v102-perf.json', QS = (process.env.QS ?? 'low,mid,high').split(','), N = Number(process.env.N ?? 6), WARM = Number(process.env.WARM ?? 4), SC = process.env.SC ? process.env.SC.split(',') : null; // v105a：WARM（測る前に回すコマ数）・SC（場面を絞る）
 const { browser, page, errors } = await open(1280, 800, process.env.MAPID ?? 'sumino');
 page.setDefaultTimeout(900000); await page.waitForTimeout(1500);
 await page.evaluate(() => { const S = window.__sumu, g = S.game, s = g.state; s.tutorial.done = true; s.goalPick = false; g.speed = 0; S.fixedQuality = true;
@@ -24,10 +24,11 @@ const res = [];
 for (const q of QS) {
   await page.evaluate(q => window.__sumu.view.setQuality(q), q);
   for (const [name, at, d, pitch, mode] of SCENES) {
-    const r = await page.evaluate(([q, t, d, pitch, mode, N]) => { const v = window.__sumu.view; v.setMode('orbit'); v.hour = 8; v.holiday = false; v.applyTime?.(); v.focus(t, d); v.pitch = pitch; v.yaw = 0.7;
+    if (SC && !SC.includes(name)) continue;
+    const r = await page.evaluate(([q, t, d, pitch, mode, N, WARM]) => { const v = window.__sumu.view; v.setMode('orbit'); v.hour = 8; v.holiday = false; v.applyTime?.(); v.focus(t, d); v.pitch = pitch; v.yaw = 0.7;
       v.target.x = v.want.x; v.target.z = v.want.z; v.dist = v.want.dist; if (mode === 'ground') v.setMode('ground');
       v.agentSpawnAt && (v.agentSpawnAt.x = -1e9); v.spawnAgents();
-      for (let k = 0; k < 4; k++) v.__frame.call(v, 0.1); // 作り直し・LOD を済ませる
+      for (let k = 0; k < WARM; k++) v.__frame.call(v, 0.1); // 作り直し・LOD を済ませる
       const gl = v.renderer.getContext(), px = new Uint8Array(4), sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); sync(); // 1 画素を読んで描画の終わりを待つ（GPU の分も含めた時間）
       const T = v.__t; for (const k in T) delete T[k];
       let js = 0, tot = 0; for (let k = 0; k < N; k++) { const t0 = performance.now(); v.__frame.call(v, 0.1); const t1 = performance.now(); sync(); const t2 = performance.now(); js += t1 - t0; tot += t2 - t0; }
@@ -37,7 +38,7 @@ for (const q of QS) {
       const per = {}; for (const k in T) per[k] = +(T[k] / N).toFixed(1);
       const ri = v.resInfo ?? {};
       return { q, scene: mode === 'ground' ? '地上' : null, tris: all.tris, calls: all.calls, shadowTris: all.tris - ns.tris, shadowCalls: all.calls - ns.calls,
-        jsMs: +(js / N).toFixed(1), totalMs: +(tot / N).toFixed(1), per, cars: v.cars.length, peds: v.peds.length, visible: ri.visible, drawn: ri.drawn, far: ri.far };  }, [q, info[at], d, pitch, mode, N]);
+        jsMs: +(js / N).toFixed(1), totalMs: +(tot / N).toFixed(1), per, cars: v.cars.length, peds: v.peds.length, visible: ri.visible, drawn: ri.drawn, far: ri.far };  }, [q, info[at], d, pitch, mode, N, WARM]);
     r.scene = name; res.push(r); console.log(JSON.stringify(r));
   }
 }

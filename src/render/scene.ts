@@ -401,6 +401,14 @@ export class View {
         if (RM.a > 0.5) totalEmissiveRadiance *= RM.rgb * RM.rgb * 1.1; // 夜：明かりのついた部屋の天井・壁・床・家具の影`); };
     m.customProgramCacheKey = () => 'win-rooms4'; return m; })();
   private matWinB = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.25, metalness: 0.15 });
+  /** v105a：駅のガラス・窓（夜は終電まで灯る。昼はガラスの色のまま） */
+  private matStWin = (() => { const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.1, emissive: 0xffe2b0, emissiveIntensity: 0, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }); // 壁（路面と同じ材質で手前へ寄せてある）より少し手前に
+    // コンコース・駅舎のガラスは全部灯る。駅ビル・塔の事務所や店の窓（面の種類 surf が 1）は、約 4m × 1 階ごとに 4 割ほどが点き、明るさもまちまち（前は全部の階が帯のように光っていた）
+    m.onBeforeCompile = sh => {
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float surf; varying float vSf; varying vec3 vSW;').replace('#include <project_vertex>', '#include <project_vertex>\nvSf = surf; vSW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vSf; varying vec3 vSW;').replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        if (vSf > 0.5) { float h = fract(sin(dot(floor(vec3(vSW.x / 4.0, vSW.y / 3.9, vSW.z / 4.0)), vec3(12.9898, 78.233, 37.719))) * 43758.5453); totalEmissiveRadiance *= step(h, 0.42) * (0.45 + 0.6 * fract(h * 17.0)); }`); };
+    m.customProgramCacheKey = () => 'st-win1'; return m; })();
   private matSign!: THREE.MeshStandardMaterial;
   private matOverlay = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.6, depthWrite: false, depthTest: false });
   private matCursor = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.6, depthWrite: false, depthTest: false });
@@ -1083,7 +1091,7 @@ export class View {
     this.updateEnv(top, hor, this.hemi.groundColor, day, night);
     this.landmarks?.update(night, this.envRT?.texture ?? null, day);
     this.renderer.toneMappingExposure = lerp(0.92, 1.0, day);
-    this.matWinA.emissiveIntensity = night * 1.9; NIGHT_U.value = night; NIGHT_UNI.uHour.value = this.hour; NIGHT_UNI.uT.value = performance.now() / 1000; SEASON_U.uTime.value = NIGHT_UNI.uT.value; SEASON_U.uWind.value = 0.7 + 1.6 * this.weather.rain + (this.storm ? 1.5 : 0);
+    this.matWinA.emissiveIntensity = night * 1.9; this.matStWin.emissiveIntensity = night * 0.75 * (this.hour >= 1 && this.hour < 4.5 ? 0.25 : 1); // 駅は終電（1 時ごろ）から始発まで暗め NIGHT_U.value = night; NIGHT_UNI.uHour.value = this.hour; NIGHT_UNI.uT.value = performance.now() / 1000; SEASON_U.uTime.value = NIGHT_UNI.uT.value; SEASON_U.uWind.value = 0.7 + 1.6 * this.weather.rain + (this.storm ? 1.5 : 0);
     { const h = this.hour; WIN_LIT.value = h >= 16 && h < 19 ? 0.45 + 0.4 * ((h - 16) / 3) : h >= 19 && h < 22.5 ? 0.85 : h >= 22.5 ? 0.85 - 0.4 * ((h - 22.5) / 1.5) : h < 1.5 ? 0.45 - 0.2 * (h / 1.5) : h < 4.5 ? 0.22 : h < 7 ? 0.22 + 0.35 * ((h - 4.5) / 2.5) : 0.6; } this.matSign.emissiveIntensity = night * 0.75;
     this.matLamp.opacity = night * 0.95; this.matVend.opacity = night * 0.85; this.matPool.opacity = night * 0.5; if (this.pools) this.pools.visible = night > 0.02; this.matHead.opacity = night; this.matTail.opacity = Math.min(1, 0.5 + night); this.matTail.size = 2.6 * Math.max(1, Math.min(3.5, this.dist / 320)); /* v87：昼もブレーキランプの列が見え、遠くからでも詰まった道が分かる */ this.matStars.opacity = night * (1 - up) * 0.9 * (1 - oc);
     this.matCloud.color.copy(C(0x2a3350).lerp(C(0xffc9a8), up).lerp(C(0xffffff), high).lerp(C(0x6b7178).multiplyScalar(0.35 + 0.65 * day), Math.min(1, oc * 0.9)));
@@ -1128,7 +1136,7 @@ export class View {
     }
     this.tunnelSet = new Set(s.tunnel ?? []);
     this.computeDecks(s);
-    if (s.rail) this.drawRails(s, g, lampPos, kit);
+    const stWin = new Geo(); if (s.rail) this.drawRails(s, g, lampPos, kit, stWin); // v105a：駅のガラス・窓は夜に灯る材質で（前は路面と同じ材質で、夜の駅が真っ暗だった）
     this.drawWaterWorks(s, g, kit);
     const wideS = new Set((s.wide ?? []).filter(i => s.road[i] === 2)); for (const i of grade(s).spanOf.keys()) if (s.road[i] === 2) wideS.add(i); this.wideSet = wideS; // v94：立体交差の前後は、高架の両側に側道の車線が残る 6 車線の幅
     const hwAt = (xx: number, yy: number) => { const j = idx(xx, yy), r = s.road[j]; return r === 2 && wideS.has(j) ? HW[3] : HW[r]; };
@@ -1288,6 +1296,7 @@ export class View {
     const mesh = new THREE.Mesh(g.build(!!REAL), this.matRoad); mesh.receiveShadow = true; mesh.castShadow = false; mesh.frustumCulled = false;
     if (gFly.pos.length) { const fm = new THREE.Mesh(gFly.build(!!REAL), this.matRoad); fm.receiveShadow = true; fm.castShadow = true; fm.frustumCulled = false; this.scene.add(fm); this.groups.roads.push(fm); }
     this.scene.add(mesh); this.groups.roads.push(mesh);
+    if (stWin.ix.length) { const wm = new THREE.Mesh(stWin.build(), this.matStWin); wm.receiveShadow = true; wm.frustumCulled = false; this.scene.add(wm); this.groups.roads.push(wm); }
     if (kit.ix.length) { const km = new THREE.Mesh(kit.build(), roadKitMat()); km.receiveShadow = true; km.frustumCulled = false; this.scene.add(km); this.groups.roads.push(km); }
     if (this.lamps) { this.scene.remove(this.lamps); this.lamps.geometry.dispose(); }
     const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(lampPos), 3));
@@ -1611,9 +1620,9 @@ export class View {
   private stSpots: StationSpot[] = [];
   /** 線路と一緒に描いた駅（町の塊では描かない） */
   private railStations = new Set<number>();
-  private drawRails(s: GameState, g: Geo, lampPos?: number[], kit?: Geo): void {
+  private drawRails(s: GameState, g: Geo, lampPos?: number[], kit?: Geo, win?: Geo): void {
     this.railPaths = buildRailPaths(s, this.map);
-    const r = drawRailPaths(g, s, this.map, this.railPaths, !this.fine() ? 0 : this.quality === 'high' ? 2 : 1, kit, this.stGrades(s)); if (lampPos) for (const v of r.lamps) lampPos.push(v);
+    const r = drawRailPaths(g, s, this.map, this.railPaths, !this.fine() ? 0 : this.quality === 'high' ? 2 : 1, kit, this.stGrades(s), win); if (lampPos) for (const v of r.lamps) lampPos.push(v);
     this.gates = r.gates; this.gateAng = r.gates.map(() => Math.PI / 2); this.plaza.clear(); this.stSpots = r.spots;
     const ids = r.spots.map(o => o.id).sort((a, b) => a - b).join(',');
     if (ids !== [...this.railStations].sort((a, b) => a - b).join(',')) this.chunkSig.clear(); // 駅を線路側で描くかどうかが変わったら、町の塊を描き直す
@@ -4152,7 +4161,7 @@ export class View {
     this.updateSky2(dt);
     this.updateLod(dt);
     this.dramatize(s, dt);
-    { const bo = this.blackout(s), popK = 0.95 + 0.35 * Math.min(1, (s.stats?.pop ?? 0) / 40000); this.matWinA.emissiveIntensity *= (1 - 0.9 * bo) * popK * (0.97 + 0.03 * Math.sin(performance.now() / 700)); this.matLamp.opacity *= 1 - bo; this.matVend.opacity *= 1 - bo; this.fx.clock(this.hour % 24, this.calM); this.fx.update(dt, this.camera, this.night, bo); }
+    { const bo = this.blackout(s), popK = 0.95 + 0.35 * Math.min(1, (s.stats?.pop ?? 0) / 40000); this.matStWin.emissiveIntensity *= 1 - 0.9 * bo; this.matWinA.emissiveIntensity *= (1 - 0.9 * bo) * popK * (0.97 + 0.03 * Math.sin(performance.now() / 700)); this.matLamp.opacity *= 1 - bo; this.matVend.opacity *= 1 - bo; this.fx.clock(this.hour % 24, this.calM); this.fx.update(dt, this.camera, this.night, bo); }
     this.camera.position.add(this.fx.shakeOffset());
     this.moveTsunami(s, dt);
     { const fog = this.scene.fog as THREE.Fog, pr = Math.max(this.weather.rain, this.weather.snow * 1.1); if (!REAL) { const ex = this.mode === 'orbit' ? Math.max(0, this.dist - 1500) : 0; fog.near = this.fogBase.near + ex; fog.far = this.fogBase.far + ex * 2; } /* v87：広い地図を引いて見るときは、霞を遠ざける */ fog.near *= 1 - 0.6 * pr; fog.far *= 1 - 0.5 * pr; } // 雨や雪の日は遠くがかすむ
