@@ -6,8 +6,30 @@ import type { Geo } from './geo';
 import type { PType } from './people';
 import type { GameState, Building } from '../sim/index';
 import { DEFS, fam, hash } from '../sim/index';
-import { presentAt, enrollOf } from './residents';
-import { people } from '../sim/people';
+import { presentAt, enrollOf, nameOf } from './residents';
+import { people, weekdayLegs } from '../sim/people';
+import { outings, OUT_JOG, OUT_TODDLER, OUT_WALK, OUT_STROLL } from '../sim/leisure';
+import { dowOf } from './residents';
+/** v105b：いま公園にいる住民の姿（外出の種類と年代から）。kids はいっしょに来た子（true は小さい子）。ベビーカーの子は親の姿（parent）に入る */
+export function parkPeople(s: GameState, b: Building, hour: number): { t: PType; kid: boolean; kids: boolean[] }[] {
+  const p = people(s), out: { t: PType; kid: boolean; kids: boolean[] }[] = [];
+  for (const o of outings(s, dowOf(occDay.holiday, occDay.day))) {
+    if (o.park !== b.id) continue; const a = o.dep + o.tt; if (hour < a || hour >= a + o.stay) continue;
+    const r = p.role[o.p], h = hash(o.p, 7, 31), baby = o.with.some(k => nameOf(s, k).age < 3);
+    const t: PType = o.kind === OUT_JOG ? 'jogger' : o.kind === OUT_TODDLER ? (baby ? 'parent' : 'shopper') : r === 0 || r === 1 ? 'student' : r === 2 ? 'teen' : r === 5 ? (h < 0.25 ? 'dog' : 'elderly') : o.kind === OUT_WALK || o.kind === OUT_STROLL ? (h < 0.3 ? 'dog' : 'shopper') : h < 0.3 ? 'parent' : 'shopper';
+    out.push({ t, kid: r === 0, kids: o.with.filter(k => nameOf(s, k).age >= 3).map(() => true) });
+  }
+  return out;
+}
+/** v105b：いま園の門のまわりにいる送り迎えの人（住民の番号）と、連れている子。朝は預けに着いてから 6 分、夕方は子を連れて出る前の 6 分 */
+export function gateNow(s: GameState, b: Building, hour: number): [number, number[]][] {
+  const out: [number, number[]][] = [];
+  for (const l of weekdayLegs(s).legs) {
+    if (l.why === '保育園・幼稚園へ送る' && l.dest === b.id) { const a = l.dep + l.dur; if (hour >= a && hour < a + 0.1) out.push([l.p, l.with]); }
+    else if (l.why === '子どもと帰宅' && l.from === b.acc && hour >= l.dep - 0.1 && hour < l.dep) out.push([l.p, l.with]);
+  }
+  return out;
+}
 /** v98：描画の日（休日か・何日目か）。scene が人だかりを置き直す前に渡す */
 export const occDay = { holiday: false, day: 0 };
 
@@ -126,8 +148,9 @@ export function crowdPlan(s: GameState, b: Building, hour: number, P: { x: numbe
     const kids = occ.present; // v102：1 人を 1 人で
     if ((hour >= 9.5 && hour < 11.5) || (hour >= 15 && hour < 16.5)) scatter(N(kids * 0.7), -12, 3, 3.5, 11.5, () => 'student', 1.2, 0.5, true);
     else if (hour >= 7 && hour < 19) scatter(N(kids * 0.15), -10, 2, 4, 10, () => 'student', 0.6, 0.3, true);
-    const rush = (hour >= 7.3 && hour < 9) || (hour >= 16.5 && hour < 19); // 送り迎え
-    if (rush) for (let k = 0; k < N(kids * 0.3 + 2); k++) { put(6 + rnd() * 6, 10 + rnd() * 5, 'parent', 0.8, 0.3); if (rnd() < 0.7) put(6 + rnd() * 6, 10 + rnd() * 5, 'student', 0.6, 0.3, true); }
+    // v105b：送り迎えの親子（住民の区間から。朝は園に着いてから 6 分、夕方は子と園を出る前の 6 分、門のまわりにいる）。前は人数を在籍の 3 割の決め打ちで置いていた
+    if (!occDay.holiday) for (const [, ks] of gateNow(s, b, hour)) { const gx = 6 + rnd() * 6, gz = 10 + rnd() * 5, baby = ks.some(k => nameOf(s, k).age < 3);
+      put(gx, gz, baby ? 'parent' : rnd() < 0.5 ? 'shopper' : 'worker', 0.5, 0.2); ks.forEach((k, j) => { if (nameOf(s, k).age >= 3) put(gx + 0.5 + j * 0.4, gz + 0.2, 'student', 0.3, 0.2, true); }); }
     // 待機児童：門の前に親子の列
     const wl = N(Math.min(40, occ.wait / 2)); for (let k = 0; k < wl; k++) { put(8.5 - k * 0.9, hz + 2.4, 'parent', 0.05, 0.04); if (k % 2 === 0) put(8.5 - k * 0.9 + 0.3, hz + 2.9, 'student', 0.05, 0.04, true); }
   } else if (occ.group === 'health') {
@@ -136,7 +159,11 @@ export function crowdPlan(s: GameState, b: Building, hour: number, P: { x: numbe
     const wq = N(Math.min(48, occ.wait / 1.5)); queue(wq, -2, () => (rnd() < 0.55 ? 'elderly' : rnd() < 0.2 ? 'wheel' : 'worker'), 0.8);
     const hosp = b.w >= 2 || b.kind === 'hospital'; if (hosp) vehicles(Math.min(4, 1 + Math.floor(Math.max(0, occ.ratio - 0.9) * 6)), 'amb', hx - 6);
   } else if (occ.group === 'park') {
-    scatter(N(Math.min(2000, occ.present)), -hx * 0.8, hx * 0.8, -hz * 0.8, hz * 0.8, () => { const r = rnd(); return r < 0.25 ? 'parent' : r < 0.45 ? 'elderly' : r < 0.6 ? 'dog' : r < 0.75 ? 'jogger' : r < 0.9 ? 'student' : 'teen'; }, 2.5, 0.35);
+    // v105b：公園にいる住民の外出（sim の outings）の種類どおりの姿で：朝は散歩・体操の高齢者（犬の散歩も）、昼前は親子、放課後は小学生、夜はジョギング、休日は家族
+    const who = parkPeople(s, b, hour);
+    if (who.length) { const n = Math.min(2000, who.length), step = who.length / Math.max(1, N(n)); for (let k = 0; k < who.length; k += step) { const w = who[Math.floor(k)], x = -hx * 0.8 + hx * 1.6 * rnd(), z = -hz * 0.8 + hz * 1.6 * rnd();
+      put(x, z, w.t, w.t === 'jogger' ? 6 : 2.5, w.t === 'jogger' ? 0.25 : 0.35, w.kid); for (const kk of w.kids) put(x + 0.6, z + 0.3, 'student', 2.5, 0.35, kk); } }
+    else scatter(N(Math.min(2000, occ.present)), -hx * 0.8, hx * 0.8, -hz * 0.8, hz * 0.8, () => { const r = rnd(); return r < 0.25 ? 'parent' : r < 0.45 ? 'elderly' : r < 0.6 ? 'dog' : r < 0.75 ? 'jogger' : r < 0.9 ? 'student' : 'teen'; }, 2.5, 0.35);
   } else if (occ.group === 'shop' || occ.group === 'leisure') {
     const n = N(occ.group === 'leisure' ? Math.min(1500, occ.present * 0.7) : Math.min(300, occ.present * 0.3)); // v102：外に見える人（行楽地は 7 割、店は 3 割）
     scatter(Math.round(n * 0.6), -hx * 0.7, hx * 0.7, hz - 8, hz - 1, () => (occ.group === 'leisure' ? (rnd() < 0.4 ? 'tourist' : rnd() < 0.5 ? 'parent' : 'teen') : rnd() < 0.6 ? 'shopper' : 'elderly'), 1.2, 0.3);

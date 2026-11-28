@@ -61,8 +61,8 @@ export class LowSet {
 
 // ---------------------------------------------------------------- 遠くを動く住民（精細な人・車の上限を超えた分）
 /** 住民 1 人の移動（residents.ts の RTrip の、描くのに要る分だけ） */
-export interface FarTrip { person: number; mode: number; role: number; from: number; to: number; prog: number; path?: number[] }
-export interface FarMover { person: number; mode: number; from: number; path?: number[]; pi: number; prev: number; cur: number; next: number; nn: number; goal: number; u: number; sp: number; col: number; side: number; y0: number; y1: number }
+export interface FarTrip { person: number; mode: number; role: number; from: number; to: number; prog: number; path?: number[]; /** v105b：いっしょに歩いて見える人の数（送り迎えの子・集団登校の班の子） */ nw?: number }
+export interface FarMover { person: number; mode: number; from: number; path?: number[]; pi: number; prev: number; cur: number; next: number; nn: number; goal: number; u: number; sp: number; col: number; side: number; y0: number; y1: number; /** v105b：いっしょに歩く人の数と、その人が小さい子か（班の小学生は少し小さい） */ k: number; kid: number }
 /** 動かすのに要る街の情報（scene が渡す）。車線・歩道の位置は道の形（PathEnv、src/render/farpath.ts）から */
 export interface FarEnv extends PathEnv {
   road: ArrayLike<number>; H: number;
@@ -102,7 +102,8 @@ export class FarFlow {
     if (!ok(cur)) { cur = -1; const x0 = tripTile(t, W) % W, y0 = (tripTile(t, W) / W) | 0; for (let r = 1; r <= 3 && cur < 0; r++) for (let dy = -r; dy <= r && cur < 0; dy++) for (let dx = -r; dx <= r; dx++) { const x = x0 + dx, y = y0 + dy; if (x < 0 || y < 0 || x >= W || y >= env.H) continue; if (ok(y * W + x)) { cur = y * W + x; break; } } }
     if (cur < 0) return null;
     const r = h1(t.person), pal = ped ? PED_COL[Math.min(5, t.role)] : CAR_COL, col = pal[Math.floor(h1(t.person * 7 + 3) * pal.length)];
-    const m: FarMover = { person: t.person, mode: t.mode, from: ok(t.from) ? t.from : cur, path: t.path, pi, cur, next: cur, nn: cur, prev: -1, goal: t.to, u: r, sp: ped ? 1.15 + r * 0.35 : t.mode === RM_BIKE ? 3.5 + r : 8 + r * 3, col, side: r < 0.5 ? 1 : -1, y0: 0, y1: 0 };
+    const k = ped ? t.nw ?? 0 : 0;
+    const m: FarMover = { person: t.person, mode: t.mode, from: ok(t.from) ? t.from : cur, path: t.path, pi, cur, next: cur, nn: cur, prev: -1, goal: t.to, u: r, sp: ped ? (k ? 0.95 : 1.15) + r * 0.35 : t.mode === RM_BIKE ? 3.5 + r : 8 + r * 3, col, side: r < 0.5 ? 1 : -1, y0: 0, y1: 0, k, kid: t.role === 1 ? 0.8 : 0.62 };
     this.advance(m, env, true); return m;
   }
   /** at の次の区画（経路があれば経路どおり、なければ行き先へ近づく向き。来た道 back へはなるべく戻らない）。k：経路の上での at の番号の目安 */
@@ -150,7 +151,10 @@ export class FarFlow {
       const x = o.x, z = o.z;
       const d2 = (x - camX) ** 2 + (z - camZ) ** 2; if (d2 < n2 || d2 > f2 || !env.seen(x, z)) continue;
       const y = m.y0 + (m.y1 - m.y0) * m.u, yaw = Math.atan2(o.dx, o.dz);
-      if (ped) this.peds.put(x, y + 0.1, z, yaw, 1, 1, 1, m.col);
+      if (ped) { this.peds.put(x, y + 0.1, z, yaw, 1, 1, 1, m.col);
+        // v105b：いっしょに歩く人。送り迎えの子は親の横、集団登校の班は班長の後ろに 2 列で
+        for (let j = 1; j <= m.k; j++) { const grp = m.kid > 0.7, back = grp ? Math.ceil(j / 2) * 0.95 : 0.1 + (j - 1) * 0.5, lat = grp ? (j % 2 ? 0.32 : -0.32) : -0.5 * m.side;
+          this.peds.put(x - o.dx * back + o.dz * lat, y + 0.1, z - o.dz * back - o.dx * lat, yaw, m.kid, m.kid, m.kid, PED_COL[grp ? 1 : 0][j % 4]); } }
       else if (m.mode === RM_BIKE) this.cars.put(x, y, z, yaw, 0.55, 1.75, 1.75, m.col);
       else if (m.mode === RM_BUS) this.cars.put(x, y, z, yaw, 2.5, 3.1, 10.5, 0xf2f2ee);
       else this.cars.put(x, y + 0.05, z, yaw, 1.7, 1.55, 4.3, m.col);

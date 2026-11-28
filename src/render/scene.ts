@@ -134,7 +134,9 @@ import { grade, flyPiers, flySupports, FLY_FILL_CLR, FLY_H, FLY_RAMP, OVP_H, OVP
 /** v93：架空の街の空き地は（v92 の広い地図では 76×68 の内も）、地形の見た目の印（田んぼ・畑・草地・林・空き地のまとまり）で描く。区画ごとの乱数で田畑・草地を選ぶと、上空から市松模様に見えた。印がなければ -1 */
 const extLook = (m: MapDef, x: number, y: number): number => (!REAL && m.deco && W > FIC_PREV_W && terrainOf(m.seed).id !== 'castaway' ? m.deco[idx(x, y)] : -1);
 import { DISTRICTS } from '../sim/types';
-import { residentPlan, profileOf, shortWho, stationFlow, isHoliday, RM_WALK, RM_BIKE, RM_BUS, RM_CAR, type Plan, type RTrip } from './residents'; // v98
+import { residentPlan, profileOf, shortWho, stationFlow, isHoliday, companionTrips, lookOf, RM_WALK, RM_BIKE, RM_BUS, RM_CAR, type Plan, type RTrip } from './residents'; // v98
+import { BusQueues, stopGeo, type StopGeo } from './busstops'; // v105b
+import { busWaiting } from '../sim/people';
 import { LowSet, FarFlow, lowPersonGeo, lowCarGeo, tripTile, type FarEnv } from './lodcrowd'; // v102
 import { roadGeom, lanePos, walkPos, walkMid, type PathEnv } from './farpath'; // v103
 import { veilQuads } from './veil'; // v103
@@ -2329,7 +2331,7 @@ export class View {
       // 置き場所（ホームの立ち位置・広場）に入りきらない分は、すき間に詰め（ホーム）、外側の列・歩道へ（広場）
       const Rh = rc ? this.stRNow.get(sp.id) ?? 0 : -1;
       if (Rh >= 0) { const plat = Rh * 10 / 60 * f, gate = Rh * 2 / 60, walk = Rh * 4 / 60, npz = pz.length / 4, nqq = P.q.length / 4, nst = Math.min(P.st.length / 4, 320);
-        W0[0] = Math.min(np, plat); W0[1] = Math.min(np * 2, plat - W0[0]); W0[2] = Math.min(npz, gate); W0[3] = lk.queue > 0 ? Math.min(nqq, gate - W0[2]) : 0; W0[4] = Math.min(nst, walk + Math.max(0, gate - W0[2] - W0[3])); }
+        W0[0] = Math.min(np, plat); W0[1] = Math.min(np * 2, plat - W0[0]); W0[2] = Math.min(npz, gate); W0[3] = lk.queue > 0 ? Math.min(nqq, gate - W0[2]) : 0; W0[4] = Math.min(nst, Math.max(0, gate - W0[2] - W0[3])); void walk; } // v105b：駅へ歩く人は住民の歩く人（駅までの区間）がそのまま歩道を流れるので、歩道に立たせる 4 分ぶんはやめた（改札前にあふれた分だけ歩道に並ぶ）
       const [want, dup, spill, nq, ns] = W0.map(v => Math.round(Math.max(0, v)));
       for (let k = 0; k < want && nt < capT; k++) put(sp.pts[k * 3], sp.pts[k * 3 + 1], sp.pts[k * 3 + 2], (k * 2.39) % (Math.PI * 2), 0, 0);
       for (let k = 0; k < dup && nt < capT; k++) { const q = (k * 7) % Math.max(1, want), a = k * 2.39 + 0.7, d = 0.55 + (k % 3) * 0.12; put(sp.pts[q * 3] + Math.cos(a) * d, sp.pts[q * 3 + 1], sp.pts[q * 3 + 2] + Math.sin(a) * d, a, 0, 0); }
@@ -2346,6 +2348,10 @@ export class View {
       for (let k = 0; k < nq && nt < capT; k++) put(P.q[k * 4], P.q[k * 4 + 1], P.q[k * 4 + 2], P.q[k * 4 + 3], (k % 9) * 0.3, 0.15);
       // まわりの歩道：駅へ向かう人で埋まる（混雑率 1.1 から。駅に近い歩道から）
       for (let k = 0; k < ns && nt < capT; k++) put(P.st[k * 4], P.st[k * 4 + 1], P.st[k * 4 + 2], P.st[k * 4 + 3], this.lifeT * 5 + k, k % 3 === 0 ? 1 : 0.1);
+    }
+    { // v105b：バス停で待つ人（住民のバスの移動から。src/render/busstops.ts）
+      const bq = this.busQ.spots(s, h, this.isHol(), this.lifeT, dt, t => this.stopGeoOf(s, t)); this.busInfo = { wait: bq.wait, drawn: bq.drawn };
+      for (let k = 0; k < bq.pts.length && nt < capT; k += 4) { const x = bq.pts[k], z = bq.pts[k + 1], walk = bq.pts[k + 3]; put(x, this.surfY(x, z) + 0.15, z, bq.pts[k + 2], walk ? this.lifeT * 6 + k : 0, walk ? 1 : 0.08); }
     }
     if (n !== this.crowdP.mesh.count || n) { this.crowdP.mesh.count = n; this.crowdP.commitPose(); }
     this.stats.peds = this.peds.length + n; this.stDrawn = nt;
@@ -2366,6 +2372,11 @@ export class View {
     return this.stRC;
   }
   private stRK = ''; private stRC: Map<number, number> | null = null;
+  /** v105b：バス停で待つ人（列・乗る・降りる）と、検査用の数（住民の待ち人数・描いた人数） */
+  private busQ = new BusQueues(); busInfo = { wait: 0, drawn: 0 }; private sgK = ''; private sgM = new Map<number, StopGeo | null>();
+  /** 検査用：いまの時刻に、バス停ごとに待っている住民の数（平日） */
+  busStopsNow(): [number, number][] { const s = this.getState(); return (s.busStops ?? []).map(t => [t, busWaiting(s, this.hour).get(t) ?? 0] as [number, number]); }
+  private stopGeoOf(s: GameState, t: number): StopGeo | null { const k = `${s.roadVersion}`; if (this.sgK !== k) { this.sgK = k; this.sgM.clear(); } let g = this.sgM.get(t); if (g === undefined) { g = stopGeo(s.road, W, H, t, i => !!this.wideSet?.has(i)); this.sgM.set(t, g); } return g; }
   /** 検査用：駅ごとの住民の朝の乗車（v95）と、いまの混雑率（住民から） */
   stRAm: Map<number, number> = new Map();
   /** v102：駅ごとの、いまの 1 時間あたりの乗車（住民）・駅に描いた人の数（精細＋簡略） */
@@ -3302,7 +3313,7 @@ export class View {
   /** v102：遠くの簡略な形で描く住民を合わせる。手段ごとに「見えている住民の数 − 精細に描いた数」まで（近い順の一覧の、遠い方を切る） */
   private farSync(s: GameState, list: RTrip[]): void {
     const vis = this.resInfo.visible, d = [0, 0, 0, 0, 0]; for (const a of this.cars) { const t = (a as any).rt as RTrip | undefined; if (t && !(a as any).dead) d[t.mode]++; } for (const a of this.peds) if ((a as any).rt && !(a as any).dead && !(a as any).ret) d[RM_WALK]++;
-    const left = vis.map((v, m) => Math.max(0, v - d[m])), out: RTrip[] = []; for (const t of list) if (left[t.mode] > 0) { left[t.mode]--; out.push(t); }
+    const left = vis.map((v, m) => Math.max(0, v - d[m])), out: RTrip[] = []; for (const t of list) if (left[t.mode] > 0) { left[t.mode] -= 1 + (t.nw ?? 0); out.push(t); } // v105b：いっしょに歩く人も数える
     this.far.sync(out, this.farEnv(s));
   }
   /** v102：精細に描く住民を注視点に近い順に選ぶため、移動の一覧を近い順に並べる */
@@ -3372,14 +3383,22 @@ export class View {
   }
   /** 住民の見た目：役割と用事から（小学生・中学生・働く人・買い物の人・高齢者。休日は普段着） */
   private resLook(t: RTrip, cm: number, rain: boolean): Look {
-    const hol = this.resInfo.holiday, R = Math.random;
-    const ty: PType = t.role === 1 ? 'student' : t.role === 2 ? 'teen' : t.role === 3 ? (hol ? (t.why === '行楽地' ? 'tourist' : 'shopper') : 'worker') : t.role === 5 ? (R() < 0.04 ? 'wheel' : 'elderly') : t.role === 0 ? 'parent' : t.why === '行楽地' ? 'tourist' : 'shopper';
-    return makeLook(ty, R, cm, rain);
+    const R = Math.random, o = lookOf(this.getState(), t, this.resInfo.holiday, R), L = makeLook(o.ty, R, cm, rain); // v105b：未就学児は小さく、ベビーカーの子を連れた親はベビーカー
+    if (o.kid) { L.scale *= t.role === 0 ? 0.62 : 0.8; L.speed = 0.95; } else if (t.role === 1 && t.why === '集団登校') L.speed = 0.95; else if (t.nw) L.speed = Math.min(L.speed, 0.95);
+    return L;
   }
   private dressRes(list: Agent[]): Agent[] {
     const s = this.getState(), cm = calMonth(s.month), rain = this.rainNow(s);
-    for (const a of list) { const t = (a as any).rt as RTrip; a.L = this.resLook(t, cm, rain); a.ph = Math.random() * 6.28; a.mv = 1; a.speed = a.L.speed; a.lead = undefined; a.side = 0; }
+    for (const a of list) { const t = (a as any).rt as RTrip; a.L = this.resLook(t, cm, rain); a.ph = Math.random() * 6.28; a.mv = 1; a.speed = a.L.speed; a.lead = undefined; a.side = (a as any).sd ?? 0; }
     return list.slice(0, 420);
+  }
+  /** v105b：住民の歩く人のあとに、いっしょに歩く人（送り迎えの子は横に、集団登校の班の子は後ろに 2 列で）を足した一覧。先の人について歩く（stepPed） */
+  private withKids(s: GameState, list: Agent[]): Agent[] {
+    const out: Agent[] = [];
+    for (const a of list) { out.push(a); const t = (a as any).rt as RTrip | undefined; if (!t || !t.nw) continue; const grp = t.why === '集団登校';
+      companionTrips(s, t).forEach((ct, k) => { const f: Agent = { cur: a.cur, next: a.next, prev: a.prev, t: a.t, speed: a.speed, lane: a.lane, yaw: a.yaw, bob: Math.random() * 6, kind: 0 }, F = f as any;
+        F.rt = ct; F.ldA = a; F.ldRt = t; F.back = grp ? Math.ceil((k + 1) / 2) * 1.0 : 0.15 + k * 0.45; F.sd = grp ? (k % 2 ? 1 : 2) : 2; out.push(f); }); }
+    return out;
   }
   /** 見えている住民の移動のうち、まだ画面にいない人を 1 件（手段 m） */
   private resTake(m: number): RTrip | null { const k = this.resPool.findIndex(t => t.mode === m); return k < 0 ? null : this.resPool.splice(k, 1)[0]; }
@@ -3390,7 +3409,7 @@ export class View {
     if (!t) { A.dead = 1; return; }
     const b = this.resAgent(s, t, true); if (!b) { A.dead = 1; return; }
     a.cur = b.cur; a.next = b.next; a.prev = -1; a.t = b.t; a.nn = undefined; a.enter = undefined; a.exit = b.exit; a.lane = b.lane; (a as any).pe = 0; A.rt = t; A.goal = t.to; A.ret = 0;
-    if (ped) { const cm = calMonth(s.month); a.L = this.resLook(t, cm, this.rainNow(s)); a.speed = a.L.speed; A.relook = 1; } else { a.v = 0; this.dressCar(a); }
+    if (ped) { const cm = calMonth(s.month); a.L = this.resLook(t, cm, this.rainNow(s)); a.speed = a.L.speed; A.relook = 1; if (t.nw) this.peds.push(...this.dressRes(this.withKids(s, [a]).slice(1))); } else { a.v = 0; this.dressCar(a); } // v105b：新しい移動のいっしょに歩く人
   }
   /** 数秒に 1 回：住民の移動を作り直し、描く数を合わせる（足りなければ家から出てくる人・車を足し、多すぎれば建物に入って消える・車は遠い順に消す） */
   private resTick(s: GameState): void {
@@ -3401,11 +3420,11 @@ export class View {
     let pedCh = false;
     for (const [m, want] of [[RM_CAR, tg.car], [RM_BIKE, tg.bike], [RM_BUS, tg.bus], [RM_WALK, tg.ped]] as [number, number][]) {
       const ped = m === RM_WALK, arr = ped ? this.peds : this.cars;
-      const mine = arr.filter(a => { const t = (a as any).rt as RTrip | undefined; return t && t.mode === m && !(a as any).dead && !(a as any).ret && !(a as any).em; });
+      const mine = arr.filter(a => { const t = (a as any).rt as RTrip | undefined; return t && t.mode === m && !(a as any).dead && !(a as any).ret && !(a as any).em && !(a as any).ldA; }); // v105b：いっしょに歩く人は先の人と消える
       if (mine.length < want) {
         const add: Agent[] = [];
         for (let n = 0; n < Math.min(want - mine.length, 60) && arr.length + add.length < (ped ? 420 : 300); n++) { const t = this.resTake(m); if (!t) break; const a = this.resAgent(s, t, true); if (a) add.push(a); }
-        if (ped) { this.peds.push(...this.dressRes(add)); pedCh = pedCh || add.length > 0; } else { add.forEach(a => this.dressCar(a)); this.cars.push(...add); }
+        if (ped) { this.peds.push(...this.dressRes(this.withKids(s, add))); pedCh = pedCh || add.length > 0; } else { add.forEach(a => this.dressCar(a)); this.cars.push(...add); }
       } else if (mine.length > want * 1.1 + 2) {
         mine.sort((a, b) => far(a) - far(b)); // 遠い順
         for (const a of mine.slice(0, mine.length - want)) { if (ped) { (a as any).ret = 1; if (a.enter === undefined && a.exit === undefined) a.enter = 0; } else (a as any).dead = 1; }
@@ -3501,7 +3520,7 @@ export class View {
     { let np = 0; for (const b of s.buildings) if (b.status === 'operating' && (b.kind === 'police' || b.kind === 'koban')) np++; // v87：巡回のパトカーは治安が悪いほど、交番・警察署が多いほど多い
       this.patrolP = Math.min(0.03, (0.003 + 0.016 * (s.stats.crime || 0)) * (np ? 1 + 0.3 * Math.min(3, np) : 0.35)); }
     this.ems = this.ems.filter(a => s.road[a.cur]);
-    this.cars = jamCars.concat(resCars, work).slice(0, 320 - this.ems.length); this.peds = this.dressRes(resPeds);
+    this.cars = jamCars.concat(resCars, work).slice(0, 320 - this.ems.length); this.peds = this.dressRes(this.withKids(s, resPeds));
     this.farSync(s, [...carPool, ...byMode[RM_BIKE], ...byMode[RM_WALK]]); // v102：上限を超えた分（遠い人から）は簡略な形で
     this.cars.forEach(a => this.dressCar(a)); this.cars.push(...this.ems); for (const c of this.incAgents()) if (!this.cars.includes(c)) this.cars.push(c); this.lookPeds(this.peds);
     this.stats.cars = this.cars.length; this.stats.peds = this.peds.length; this.resInfo.ms = +(performance.now() - t0).toFixed(1); this.resCount();
@@ -3571,8 +3590,10 @@ export class View {
     };
     const nnOf = (a: Agent): number => { const A = a as any, k = a.cur * 1048576 + a.next; if (A.nnK !== k || a.nn === undefined) { A.nnK = k; a.nn = a.cur === a.next ? a.next : pickPed(a, a.next, a.cur); } return a.nn!; };
     const stepPed = (a: Agent, i: number) => {
-      const ld = a.lead !== undefined ? this.peds[a.lead] : null, L = a.L!;
-      if (ld) { a.cur = ld.cur; a.next = ld.next; a.prev = ld.prev; a.nn = ld.nn; (a as any).nnK = (ld as any).nnK; a.t = ld.t; a.lane = ld.lane; a.wait = ld.wait; a.enter = ld.enter; a.exit = ld.exit; a.speed = ld.speed; }
+      const A0 = a as any, ld: Agent | null = a.lead !== undefined ? this.peds[a.lead] : A0.ldA ?? null, L = a.L!;
+      if (A0.ldA && (A0.ldA.dead || A0.ldA.rt !== A0.ldRt)) { A0.dead = 1; this.resDirty = true; return; } // v105b：先の人が着いた・消えた
+      if (ld) { a.cur = ld.cur; a.next = ld.next; a.prev = ld.prev; a.nn = ld.nn; (a as any).nnK = (ld as any).nnK; a.t = ld.t; a.lane = ld.lane; a.wait = ld.wait; a.enter = ld.enter; a.exit = ld.exit; a.speed = ld.speed;
+        if (A0.back && a.enter === undefined && a.exit === undefined) { let t = a.t - A0.back / TILE; if (t < 0) { if (ld.prev >= 0 && ld.prev !== ld.cur) { a.nn = a.next; a.next = a.cur; a.cur = ld.prev; a.prev = -1; A0.nnK = a.cur * 1048576 + a.next; t += 1; } else t = 0; } a.t = Math.max(0, t); } } // v105b：班の子は班長の後ろ
       else {
         if (!s.road[a.cur] || !s.road[a.next]) { a.cur = this.pickTile(this.pedTiles); if (a.cur < 0) return; a.next = this.nextTile(s, a.cur, -1, true); a.prev = -1; a.t = 0; a.enter = a.exit = undefined; }
         const inDist = TILE / 2 - (this.pedHW(s, a.cur)) - 1.25 + 1.2;
@@ -3641,6 +3662,7 @@ export class View {
       }
       if (!em && a.vm === 17 && this.busSet(s).has(a.cur)) { // v88：路線バスはバス停で左に寄せて止まり、客の乗り降りを待つ（区画ごとに 1 回）
         if ((a as any).bs !== a.cur && a.t < 0.5) { (a as any).bs = a.cur; (a as any).bw = 5 + Math.random() * 6; }
+        if ((a as any).bw > 0 && a.t > 0.4) this.busQ.dwell(a.cur, this.lifeT); // v105b：止まったバスに、待っていた人が乗る
         if ((a as any).bw > 0) { lim = Math.min(lim, 0.5); if (a.t > 0.45) (a as any).bw -= dt; } }
       if (VA.vr && VA.vi >= VA.vr.length - 2) { lim = Math.min(lim, 0.5); if (a.t > 0.45 && (a.v ?? 0) < 0.3) VA.po = 1; } // v95：追われた車は道筋の終わりで左に寄せて止まる
       if (a.cur !== a.next && !em?.lit && !(((a as any).dk ?? -1) >= 0) && !(VA.vr && VA.sig)) { // 高架の上の車は信号・踏切で止まらない（v95：信号無視の車も）
@@ -3686,7 +3708,7 @@ export class View {
     this.peds.forEach((a, i) => step(a, true, i));
     if (this.resDirty) this.resSweep();
     this.moveLife(s, dt); this.moveFlow(s, dt);
-    if (s.rail) { this.moveTrains(s, dt); this.moveGates(dt); this.moveCrowd(s, dt); }
+    if (s.rail) { this.moveTrains(s, dt); this.moveGates(dt); } if (s.rail || (s.busStops ?? []).length) this.moveCrowd(s, dt); // v105b：バス停で待つ人も駅の人と同じ描き方
     this.vehEnd(); this.pedP.commitPose(); this.resInfo.far = [this.far.movers.length, this.lowPed.n, this.lowCar.n];
     head.needsUpdate = true; this.headPts.geometry.setDrawRange(0, Math.min(320, this.cars.length)); tail.needsUpdate = true; tailC.needsUpdate = true; this.tailPts.geometry.setDrawRange(0, Math.min(320, this.cars.length));
     if (!s.rail) {
@@ -4113,6 +4135,7 @@ export class View {
         const by = this.slopePose(q, x, z, lp.dx, lp.dz, Math.atan2(lp.dx, lp.dz), VEH_HL[1]) + 0.13; void up; // v95：坂では車体を傾ける
         if (this.dbgVeh) this.dbgVeh.push(x, z, lp.dx, lp.dz, 1);
         this.busSegs.push({ cur: at(q0), next: at(q0 + 1), t });
+        if (t > 0.4 && t < 0.6 && this.busSet(s).has(at(q0))) this.busQ.dwell(at(q0), this.lifeT); // v105b：路線バスがバス停を通る＝待っていた人が乗る
         m4.compose(new THREE.Vector3(x, by, z), q, new THREE.Vector3(VEH_K[1], VEH_K[1], VEH_K[1])); // 橋・陸橋・立体交差の上も路面に沿って走る
         this.buses!.setMatrixAt(n, m4); this.buses!.setColorAt(n, c.setHex(COL[k % COL.length])); n++;
       }
