@@ -216,8 +216,8 @@ function stationAnchors(s: GameState, paths: RailPath[]): Anchor[] {
 
 /** 線路・高架・鉄橋・坑口・踏切・架線柱・駅（ホーム・屋根・駅舎・跨線橋）を描く。動かす遮断機と、ホームの乗客の立ち位置を返す */
 /** detail：0 簡略（品質「低」）・1 中・2 高。kit：標識の面と路面の文字を描く Geo（render/roadkit.ts。無ければ描かない） */
-/** grades：駅ごとの見た目の段（render/grades.ts。無ければ lv と人口だけで決める） */
-export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[], detail = 2, kit?: Geo, grades?: Map<number, number>): { gates: Gate[]; spots: StationSpot[]; lamps: number[] } {
+/** grades：駅ごとの見た目の段（render/grades.ts。無ければ lv と人口だけで決める）。win：駅のガラス・窓の面（夜に灯る材質で描く。v105a） */
+export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[], detail = 2, kit?: Geo, grades?: Map<number, number>, win?: Geo): { gates: Gate[]; spots: StationSpot[]; lamps: number[] } {
   const lamps: number[] = []; // 夜に灯る明かり（ホームの蛍光灯・線路沿いの灯）
   g.at(0, 0, 0);
   const gates: Gate[] = [], spots: StationSpot[] = [];
@@ -467,16 +467,20 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
     const tan = (j: number): [number, number] => { const p = Math.max(0, j - 1), q = Math.min(n - 1, j + 1), dx = X(q) - X(p), dz = Z(q) - Z(p), L = Math.hypot(dx, dz) || 1; return [dx / L, dz / L]; };
     const lx = (b.x + b.w / 2) * TILE, lz = (b.y + b.h / 2) * TILE, ly = heightAt(m, lx, lz);
     const [tx, tz] = tan(a.j), rot = Math.atan2(-tz, tx), nx = -tz, nz = tx;
+    // v104b：駅の見た目の段。ホームの長さ（4 両が止まれる長さは守る）と屋根の長さ、駅舎の形が変わる
+    const SG0 = grades?.get(b.id) ?? stationGrade({ lv: b.lv ?? 1, riders: 0, pop: s.stats?.pop ?? 0 }), SG = Math.min(4, SG0), SP = platformSpan(SG), HL = SP.half; // 5 は撮影用（赤れんがの駅舎に決める）
     if (a.under) {
-      // 地下の駅：敷地に出入口の建物と広場
-      g.at(lx, ly, lz, rot); g.box(0, -0.6, 0, 40, 0.75, 22, 0xc8c3b8, 0xd2cdc2); g.box(0, 0, 0, 12, 4.2, 7, 0xe9e5dc, 0x5a6672); g.box(0, 4.2, 0, 13, 0.35, 8, 0x2f6fb5); g.box(0, 0, 3.6, 5, 3, 0.2, 0x1b1c1e); g.at(0, 0, 0);
+      // 地下の駅（v105a）：敷地には地下鉄の出入口と換気塔、段 2 からは駅舎（render/stationkit.ts）。原点は敷地の中心、x は敷地の長い向き
+      const ur = b.w >= b.h ? 0 : Math.PI / 2;
+      drawStationBuilding({ g, win, detail, lamps, ox: lx, oy: ly, oz: lz, rot: ur, yr: 0, edgeN: 0, edgeF: 0, pfN: NaN, pfF: NaN, want: 0, grade: SG, seed: b.id, elevated: false, heritage: false, shin: 0, under: true,
+        ground: (x, z) => ground(lx + x * Math.cos(ur) + z * Math.sin(ur), lz - x * Math.sin(ur) + z * Math.cos(ur)) - ly });
+      g.at(0, 0, 0);
       spots.push({ id: b.id, pts: [], d: dC, path: a.k });
       continue;
     }
     const dbl = P.lv[a.j] >= 2, sides = dbl ? [-1, 1] : [a.side], po = (P.lv[a.j] === 3 ? 6.6 : dbl ? 2.2 : 0) + PF_EDGE + 2.0, pw = 4.0, ph = 1.1; // v101：ホームの幅 4m（省令の解釈基準：相対式は 2m 以上）。縁は線路の中心から PF_EDGE
     const pts: number[] = [];
-    // v104b：駅の見た目の段。ホームの長さ（4 両が止まれる長さは守る）と屋根の長さ、駅舎の形が変わる
-    const SG0 = grades?.get(b.id) ?? stationGrade({ lv: b.lv ?? 1, riders: 0, pop: s.stats?.pop ?? 0 }), SG = Math.min(4, SG0), SP = platformSpan(SG), HL = SP.half; // 5 は撮影用（赤れんがの駅舎に決める）
+    const ty = Y(a.j), elevated = ty - heightAt(m, X(a.j), Z(a.j)) > 3;
     const along = Math.max(-30, Math.min(30, (lx - X(a.j)) * tx + (lz - Z(a.j)) * tz));
     const xing = SG === 0 && dbl; // 無人駅の複線は構内踏切（ホームの + の端から線路を渡る）
     for (let j = 0; j < n - 1; j++) {
@@ -498,7 +502,7 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
           if (j % 3 === 0) { const [px, py, pz] = A(o0 + w2 * sd * 0.45, ph, 0); g.at(px, py, pz, lr); g.cyl(0, 0, 0, 0.13, 3.5, 0x8b9094, 6); g.box(0, 3.3, 0, 0.18, 0.22, pw + 0.6, 0x8b9094); g.at(0, 0, 0); lamps.push(px, py + 3.3, pz); } // 柱と梁、蛍光灯
         }
         // 背面：柵（全長）。屋根の下の中央は腰から上も壁（広告や時刻表のある壁）
-        const door = SG <= 1 && sd === a.side && Math.abs(dd - along) < 1.6; // 無人駅・小さな駅舎：駅舎（階段）からホームへ入る所は柵を開ける
+        const door = SG <= 1 && !elevated && sd === a.side && Math.abs(dd - along) < 1.6; // 無人駅・小さな駅舎：駅舎（階段）からホームへ入る所は柵を開ける
         if (!door) both(A(back, ph, 0) as any, A(back, ph, 1) as any, A(back, ph + 1.2, 1) as any, A(back, ph + 1.2, 0) as any, 0xdedcd5);
         if (!door && ad < Math.min(26, Math.max(3, SP.roof - 4))) both(A(back, ph + 1.2, 0) as any, A(back, ph + 1.2, 1) as any, A(back, ph + 3.0, 1) as any, A(back, ph + 3.0, 0) as any, j % 6 < 2 ? 0x9fc3d6 : 0xe9e7e0);
         const put = (o: number, f: () => void) => { const [px, py, pz] = A(o, ph, 0); g.at(px, py, pz, lr); f(); g.at(0, 0, 0); };
@@ -520,14 +524,15 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
       }
     }
     const spot: StationSpot = { id: b.id, pts, d: dC, path: a.k }; spots.push(spot);
-    const ty = Y(a.j), elevated = ty - heightAt(m, X(a.j), Z(a.j)) > 3;
     // v104b：駅舎は段ごとに render/stationkit.ts で描く。原点は線路の中心線上（駅舎の真横）、+z が駅前広場の側
     { const across0 = ((lx - X(a.j)) * nx + (lz - Z(a.j)) * nz) * a.side, want = 0; void across0; // v104b：駅舎はホームのすぐ外に寄せる（敷地の奥に置くと、駅ビルやデッキが敷地の外の道路にはみ出す）
       const ox = X(a.j) + tx * along, oz = Z(a.j) + tz * along, oy = heightAt(m, ox + nx * a.side * want, oz + nz * a.side * want);
       const r2 = Math.atan2(-a.side * tz, a.side * tx), c2 = Math.cos(r2), s2 = Math.sin(r2);
-      const r = drawStationBuilding({ g, detail, lamps, ox, oy, oz, rot: r2, yr: ty - oy, edgeN: po + pw / 2, edgeF: dbl ? -(po + pw / 2) : -2.6, pfN: po, pfF: dbl ? -po : NaN, want,
+      const r = drawStationBuilding({ g, win, detail, lamps, ox, oy, oz, rot: r2, yr: ty - oy, edgeN: po + pw / 2, edgeF: dbl ? -(po + pw / 2) : -2.6, pfN: po, pfF: dbl ? -po : NaN, want,
         grade: SG, seed: b.id, elevated, heritage: RAIL_LM.station && !elevated && (SG0 >= 5 || stationHeritage(SG, b.id)), shin: b.shin !== undefined ? po + 9 : 0,
-        ground: (x, z) => ground(ox + x * c2 + z * s2, oz - x * s2 + z * c2) - oy });
+        ground: (x, z) => ground(ox + x * c2 + z * s2, oz - x * s2 + z * c2) - oy, deck: (P.lv[a.j] === 3 ? 9.6 : dbl ? 5.2 : 3.0) + 0.8,
+        free: (x, z) => { const wx = ox + x * c2 + z * s2, wz = oz - x * s2 + z * c2, tx2 = Math.floor(wx / TILE), tz2 = Math.floor(wz / TILE); if (tx2 < 0 || tz2 < 0 || tx2 >= W || tz2 >= H) return false;
+          const i = idx(tx2, tz2); return !s.road[i] && !m.water[i] && !s.rail?.[i] && (!s.occ[i] || s.occ[i] === b.id); } });
       if (r.bld) spot.bld = r.bld;
       g.at(0, 0, 0); }
     // 無人駅の複線：構内踏切（ホームの + の端から、坂を下りて線路を渡る）
@@ -567,10 +572,15 @@ export function drawRailPaths(g: Geo, s: GameState, m: MapDef, paths: RailPath[]
       for (let u = -L / 2; u <= L / 2; u += 20) g.box(u, heightAt(m, cx + tx * u, cz + tz * u) - 1, 0, 2.4, hy - heightAt(m, cx + tx * u, cz + tz * u) + 1, 6, 0xc9c6bf);
       g.box(0, hy, 0, L + 40, 1.6, 14, 0xd6d3cb, 0xbdb8ad); g.box(0, hy + 1.6, -5.2, L, 1.1, 3.6, 0xbdb8ad); g.box(0, hy + 1.6, 5.2, L, 1.1, 3.6, 0xbdb8ad);
       g.box(0, hy + 7, 0, L * 0.7, 0.5, 16, 0xe6e8ea, 0x9fb3bd); // 大屋根
+      // v105a：高架下の新幹線の改札とコンコース（在来線のコンコースはここへつながる）と、ホームへの階段口
+      { const ux = along, gx = cx + tx * ux, gz = cz + tz * ux, gy = Math.min(heightAt(m, gx + nx * 7, gz + nz * 7), heightAt(m, gx - nx * 7, gz - nz * 7), heightAt(m, gx, gz));
+        if (hy - 0.3 - gy > 3.2) { g.box(ux, gy - 0.3, 0, 26, hy - 0.2 - gy, 13.4, 0xe9e5dc, 0x5a6672); for (const e of [-1, 1]) { (win ?? g).at(cx, 0, cz, rot).box(ux, gy + 0.2, e * 6.75, 18, Math.min(3.6, hy - gy - 1), 0.1, 0x8fb2c4); g.box(ux, gy + 3.8, e * 7.9, 12, 0.25, 2.4, 0x5a6672); } lamps.push(gx, gy + 3.2, gz); }
+        for (const e of [-1, 1]) { const zo = e * 5.6; g.box(ux, hy + 2.71, zo, 7, 0.02, 1.6, 0x2f3134); for (const q of [-0.8, 0.8]) g.box(ux, hy + 2.7, zo + q, 7, 1.1, 0.06, 0xa9c8d6); } }
       // 開業後の列車は、走る列車（scene.ts の moveShin）として描く
       g.at(0, 0, 0);
     }
   }
+  win?.at(0, 0, 0);
   return { gates, spots, lamps };
 }
 
