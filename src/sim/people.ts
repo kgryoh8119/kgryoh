@@ -70,7 +70,20 @@ export interface People {
   holMode: Uint8Array;
   /** 平日に通院する日がある（その月の代表の 1 日に通院する割合で決めた） */
   clinic: Uint8Array;
+  /** v105b：未就学児の朝の送り・夕方の迎えをする人（住民の番号）。-1 は送り迎えなし（家で過ごす子・ほかの役割）、-2 は園バス */
+  escAm: Int32Array; escPm: Int32Array;
+  /** v105b：送り・迎えをする人の種類（ESC_NAMES の番号） */
+  escKAm: Uint8Array; escKPm: Uint8Array;
+  /** v105b：バスに乗る人の、家の近くのバス停と行き先の近くのバス停（道路の区画。-1 は使わない） */
+  stop: Int32Array; stop2: Int32Array;
+  /** v105b：電車で通う人の、家から駅までの距離（km） */
+  accKm: Float32Array;
 }
+/** v105b：未就学児の送り迎えをする人の種類 */
+export const ESC_NAMES = ['', '家の大人', '働く親', '同居の祖父母', '園バス'] as const;
+export const ESC_HOME = 1, ESC_WORK = 2, ESC_GRAND = 3, ESC_BUS = 4;
+/** v105b：保育所が開く時刻（延長保育の朝 7 時）と、迎えの遅い限度（延長保育の 19 時。ここでは 18 時 45 分までに着く）。幼稚園（認定こども園）は預かり保育の 7 時半から */
+const CARE_OPEN = 7.0, KG_OPEN = 7.5, CARE_LATE = 18.75;
 
 /** 類型 t の 1 世帯あたりの役割ごとの人数（P.persons と合計が一致） */
 export function roleComp(t: number): number[] {
@@ -168,6 +181,7 @@ function build(s: GameState): { p: People; st: PeopleStats } {
     key, n, home: new Int32Array(n), hhType: new Uint8Array(n), role: new Uint8Array(n), dest: new Int32Array(n).fill(-1), mode: new Uint8Array(n).fill(M_NONE),
     station: new Int32Array(n).fill(-1), access: new Uint8Array(n).fill(M_NONE), depart: new Float32Array(n), back: new Float32Array(n), dist: new Float32Array(n),
     regular: new Uint8Array(n), income: new Float32Array(n), hol: new Uint8Array(n), holDest: new Int32Array(n).fill(-1), holMode: new Uint8Array(n).fill(M_NONE), clinic: new Uint8Array(n),
+    escAm: new Int32Array(n).fill(-1), escPm: new Int32Array(n).fill(-1), escKAm: new Uint8Array(n), escKPm: new Uint8Array(n), stop: new Int32Array(n).fill(-1), stop2: new Int32Array(n).fill(-1), accKm: new Float32Array(n),
   };
   // 個人の番号：建物ごと・役割ごとに 0, 1, 2…（建物の番号と合わせて乱数の種にする＝人数が変わらなければ同じ人は同じ選択）
   const kth = new Int32Array(n);
@@ -281,6 +295,23 @@ function build(s: GameState): { p: People; st: PeopleStats } {
     }
   }
 
+  // ---- v105b：未就学児の送り迎え（未就学児は一人で移動しない）。統計の積み上げ（accumulate）は子の手段のまま変えない（付き添いは子と同じ道を並んで歩く）
+  escorts(s, p, n, homeB, byId, u, SPEED);
+  // ---- v105b：バスに乗る人のバス停（家の近く＝v95 の「バス停まで 4 区画」の範囲で一番近い所、行き先の近く）・電車の人の駅までの距離
+  {
+    const stops = (s.busStops ?? []).filter(t => s.road[t]);
+    const nearStop = (t: number) => { if (t < 0 || !stops.length) return -1; const x = t % W, y = (t / W) | 0; let best = -1, bd = 1e9; for (const q of stops) { const d = Math.abs(q % W - x) + Math.abs(((q / W) | 0) - y); if (d < bd || (d === bd && q < best)) { bd = d; best = q; } } return best; };
+    const memo = new Map<number, number>(), ns = (t: number) => { let v = memo.get(t); if (v === undefined) { v = nearStop(t); memo.set(t, v); } return v; };
+    for (let i = 0; i < n; i++) {
+      const hb = homeOf(i), m = p.mode[i];
+      if (m === M_RAIL) { const [, ds] = stFor(hb); p.accKm[i] = ds; }
+      if (m === M_BUS || (m === M_RAIL && p.access[i] === M_BUS)) {
+        const to = m === M_RAIL ? byId.get(p.station[i])?.acc ?? -1 : p.dest[i] >= 0 ? byId.get(p.dest[i])?.acc ?? -1 : -1;
+        p.stop[i] = ns(hb.acc >= 0 ? hb.acc : hb.y * W + hb.x); p.stop2[i] = to >= 0 ? ns(to) : -1;
+      }
+    }
+  }
+
   // ---- 休日（家 25%・買い物 45%・行楽 15%・公園 15%）
   const leisure = s.buildings.filter(b => b.status === 'operating' && b.connected && (DEFS[b.kind].visitors ?? 0) > 0 && !isRes(b.kind) && LEISURE_CATS.has(DEFS[b.kind].cat));
   const lwMemo = new Map<number, number[]>();
@@ -299,6 +330,72 @@ function build(s: GameState): { p: People; st: PeopleStats } {
   const out = { key, p, st };
   cache.set(s, out);
   return out;
+}
+
+/**
+ * v105b：未就学児の送り迎え。世帯（同じ建物・同じ世帯の類型の住民を、世帯の数で順に分けたもの）の中で、
+ * 朝は 家の大人 → 働く親（出勤の前に園へ寄れる人。保育所は 7 時、幼稚園の預かり保育は 7 時半から）→ 同居の祖父母（戸建て・小さな建物の同じ建物の高齢者）
+ * → 働く親の時差出勤（園の開く時刻に送ってから出勤）→ 園バス の順に、
+ * 夕方は 家の大人 → 働く親（帰りに寄る。18 時 45 分に間に合わなければ短時間勤務で早く職場を出る）→ 祖父母 → 園バス の順に決める。
+ * 幼稚園（認定こども園）で 1km 以上は園バス（幼稚園の多くが通園バスを持つ）。子の出発・帰りの時刻を送り迎えの人に合わせる。
+ * 働く親が送るときは、いつもの出発の時刻に園を出られるよう、家を早く出る（職場に着く時刻は変わらない）。
+ */
+function escorts(s: GameState, p: People, n: number, homeB: Building[], byId: Map<number, Building>, u: (i: number, salt: number) => number, SPEED: number[]): void {
+  type G = { pre: number[]; home: number[]; work: number[]; t: number; b: Building };
+  const grp = new Map<number, G>(), sen = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) {
+    const r = p.role[i];
+    if (r === R_SENIOR) { const l = sen.get(p.home[i]); if (l) l.push(i); else sen.set(p.home[i], [i]); continue; }
+    if (r !== R_PRE && r !== R_HOME && r !== R_WORK) continue;
+    const k = p.home[i] * 8 + p.hhType[i]; let g = grp.get(k); if (!g) { g = { pre: [], home: [], work: [], t: p.hhType[i], b: homeB[i] }; grp.set(k, g); }
+    (r === R_PRE ? g.pre : r === R_HOME ? g.home : g.work).push(i);
+  }
+  const busyAm = new Map<number, number>(), busyPm = new Map<number, number>(); // 送り迎えをする人 → その日の行き先の園（別の園へは同じ時間に行けない）
+  const ttOf = (i: number) => { const m = p.mode[i]; return m === M_NONE ? 0 : p.dist[i] / SPEED[m] + (m === M_BUS ? 0.15 : m === M_RAIL ? 0.25 : 0.05); };
+  /** 働く親が送り迎えするときの手段：車で通う人は車で。そうでなければ子の手段（車の距離なら子乗せ自転車、3.5km 以上は無理） */
+  const escMode = (cm: number, wm: number, km: number) => (wm === M_CAR ? M_CAR : cm === M_CAR ? (km < 3.5 ? M_BIKE : -1) : cm);
+  for (const g of grp.values()) {
+    const nPre = g.pre.length; if (!nPre) continue;
+    const nh = Math.max(1, Math.round(g.b.hh?.[g.t] ?? 1)), hhOf = (j: number, len: number) => Math.min(nh - 1, Math.floor(j * nh / Math.max(1, len)));
+    for (let k = 0; k < nPre; k++) {
+      const i = g.pre[k]; if (p.dest[i] < 0) continue; // 家で過ごす子（保育を使わない・待機）は送り迎えなし
+      const fac = byId.get(p.dest[i]), kg = fac?.kind === 'kindergarten', km = p.dist[i], cm = p.mode[i], hh = hhOf(k, nPre);
+      if (kg && km >= 1) { p.escAm[i] = p.escPm[i] = -2; p.escKAm[i] = p.escKPm[i] = ESC_BUS; p.depart[i] = 8.2 + 0.4 * u(i, 40); p.back[i] = 14.3 + 0.6 * u(i, 41); continue; }
+      const d0 = kg ? 8.3 + 0.3 * u(i, 42) : p.depart[i], b0 = kg ? 14 + u(i, 43) : p.back[i];
+      const homes = g.home.filter((_, j) => hhOf(j, g.home.length) === hh), works = g.work.filter((_, j) => hhOf(j, g.work.length) === hh).sort((a, b) => (p.mode[a] === M_NONE ? 0 : 1) - (p.mode[b] === M_NONE ? 0 : 1) || a - b);
+      const sl = (g.b.units ?? 1) <= 4 ? sen.get(p.home[i]) ?? [] : [], off = sl.length ? Math.floor(u(i, 44) * sl.length) : 0, grand = sl.map((_, j) => sl[(j + off) % sl.length]); // 祖父母は戸建て・小さな建物の同居だけ（集合住宅の別の世帯の高齢者は送らない）
+      const cand: [number, number][] = [...homes.map(x => [x, ESC_HOME] as [number, number]), ...works.map(x => [x, ESC_WORK] as [number, number]), ...grand.map(x => [x, ESC_GRAND] as [number, number])];
+      // 朝の送り
+      for (const [g2, kind] of cand) {
+        const bz = busyAm.get(g2); if (bz !== undefined && bz !== p.dest[i]) continue;
+        if (kind === ESC_WORK && p.mode[g2] !== M_NONE) {
+          const em = escMode(cm, p.mode[g2], km); if (em < 0) continue;
+          const cd = p.depart[g2] - (km / SPEED[em] + 0.03) - 0.08; if (cd < (kg ? KG_OPEN : CARE_OPEN) || cd > 9.3) continue;
+          p.depart[i] = cd;
+        } else p.depart[i] = d0;
+        p.escAm[i] = g2; p.escKAm[i] = kind; busyAm.set(g2, p.dest[i]); break;
+      }
+      if (p.escAm[i] === -1) for (const g2 of works) { // 時差出勤：働く親が園の開く時刻に送ってから職場へ（始業を遅らせる。育児・介護休業法の始業時刻の繰り下げ）
+        const bz = busyAm.get(g2); if ((bz !== undefined && bz !== p.dest[i]) || p.mode[g2] === M_NONE) continue;
+        const em = escMode(cm, p.mode[g2], km); if (em < 0) continue;
+        const cd = kg ? KG_OPEN : CARE_OPEN; p.depart[i] = cd; p.depart[g2] = Math.max(p.depart[g2], cd + km / SPEED[em] + 0.03 + 0.08);
+        p.escAm[i] = g2; p.escKAm[i] = ESC_WORK; busyAm.set(g2, p.dest[i]); break;
+      }
+      if (p.escAm[i] === -1) { p.escAm[i] = -2; p.escKAm[i] = ESC_BUS; p.depart[i] = (kg ? 8.2 : 7.8) + 0.4 * u(i, 40); }
+      // 夕方の迎え
+      for (const [g2, kind] of cand) {
+        const bz = busyPm.get(g2); if (bz !== undefined && bz !== p.dest[i]) continue;
+        if (kind === ESC_WORK && p.mode[g2] !== M_NONE) {
+          const em = escMode(cm, p.mode[g2], km); if (em < 0) continue;
+          const tw = ttOf(g2), late = kg ? 18 : CARE_LATE; let pb = p.back[g2] + tw + 0.05;
+          if (pb > late) { const nb = p.back[g2] - (pb - late); if (nb < p.depart[g2] + tw + 3) continue; p.back[g2] = nb; pb = late; } // 育児の短時間勤務：早く職場を出る
+          p.back[i] = pb;
+        } else p.back[i] = b0;
+        p.escPm[i] = g2; p.escKPm[i] = kind; busyPm.set(g2, p.dest[i]); break;
+      }
+      if (p.escPm[i] === -1) { p.escPm[i] = -2; p.escKPm[i] = ESC_BUS; p.back[i] = b0; }
+    }
+  }
 }
 
 const candCache = new Map<string, Building[]>();
@@ -611,27 +708,132 @@ export function incidentYear(s: GameState): { months: number; total: Record<Inci
   return { months: list.length, total, killed, hurt, traffic, per100k: list.length ? traffic / list.length * 12 / pop * 1e5 : 0, seen };
 }
 
+// ---------------------------------------------------------------- v105b：平日の 1 日の移動（区間ごと）
+/** 移動の 1 区間。p は先を歩く人（送り迎えの親・集団登校の班長）、with はいっしょに移動する住民（子ども・班の子）。
+ *  mode は画面での手段（電車の人は駅までの手段、バスの人はバス停まで歩く区間と乗る区間に分かれる）、via は本来の手段 */
+export interface Leg { p: number; with: number[]; role: number; mode: number; via: number; from: number; to: number; dest: number; dep: number; dur: number; why: string; toSt?: boolean }
+/** バス停で待つ人：stop で t0 から t1 まで（t1 にバスが来て乗る）。out は行き（家の近くのバス停） */
+export interface BusWait { p: number; stop: number; t0: number; t1: number; out: boolean }
+/** v105b：路線バスの運行間隔（時）。地方都市・郊外の路線バスの相場：朝夕（7〜9 時・17〜19 時）は 1 時間に 5 本、昼は 3 本 */
+export const busHeadway = (h: number) => ((h >= 7 && h < 9) || (h >= 17 && h < 19) ? 0.2 : 1 / 3);
+const legCache = new WeakMap<GameState, { key: string; legs: Leg[]; waits: BusWait[] }>();
+const SPD5 = [4.5, 12, 15, 35, 25];
+/**
+ * 平日の代表の 1 日の、住民の移動の区間と、バス停で待つ人（同じ状態からは同じ答え）。
+ * - 未就学児は一人で移動しない：送り迎えをする人（escAm・escPm）の区間に with として入る。園バスの子は園バス（バス）の区間。
+ * - 小学生の朝の徒歩通学は集団登校：同じ学校・近く（6×6 区画）の子を 10 人までの班にまとめ、班のいちばん早い出発の時刻に、班の最初の子の家の前から歩く。
+ * - バスで通う人：家→バス停（歩く）・バス停で待つ（運行間隔の中で一様。平均は間隔の半分）・バス停→行き先の近くのバス停（バス）・歩いて行き先へ。帰りは逆。
+ * - 電車の人：家→駅（駅までの手段で、家から駅までの距離の分だけ）。
+ */
+export function weekdayLegs(s: GameState): { legs: Leg[]; waits: BusWait[] } {
+  const p = people(s), c = legCache.get(s); if (c && c.key === p.key) return c;
+  const byId = new Map(s.buildings.map(b => [b.id, b] as [number, Building])), gws = GATEWAYS.filter(g => s.road[g]);
+  const legs: Leg[] = [], waits: BusWait[] = [];
+  const accOf = (id: number) => byId.get(id)?.acc ?? -1, hAcc = (i: number) => accOf(p.home[i]);
+  const tKm = (a: number, b: number) => (Math.abs(a % W - b % W) + Math.abs(((a / W) | 0) - ((b / W) | 0))) * KM * DETOUR;
+  const add = (l: Leg) => { if (l.from >= 0 && l.to >= 0 && l.dur > 0) legs.push(l); };
+  const wt = (i: number, h: number, salt: number) => busHeadway(h) * h32(s.seed, i, 105 + salt * 7919);
+  // 子どもを送る・迎える人ごとの子（同じ園へ行くきょうだいはいっしょ）
+  const kidsAm = new Map<number, number[]>(), kidsPm = new Map<number, number[]>();
+  for (let i = 0; i < p.n; i++) { if (p.role[i] !== R_PRE || p.dest[i] < 0) continue; const a = p.escAm[i], b = p.escPm[i]; if (a >= 0) { const l = kidsAm.get(a); if (l) l.push(i); else kidsAm.set(a, [i]); } if (b >= 0) { const l = kidsPm.get(b); if (l) l.push(i); else kidsPm.set(b, [i]); } }
+  /** 送り迎えの手段（people の escorts と同じ決まり） */
+  const escMode = (k: number, g: number) => { const cm = p.mode[k], wm = p.mode[g]; if (p.role[g] !== R_WORK || wm === M_NONE) return cm; return wm === M_CAR ? M_CAR : cm === M_CAR ? M_BIKE : cm; };
+  // 集団登校の班
+  const lead = new Map<number, number[]>(), inGroup = new Set<number>();
+  { const blocks = new Map<string, number[]>();
+    for (let i = 0; i < p.n; i++) { if (p.role[i] !== R_ELEM || p.mode[i] !== M_WALK || p.dest[i] < 0) continue; const a = hAcc(i); if (a < 0) continue; const k = `${p.dest[i]}:${((a % W) / 6) | 0}:${((a / W) / 6) | 0}`; const l = blocks.get(k); if (l) l.push(i); else blocks.set(k, [i]); }
+    for (const l of blocks.values()) for (let q = 0; q < l.length; q += 10) { const grp = l.slice(q, q + 10); if (grp.length < 2) continue; lead.set(grp[0], grp.slice(1)); for (const x of grp) inGroup.add(x); } }
+  for (let i = 0; i < p.n; i++) {
+    const r = p.role[i], m = p.mode[i], home = hAcc(i); if (home < 0) continue;
+    // 未就学児：園バスの区間だけ（ほかは送り迎えの人の区間に入る）
+    if (r === R_PRE) {
+      if (p.dest[i] < 0) continue; const to = accOf(p.dest[i]), dur = Math.max(0.1, p.dist[i] / 15 + 0.1);
+      if (p.escAm[i] === -2) add({ p: i, with: [], role: r, mode: M_BUS, via: M_BUS, from: home, to, dest: p.dest[i], dep: p.depart[i], dur, why: '園バス' });
+      if (p.escPm[i] === -2) add({ p: i, with: [], role: r, mode: M_BUS, via: M_BUS, from: to, to: home, dest: -1, dep: p.back[i], dur, why: '園バスで帰る' });
+      continue;
+    }
+    const kA = kidsAm.get(i), kP = kidsPm.get(i), commute = m !== M_NONE && (r === R_WORK || r === R_ELEM || r === R_JHS);
+    // 朝の送り（子どもといっしょに家→園）
+    let outFrom = home;
+    if (kA) for (const fac of [...new Set(kA.map(k => p.dest[k]))]) {
+      const ks = kA.filter(k => p.dest[k] === fac), k0 = ks[0], em = escMode(k0, i), to = accOf(fac), dur = p.dist[k0] / SPD5[em] + 0.03;
+      add({ p: i, with: ks, role: r, mode: em, via: em, from: home, to, dest: fac, dep: p.depart[k0], dur, why: '保育園・幼稚園へ送る' });
+      if (commute) outFrom = to; // 園から職場へ
+      else add({ p: i, with: [], role: r, mode: em, via: em, from: to, to: home, dest: -1, dep: p.depart[k0] + dur + 0.08, dur, why: '帰宅（送りのあと）' });
+    }
+    // 夕方の迎え（家の人は家→園へ歩いてから、働く親は帰りに園へ寄って、子どもといっしょに園→家）
+    let backTo = home; const pick: Leg[] = [];
+    if (kP) for (const fac of [...new Set(kP.map(k => p.dest[k]))]) {
+      const ks = kP.filter(k => p.dest[k] === fac), k0 = ks[0], em = escMode(k0, i), to = accOf(fac), dur = p.dist[k0] / SPD5[em] + 0.03;
+      if (commute) backTo = to; else add({ p: i, with: [], role: r, mode: em, via: em, from: home, to, dest: fac, dep: p.back[k0] - dur - 0.05, dur, why: '保育園・幼稚園へ迎えに行く' });
+      pick.push({ p: i, with: ks, role: r, mode: em, via: em, from: to, to: home, dest: -1, dep: p.back[k0], dur, why: '子どもと帰宅' });
+    }
+    pick.forEach(add);
+    if (m === M_NONE || p.dest[i] === -1) continue;
+    const tgt = p.dest[i] >= 0 ? byId.get(p.dest[i]) : undefined;
+    const whyOut = r === R_ELEM || r === R_JHS ? '通学' : r === R_HOME || r === R_SENIOR ? (p.clinic[i] ? '通院' : '買い物') : m === M_RAIL ? (p.dest[i] === -2 ? '市外へ通勤（電車）' : '通勤（電車）') : p.dest[i] === -2 ? '市外へ通勤' : '通勤';
+    const dst = m === M_RAIL ? accOf(p.station[i]) : tgt ? tgt.acc : p.dest[i] === -2 && gws.length ? gws[0] : -1; if (dst < 0) continue;
+    const wOut = outFrom !== home ? '園から職場へ' : whyOut;
+    if (m === M_BUS || (m === M_RAIL && p.access[i] === M_BUS)) {
+      // バス：歩いてバス停へ → 待つ → 乗る → 歩いて行き先へ（帰りは逆）
+      const st1 = p.stop[i], st2 = p.stop2[i] >= 0 ? p.stop2[i] : dst; if (st1 < 0) continue;
+      const w1 = Math.max(0.02, tKm(outFrom, st1) / 4.5), ride = Math.max(0.05, tKm(st1, st2) / 15), w2 = tKm(st2, dst) / 4.5;
+      let t = p.depart[i];
+      add({ p: i, with: [], role: r, mode: M_WALK, via: m, from: outFrom, to: st1, dest: -3, dep: t, dur: w1, why: 'バス停へ（' + wOut + '）' }); t += w1;
+      const wa = wt(i, t, 1); waits.push({ p: i, stop: st1, t0: t, t1: t + wa, out: true }); t += wa;
+      add({ p: i, with: [], role: r, mode: M_BUS, via: m, from: st1, to: st2, dest: m === M_RAIL ? p.station[i] : p.dest[i], dep: t, dur: ride, why: wOut + '（バス）', toSt: m === M_RAIL && w2 <= 0.01 }); t += ride;
+      if (w2 > 0.01) add({ p: i, with: [], role: r, mode: M_WALK, via: m, from: st2, to: dst, dest: m === M_RAIL ? p.station[i] : p.dest[i], dep: t, dur: w2, why: wOut, toSt: m === M_RAIL });
+      // 帰り
+      t = p.back[i];
+      if (w2 > 0.01) { add({ p: i, with: [], role: r, mode: M_WALK, via: m, from: dst, to: st2, dest: -3, dep: t, dur: w2, why: 'バス停へ（帰宅）' }); t += w2; }
+      const wb = wt(i, t, 2); waits.push({ p: i, stop: st2, t0: t, t1: t + wb, out: false }); t += wb;
+      add({ p: i, with: [], role: r, mode: M_BUS, via: m, from: st2, to: st1, dest: -1, dep: t, dur: ride, why: '帰宅（バス）' }); t += ride;
+      add({ p: i, with: [], role: r, mode: M_WALK, via: m, from: st1, to: backTo, dest: backTo === home ? -1 : -4, dep: t, dur: Math.max(0.02, tKm(st1, backTo) / 4.5), why: backTo === home ? '帰宅' : '保育園・幼稚園へ迎えに行く' });
+      continue;
+    }
+    // 電車：駅までの手段で、家から駅まで。ほか：家→行き先
+    const am = m === M_RAIL ? (p.access[i] === M_NONE ? M_WALK : p.access[i]) : m;
+    const dur = m === M_RAIL ? Math.max(0.03, tKm(outFrom, dst) / SPD5[am] + 0.02) : Math.max(0.1, (outFrom === home ? p.dist[i] : tKm(outFrom, dst)) / SPD5[m]);
+    const g = lead.get(i);
+    if (!(r === R_ELEM && inGroup.has(i) && !g)) { // 班の子は班長の区間に入る
+      const dep = g ? Math.min(p.depart[i], ...g.map(k => p.depart[k])) : p.depart[i];
+      add({ p: i, with: g ?? [], role: r, mode: am, via: m, from: outFrom, to: dst, dest: m === M_RAIL ? p.station[i] : p.dest[i], dep, dur, why: g ? '集団登校' : wOut, toSt: m === M_RAIL });
+    }
+    const durB = m === M_RAIL ? Math.max(0.03, tKm(dst, backTo) / SPD5[am] + 0.02) : Math.max(0.1, (backTo === home ? p.dist[i] : tKm(dst, backTo)) / SPD5[m]);
+    add({ p: i, with: [], role: r, mode: am, via: m, from: dst, to: backTo, dest: backTo === home ? -1 : -4, dep: p.back[i], dur: durB, why: backTo === home ? '帰宅' : '保育園・幼稚園へ迎えに行く' });
+  }
+  const out = { key: p.key, legs, waits }; legCache.set(s, out); return out;
+}
+
+/** v105b：時刻 hour（小数）にバス停で待っている住民の数（バス停の区画ごと。平日の代表の 1 日。同じ状態・時刻なら同じ答え） */
+export function busWaiting(s: GameState, hour: number): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const w of weekdayLegs(s).waits) if (hour >= w.t0 && hour < w.t1) out.set(w.stop, (out.get(w.stop) ?? 0) + 1);
+  return out;
+}
+/** v105b：バス停ごとの、時刻 hour からの 1 時間に乗る人・降りる人（平日の代表の 1 日。園バスは数えない） */
+export function busFlowHour(s: GameState, hour: number): Map<number, { board: number; alight: number }> {
+  const out = new Map<number, { board: number; alight: number }>(), h0 = Math.floor(hour), get = (t: number) => { let v = out.get(t); if (!v) { v = { board: 0, alight: 0 }; out.set(t, v); } return v; };
+  for (const l of weekdayLegs(s).legs) { if (l.mode !== M_BUS || l.why.startsWith('園バス')) continue; if (Math.floor(l.dep) === h0) get(l.from).board++; if (Math.floor(l.dep + l.dur) === h0) get(l.to).alight++; }
+  return out;
+}
+
 // ---------------------------------------------------------------- 描画とのつなぎ：移動中の住民の経路
-export interface Trip { person: number; role: number; mode: number; from: number; to: number; depart: number; path: number[] }
-/** 時刻 hour（小数）に移動中の住民を n 件まで返す（平日の代表の 1 日）。道路の区画の並びつき。同じ状態・時刻なら同じ結果 */
+export interface Trip { person: number; role: number; mode: number; from: number; to: number; depart: number; path: number[];
+  /** v105b：区間の時間（時）・いっしょに移動する住民・用事・本来の手段・行き先の建物（-1 家、-2 市外、-3 バス停、-4 迎えの園） */
+  dur: number; with: number[]; why: string; via: number; dest: number }
+/** 時刻 hour（小数）に移動中の住民を n 件まで返す（平日の代表の 1 日。v105b：区間ごと＝送り迎えの親子・集団登校の班・バス停まで歩く人を含む）。
+ *  道路の区画の並びつき。同じ状態・時刻なら同じ結果 */
 export function sampleTrips(s: GameState, hour: number, n: number): Trip[] {
-  const p = people(s), out: Trip[] = [], byId = new Map(s.buildings.map(b => [b.id, b] as [number, Building]));
-  const gw = GATEWAYS.filter(g => s.road[g]);
-  if (n <= 0 || !p.n) return out;
-  const start = Math.floor(h32(s.seed, s.month, Math.floor(hour * 60), 5) * p.n);
-  for (let k = 0; k < p.n && out.length < n; k++) {
-    const i = (start + k) % p.n, m = p.mode[i]; if (m === M_NONE) continue;
-    const tt = Math.max(0.1, p.dist[i] / [4.5, 12, 15, 35, 25][m]);
-    const going = hour >= p.depart[i] && hour < p.depart[i] + tt, coming = hour >= p.back[i] && hour < p.back[i] + tt;
-    if (!going && !coming) continue;
-    const hb = byId.get(p.home[i]); if (!hb || hb.acc < 0) continue;
-    let to = -1;
-    if (m === M_RAIL) to = byId.get(p.station[i])?.acc ?? -1; else if (p.dest[i] >= 0) to = byId.get(p.dest[i])?.acc ?? -1; else if (p.dest[i] === -2 && gw.length) to = gw[0];
-    if (to < 0) continue;
+  const L = weekdayLegs(s).legs, out: Trip[] = [];
+  if (n <= 0 || !L.length) return out;
+  const start = Math.floor(h32(s.seed, s.month, Math.floor(hour * 60), 5) * L.length);
+  for (let k = 0; k < L.length && out.length < n; k++) {
+    const l = L[(start + k) % L.length];
+    if (!(hour >= l.dep && hour < l.dep + l.dur)) continue;
     const path: number[] = [], push = (t: number) => { if (s.road[t]) path.push(t); };
-    const a = going ? hb.acc : to, b = going ? to : hb.acc;
-    if (m === M_CAR || m === M_BUS) { if (!roadPath(s, a, b, push)) lPath(a, b, push); } else lPath(a, b, push);
-    out.push({ person: i, role: p.role[i], mode: m === M_RAIL ? p.access[i] === M_NONE ? M_WALK : p.access[i] : m, from: a, to: b, depart: going ? p.depart[i] : p.back[i], path });
+    if (l.mode === M_CAR || l.mode === M_BUS) { if (!roadPath(s, l.from, l.to, push)) lPath(l.from, l.to, push); } else lPath(l.from, l.to, push);
+    out.push({ person: l.p, role: l.role, mode: l.mode, from: l.from, to: l.to, depart: l.dep, path, dur: l.dur, with: l.with, why: l.why, via: l.via, dest: l.dest });
   }
   return out;
 }
